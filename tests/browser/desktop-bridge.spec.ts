@@ -82,7 +82,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_mode":
               if (mode === "broken") throw new Error("no such command");
               if (mode === "synthetic") return { mode: "synthetic", canManageFolders: false, persistent: false, error: (window as any).__startupError ?? null };
-              return { mode: "database", canManageFolders: mode === "managed", persistent: false, error: null };
+              return { mode: "database", canManageFolders: mode === "managed", persistent: Boolean((window as any).__persistent), error: null };
             case "library_roots":
               return folders;
             case "library_check_roots": {
@@ -1497,4 +1497,32 @@ test("send to rekordbox: a track kept out is hidden and can be brought back", as
   await expect(card.getByRole("checkbox")).toHaveCount(3);
   const hides = (await calls(page)).filter((call) => call.command === "rekordbox_hide").map((call) => call.args);
   expect(hides).toEqual([{ fileIds: [13], hidden: true }, { fileIds: [13], hidden: false }]);
+});
+
+test("first start: the welcome walks through the music folder, downloads and rekordbox, and can be put off", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__persistent = true; });
+  await page.goto("/");
+  const welcome = page.getByRole("region", { name: "Welcome to openCrate" });
+  await expect(welcome).toBeVisible();
+  await welcome.getByRole("button", { name: "Add your music folder..." }).click();
+  await expect(welcome.getByText("Music: 20 files read")).toBeVisible({ timeout: 10_000 });
+  await welcome.getByRole("button", { name: "Add a download folder..." }).click();
+  await expect(welcome.getByText("Downloads", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/welcome.png" });
+  await welcome.getByRole("button", { name: "Open the rekordbox screen" }).click();
+  await expect(page.getByRole("heading", { name: "No export yet" })).toBeVisible();
+  await page.getByRole("button", { name: "Tracks", exact: true }).click();
+  await page.getByRole("region", { name: "Welcome to openCrate" }).getByRole("button", { name: "Done for now" }).click();
+  await expect(page.getByRole("region", { name: "Welcome to openCrate" })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("status")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Welcome to openCrate" })).toHaveCount(0);
+});
+
+test("first start: a demo or a library that already has folders shows no welcome", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await expect(page.getByText("Rust Track 0001")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Welcome to openCrate" })).toHaveCount(0);
 });

@@ -308,6 +308,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-warning { color: var(--warn); }
 .send-steps code { word-break: break-all; }
 .send-steps ol { padding-left: 18px; }
+.welcome { border: 1px solid rgb(var(--ink) / .08); background: var(--raised); border-radius: 12px; padding: 18px 20px; margin: 4px 0 18px; }
+.welcome h2 { margin: 0 0 4px; font-size: 18px; }
+.welcome-steps { list-style: none; counter-reset: step; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; padding: 0; margin: 14px 0; }
+.welcome-steps li { counter-increment: step; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 12px; border-radius: 8px; background: var(--panel); }
+.welcome-steps li strong::before { content: counter(step) ". "; color: var(--accent); }
+.welcome-steps li.is-done strong::after { content: "  Done"; color: var(--ok); font-weight: 500; font-size: 11px; }
+.welcome-steps small { color: var(--secondary); font-size: 11px; line-height: 1.5; }
+.welcome-done { font-size: 12px; }
 .warning-panel { border: 1px solid var(--accent); border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
 .warning-panel h4 { margin: 0 0 6px; }
 .warning-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

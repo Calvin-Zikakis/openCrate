@@ -2,6 +2,13 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (first-start welcome; branch next)
+
+- A library on disk with no music folder opens with "Welcome to openCrate": add the music folder (picked, then read with
+  progress), add download folders, open the rekordbox screen. It stays until "Done for now" (remembered on this
+  computer), so leaving to the rekordbox screen does not lose it. Demos and libraries with folders show none.
+  Milestone 9's first-run setup, in the app rather than an installer wizard.
+
 ## 2026-10-23 (installers and CI for SQLCipher; branch next)
 
 - `tauri.conf.json`: bundles `nsis` (per-user install, no admin), `app` and `dmg`. New workflow `installers.yml`, started
