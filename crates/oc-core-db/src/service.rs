@@ -241,6 +241,14 @@ impl LibraryService {
         Ok((found, read_ms))
     }
 
+    /// A crate's name and tracks, each as it can go into openCrate's rekordbox file.
+    pub fn crate_for_rekordbox(
+        &self,
+        crate_id: i64,
+    ) -> Result<(String, Vec<crate::offers::CrateTrack>)> {
+        crate::offers::crate_tracks(self.pool.lease().connection(), crate_id)
+    }
+
     /// Remember that these files were written into openCrate's rekordbox XML file.
     pub fn record_offers(&self, file_ids: Vec<i64>, now_ms: i64) -> Result<()> {
         self.writer.run(move |database| {

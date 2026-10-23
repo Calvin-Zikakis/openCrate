@@ -163,3 +163,105 @@ fn offers_are_remembered_and_cleared_with_the_file() {
     library.service.remove_root(library.root).unwrap();
     assert_eq!(library.service.offer_count().unwrap(), 0);
 }
+
+fn track_ids(library: &Library) -> std::collections::HashMap<String, i64> {
+    library
+        .service
+        .read_page(
+            &crate::library::LibraryQuery::new(crate::library::View::Tracks),
+            0,
+            50,
+        )
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|item| (item.title, item.id))
+        .collect()
+}
+
+/// An XML export, as rekordbox would write it, holding `path` with one cue and one beat.
+fn export_with(path: &Path, folder: &Path) -> PathBuf {
+    let location = oc_rekordbox::location::encode_location(path.as_os_str().as_encoded_bytes());
+    let text = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0"><PRODUCT Name="rekordbox" Version="7.2.19" Company="AlphaTheta"/>
+<COLLECTION Entries="1">
+<TRACK TrackID="77" Name="Night Drive" Artist="Studio 001" Rating="204" Colour="0xFF007F" Location="{location}">
+<TEMPO Inizio="0.025" Bpm="124.00" Metro="4/4" Battito="1"/>
+<POSITION_MARK Name="Drop" Type="0" Start="64.000" Num="1" Red="40" Green="226" Blue="20"/>
+</TRACK></COLLECTION><PLAYLISTS><NODE Type="0" Name="ROOT" Count="0"/></PLAYLISTS></DJ_PLAYLISTS>"#
+    );
+    let file = folder.join("export.xml");
+    fs::write(&file, text).unwrap();
+    file
+}
+
+#[test]
+fn a_crate_echoes_what_rekordbox_has_and_offers_the_rest() {
+    let library = library();
+    let night = library.file("A/01 - Night Drive.aif", "Night Drive");
+    library.file("A/02 - Soft Focus.aif", "Soft Focus");
+    library.file("A/03 - Late Train.aif", "Late Train");
+    library.scan();
+    library
+        .service
+        .import_export(&export_with(&night, library.folder.path()))
+        .unwrap();
+    let ids = track_ids(&library);
+    let warm = library.service.create_crate("Warm-up").unwrap();
+    library
+        .service
+        .add_to_crate(
+            warm,
+            vec![ids["Soft Focus"], ids["Night Drive"], ids["Late Train"]],
+        )
+        .unwrap();
+    let (name, tracks) = library.service.crate_for_rekordbox(warm).unwrap();
+    assert_eq!(name, "Warm-up");
+    assert_eq!(tracks.len(), 3);
+    let crate::offers::CrateTrack::New(soft) = &tracks[0] else {
+        panic!("{:?}", tracks[0])
+    };
+    assert_eq!(soft.name, "Soft Focus");
+    assert!(soft.path.ends_with(b"02 - Soft Focus.aif"));
+    let crate::offers::CrateTrack::Echo(echo) = &tracks[1] else {
+        panic!("{:?}", tracks[1])
+    };
+    assert_eq!(echo.attributes["Rating"], "204");
+    assert_eq!(echo.attributes["Colour"], "0xFF007F");
+    assert_eq!(echo.location, echo.attributes["Location"]);
+    assert_eq!(echo.cues.len(), 1);
+    assert_eq!(echo.cues[0].attributes["Name"], "Drop");
+    assert_eq!(echo.tempos.len(), 1);
+    assert!(matches!(&tracks[2], crate::offers::CrateTrack::New(_)));
+}
+
+#[test]
+fn a_crate_from_a_database_read_or_without_files_says_so() {
+    let library = library();
+    let night = library.file("A/01 - Night Drive.aif", "Night Drive");
+    let gone = library.file("A/02 - Gone.aif", "Gone");
+    library.scan();
+    library
+        .service
+        .import_database(Path::new("/rekordbox/master.db"), rekordbox_has(&[&night]))
+        .unwrap();
+    let ids = track_ids(&library);
+    let warm = library.service.create_crate("Warm-up").unwrap();
+    library
+        .service
+        .add_to_crate(warm, vec![ids["Night Drive"], ids["Gone"]])
+        .unwrap();
+    fs::remove_file(&gone).unwrap();
+    library.scan();
+    let (_, tracks) = library.service.crate_for_rekordbox(warm).unwrap();
+    assert!(
+        matches!(&tracks[0], crate::offers::CrateTrack::DatabaseOnly { title } if title == "Night Drive")
+    );
+    assert!(
+        matches!(&tracks[1], crate::offers::CrateTrack::NoFile { title } if title == "Gone"),
+        "{:?}",
+        tracks[1]
+    );
+    assert!(library.service.crate_for_rekordbox(999).is_err());
+}
