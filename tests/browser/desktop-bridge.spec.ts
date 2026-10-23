@@ -180,7 +180,19 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 ],
               };
             case "library_waveform":
-              return Array.from({ length: 800 }, (_, i) => Math.round(127 + 120 * Math.sin(i / 9)));
+              return Array.from({ length: 800 * 3 }, (_, i) => Math.round((i % 3 === 0 ? 127 : 60) + (i % 3 === 0 ? 120 : 50) * Math.sin(i / 27)));
+            case "library_waveform_detail": {
+              // 200 seconds at 300 slices a second, as the bytes the host sends: a kick on every
+              // beat, hats between.
+              const bytes = new Uint8Array(2 + 60_000 * 3);
+              bytes[0] = 300 & 0xff;
+              bytes[1] = 300 >> 8;
+              for (let slice = 0; slice < 60_000; slice += 1) {
+                const beat = slice % 150;
+                bytes.set([beat < 24 ? 230 : 40, 90 + (slice % 13) * 5, beat > 60 && beat < 84 ? 160 : 20], 2 + slice * 3);
+              }
+              return bytes.buffer;
+            }
             case "player_load":
               if (args?.trackId === 3) throw "This track's file cannot be found. Its music folder may be unplugged, or the file was moved.";
               player.trackId = args?.trackId; player.base = args?.startMs ?? 0; player.since = Date.now(); player.playing = args?.play !== false;
@@ -852,7 +864,22 @@ test("player: double-click plays, Space pauses, seek and volume work, and the ne
   expect(loads.map((call) => call.args.trackId)).toEqual([2]);
 
   const wave = bar.getByTestId("waveform");
-  await expect(wave.locator("rect")).toHaveCount(160);
+  await expect(wave.locator("rect.band-low")).toHaveCount(320);
+  await expect(wave.locator("rect.band-high")).toHaveCount(320);
+  // The close-up scrolls while the track plays.
+  const scope = page.getByTestId("scope");
+  await expect(scope).toBeVisible();
+  const snapshot = () => scope.evaluate((canvas: HTMLCanvasElement) => {
+    const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    let painted = 0;
+    let sum = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i]! > 0) { painted += 1; sum += i % 9973; }
+    return { painted, sum };
+  });
+  await expect.poll(async () => (await snapshot()).painted).toBeGreaterThan(0);
+  const first = await snapshot();
+  await expect.poll(async () => (await snapshot()).sum).not.toBe(first.sum);
+  await page.screenshot({ path: "test-results/player-waveform.png" });
   await expect(wave.locator(".cue-mark")).toHaveCount(2);
   await expect(wave.locator(".cue-mark.hot")).toHaveAttribute("title", "Hot cue B: Drop");
   await expect(wave.locator(".cue-mark").last()).toHaveAttribute("style", /left: 30\.125%/);

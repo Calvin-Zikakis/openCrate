@@ -32,6 +32,8 @@ import {
   type TrackAnalysis,
   type View,
   type WatchFolderInfo,
+  type WaveBands,
+  type WaveDetail,
 } from "./types";
 
 /** The shape of Tauri's command bridge, injected so tests need no native window. */
@@ -481,6 +483,40 @@ function toSent(value: unknown): RekordboxSent {
   return { xmlPath: text(value.xmlPath, "send result"), tracks: whole(value.tracks, "send result") };
 }
 
+/** Interleaved low, mid, high bytes, split into the three bands. */
+function toBands(value: unknown, most: number): WaveBands {
+  if (!Array.isArray(value) || value.length % 3 !== 0 || value.length > most || !value.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    throw new Error("The library returned an unreadable waveform.");
+  }
+  const values = value as number[];
+  const band = (offset: number) => Array.from({ length: values.length / 3 }, (_, i) => values[i * 3 + offset] as number);
+  return { low: band(0), mid: band(1), high: band(2) };
+}
+
+/** The close-up arrives as raw bytes: slices a second (two bytes, little-endian), then low, mid
+ * and high per slice. No bytes means the track's file cannot be reached. */
+function toDetail(value: unknown): WaveDetail | null {
+  const unreadable = () => new Error("The library returned an unreadable waveform.");
+  let bytes: Uint8Array;
+  if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+  else if (ArrayBuffer.isView(value)) bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  else if (Array.isArray(value) && value.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) bytes = Uint8Array.from(value as number[]);
+  else throw unreadable();
+  if (bytes.length === 0) return null;
+  const perSecond = (bytes[0] ?? 0) | ((bytes[1] ?? 0) << 8);
+  if (bytes.length < 2 || (bytes.length - 2) % 3 !== 0 || perSecond < 1) throw unreadable();
+  const slices = (bytes.length - 2) / 3;
+  const low = new Uint8Array(slices);
+  const mid = new Uint8Array(slices);
+  const high = new Uint8Array(slices);
+  for (let i = 0; i < slices; i += 1) {
+    low[i] = bytes[2 + i * 3] ?? 0;
+    mid[i] = bytes[3 + i * 3] ?? 0;
+    high[i] = bytes[4 + i * 3] ?? 0;
+  }
+  return { perSecond, low, mid, high };
+}
+
 function toImport(value: unknown): ImportResult {
   if (!isRecord(value) || typeof value.unchanged !== "boolean") throw new Error("The library returned an unreadable import result.");
   return {
@@ -551,12 +587,10 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       toLookup(await invoke("library_lookup_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
     waveform: async (trackId) => {
       const value = await invoke("library_waveform", { trackId }).catch((error: unknown) => { throw failure(error); });
-      if (value === null) return null;
-      if (!Array.isArray(value) || value.length > 4096 || !value.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
-        throw new Error("The library returned an unreadable waveform.");
-      }
-      return value as number[];
+      return value === null ? null : toBands(value, 4096 * 3);
     },
+    waveformDetail: async (trackId) =>
+      toDetail(await invoke("library_waveform_detail", { trackId }).catch((error: unknown) => { throw failure(error); })),
     playTrack: async (trackId, startMs = 0, play = true) => {
       await invoke("player_load", { trackId, startMs, play }).catch((error: unknown) => { throw failure(error); });
     },

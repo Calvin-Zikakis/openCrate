@@ -152,7 +152,7 @@ fn a_track_plays_from_its_lossless_file_and_a_missing_one_gives_nothing() {
 }
 
 #[test]
-fn a_waveform_is_computed_once_and_again_only_when_the_file_changes() {
+fn a_waveform_is_computed_once_and_again_only_when_the_file_or_its_format_changes() {
     let music = tempdir().unwrap();
     put(
         music.path(),
@@ -180,11 +180,11 @@ fn a_waveform_is_computed_once_and_again_only_when_the_file_changes() {
         Some(vec![1, 2, 3])
     };
     assert_eq!(
-        service.waveform(track, compute).unwrap(),
+        service.waveform(track, 3, compute).unwrap(),
         Some(vec![1, 2, 3])
     );
     assert_eq!(
-        service.waveform(track, compute).unwrap(),
+        service.waveform(track, 3, compute).unwrap(),
         Some(vec![1, 2, 3])
     );
     assert_eq!(computed.get(), 1, "stored after the first time");
@@ -197,12 +197,19 @@ fn a_waveform_is_computed_once_and_again_only_when_the_file_changes() {
         2,
     );
     service.scan_root(id, &ScanOptions::default()).unwrap();
-    service.waveform(track, compute).unwrap();
+    service.waveform(track, 3, compute).unwrap();
     assert_eq!(computed.get(), 2);
-    assert_eq!(service.waveform(999_999, compute).unwrap(), None);
+    assert_eq!(service.waveform(999_999, 3, compute).unwrap(), None);
     assert_eq!(
-        service.waveform(track, |_| None).unwrap(),
+        service.waveform(track, 3, |_| None).unwrap(),
         Some(vec![1, 2, 3]),
         "still stored"
+    );
+    // A waveform stored in an older shape is made again in the asked one.
+    let bands = |_: &Path| Some(vec![9; 6]);
+    assert_eq!(service.waveform(track, 6, bands).unwrap(), Some(vec![9; 6]));
+    assert_eq!(
+        service.waveform(track, 6, |_| None).unwrap(),
+        Some(vec![9; 6])
     );
 }

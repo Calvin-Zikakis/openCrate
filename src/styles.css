@@ -3,6 +3,7 @@
   color: #f4f4f6; background: #0a0a0c; font-synthesis: none; text-rendering: optimizeLegibility;
   --base: #0a0a0c; --panel: #121216; --raised: #1a1a20; --hover: #22222a;
   --text: #f4f4f6; --secondary: #a1a1ad; --faint: #9494a1; --accent: #ff7a3d;
+  --wave-low: #3d7cff; --wave-mid: #ff7a3d; --wave-high: #f4f4f6;
   --line: #ffffff0d;
 }
 * { box-sizing: border-box; }
@@ -19,7 +20,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .skip-link { position: fixed; top: -100px; left: 12px; z-index: 20; padding: 12px; color: var(--base); background: var(--accent); border-radius: 8px; }
 .skip-link:focus { top: 12px; }
-.app-shell { height: 100dvh; min-height: 560px; display: grid; grid-template-columns: var(--sidebar-width, 218px) minmax(0,1fr); grid-template-rows: minmax(0,1fr) 92px; gap: 8px; padding: 8px 8px 0; }
+.app-shell { height: 100dvh; min-height: 560px; display: grid; grid-template-columns: var(--sidebar-width, 218px) minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto; gap: 8px; padding: 8px 8px 0; }
 .sidebar { display: flex; flex-direction: column; padding: 27px 12px 20px; }
 .brand { display: flex; align-items: center; gap: 10px; margin: 0 12px 42px; font-size: 23px; font-weight: 750; letter-spacing: -1px; color: var(--text); text-decoration: none; }
 .brand-mark { display: grid; place-content: center; width: 31px; height: 31px; border-radius: 10px; font-size: 14px; color: var(--base); background: var(--accent); letter-spacing: -2px; padding-right: 2px; }
@@ -105,7 +106,7 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .release-card > span { font-size: 11px; color: var(--secondary); }
 .release-card small { color: var(--faint); font-size: 10px; }
 .row-placeholder { height: 36px; margin: 8px 10px; background: var(--raised); border-radius: 5px; }
-.player-bar { grid-column: 1/-1; display: grid; grid-template-columns: minmax(0,1fr) minmax(200px,380px) minmax(0,1fr); align-items: center; gap: 25px; padding: 10px 22px 16px; border-top: 1px solid var(--line); }
+.player-bar { grid-column: 1/-1; display: grid; grid-template-columns: minmax(0,1fr) minmax(200px,380px) minmax(0,1fr); align-items: center; gap: 10px 25px; min-height: 92px; padding: 10px 22px 16px; border-top: 1px solid var(--line); }
 .now-playing { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .now-playing > div:last-child { min-width: 0; }
 .now-playing .artwork { width: 48px; height: 48px; border-radius: 6px; }
@@ -124,8 +125,12 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .player-meta .volume { accent-color: var(--accent); width: 100%; height: 14px; margin: 0; }
 .waveform { position: relative; height: 28px; min-width: 0; border-radius: 4px; }
 .waveform svg { position: absolute; inset: 2px 0; width: 100%; height: 24px; }
-.waveform .wave-played { fill: var(--accent); }
-.waveform .wave-rest { fill: #5a5a64; }
+.waveform .band-low { fill: var(--wave-low); }
+.waveform .band-mid { fill: var(--wave-mid); }
+.waveform .band-high { fill: var(--wave-high); }
+.waveform .wave-rest { opacity: .38; }
+.waveform .wave-empty { fill: #5a5a64; }
+.scope { grid-column: 1/-1; display: block; width: 100%; height: 58px; border-radius: 6px; background: #0d0d10; margin-bottom: -2px; }
 .waveform input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .waveform:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cue-mark { position: absolute; top: -3px; width: 2px; height: 34px; margin-left: -1px; background: #e8e8ee; opacity: .7; pointer-events: none; }
