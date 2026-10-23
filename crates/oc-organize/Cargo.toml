@@ -1,0 +1,15 @@
+[package]
+name = "oc-organize"
+description = "Pure naming rules for openCrate: sanitizing, path templates, path limits and title parsing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+unicode-normalization.workspace = true
+
+[lints]
+workspace = true

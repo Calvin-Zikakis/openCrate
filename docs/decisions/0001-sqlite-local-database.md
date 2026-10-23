@@ -1,6 +1,9 @@
 # 0001: SQLite stays, on the local disk
 
 Status: proposed 2026-10-22 and recorded in the Game Plan. Pending owner review.
+Recovery wording updated 2026-10-22 by accepted
+[decision 0009](0009-reduced-foundation-and-recovery.md). The broader library
+architecture below is planned, not fully implemented.
 
 ## Context
 
@@ -8,13 +11,31 @@ The owner asked whether SQLite is a good idea for a library of about 500 GB. The
 
 ## Decision
 
-Keep SQLite (`rusqlite`) as the app database. It holds metadata only. It always lives in the local app data directory, never on a network share.
+Keep SQLite (`rusqlite`) as the app database. It holds no audio. Callers must
+choose a private local app-data directory outside synced folders, never a network
+share. The lifecycle crate does not detect network filesystems.
 
-- WAL mode, one writer thread, a pool of read connections.
-- FTS5 for search. Windowed reads by position for long lists.
+- WAL with `synchronous = FULL`. The built crate owns a synchronous connection
+  and supplies independent read-only readers. An application writer thread and
+  reader pool are future work.
+- FTS5 for future search and windowed reads by position for long lists. The
+  current test verifies FTS5 availability only, not a library search API.
 - Waveform peaks and thumbnails live in cache files. Fingerprints get their own table.
-- A `VACUUM INTO` snapshot before every migration, plus scheduled snapshots, and an integrity check after an unclean exit.
-- Migrations are versioned in `PRAGMA user_version`.
+- SQLite's online backup API replaces the earlier `VACUUM INTO` proposal.
+  A checked, flushed standalone snapshot precedes each upgrade of an existing
+  schema, including committed WAL data. Initial version-0 creation has no
+  snapshot. Scheduling and retention are later work.
+- Restore validates a standalone snapshot and writes a new database in an unused
+  local app-data directory. It never overwrites or selects the restored database
+  for the caller. Creation and restore refuse orphan journals.
+- A cooperative owner lock and application/schema checks guard opening an
+  existing database. Explicit close marks clean; drop or crash leaves dirty.
+  A dirty reopen runs integrity and foreign-key checks.
+- Migrations and `PRAGMA user_version` updates commit together.
+
+Current schema v1 contains only `app_state`. Library tables, caches, queries,
+pooling and the benchmark remain unimplemented. See
+[oc-core-db](../../crates/oc-core-db/README.md) for the public API and limits.
 
 ## Reasoning
 
@@ -25,6 +46,12 @@ Keep SQLite (`rusqlite`) as the app database. It holds metadata only. It always 
 
 ## Consequences
 
-- The benchmark in `oc-core-db` measures a synthetic 100,000-track library against the budgets in [0004](0004-interface-and-speed-budgets.md). Results go in a research note (planned).
-- `rusqlite` features: plain `bundled` now. When `oc-rekordbox` links rbxport's `rbl-db`, the workspace moves to `bundled-sqlcipher-vendored-openssl`, because Cargo builds one SQLite per binary. The app database stays unencrypted.
+- A future benchmark will use a synthetic 100,000-track library. Backend
+  allocations within the user-visible budgets in [0004](0004-interface-and-speed-budgets.md)
+  still need definition. [Research 003](../research/003-reduced-foundation-validation.md)
+  records lifecycle/codec correctness checks, not performance.
+- `rusqlite` features are `bundled` and `backup` now. When `oc-rekordbox` links
+  rbxport's `rbl-db`, the planned workspace build uses
+  `bundled-sqlcipher-vendored-openssl`, because Cargo builds one SQLite per binary.
+  The app database stays unencrypted; compatibility and packaging still need tests.
 - Revisit if the app gains multi-user or networked features, or real libraries pass about a million tracks.

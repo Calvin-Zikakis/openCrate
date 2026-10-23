@@ -1,0 +1,20 @@
+[package]
+name = "oc-player"
+description = "Playing one track at a time for openCrate: decoding with symphonia, output with cpal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+symphonia.workspace = true
+cpal.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+oc-tag = { workspace = true, features = ["fixtures"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

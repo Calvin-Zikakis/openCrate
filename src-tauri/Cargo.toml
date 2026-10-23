@@ -1,0 +1,35 @@
+[package]
+name = "opencrate-desktop"
+description = "Synthetic openCrate desktop shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+oc-core-db = { path = "../crates/oc-core-db" }
+oc-ingest.workspace = true
+oc-publish.workspace = true
+oc-convert.workspace = true
+ureq.workspace = true
+oc-lookup.workspace = true
+oc-player.workspace = true
+oc-organize.workspace = true
+oc-paths.workspace = true
+oc-tag.workspace = true
+serde.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tempfile.workspace = true
+
+[dev-dependencies]
+oc-tag = { workspace = true, features = ["fixtures"] }
+serde_json.workspace = true
+tauri = { version = "2", features = ["test"] }
+
+[lints]
+workspace = true

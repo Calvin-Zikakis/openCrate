@@ -1,0 +1,656 @@
+import {
+  MAX_WINDOW,
+  type AliasSuggestion,
+  type CrateInfo,
+  type FolderInfo,
+  type Format,
+  type ImportResult,
+  type LibraryAdmin,
+  type LibraryApi,
+  type LibraryItem,
+  type LibraryPage,
+  type LibraryQuery,
+  type MirrorInfo,
+  type PlaylistInfo,
+  type ScanStatus,
+  type ScanSummary,
+  type DownloadRelease,
+  type DownloadsSnapshot,
+  type DownloadState,
+  type ImportPlan,
+  type ReleaseImport,
+  type FolderLayout,
+  type ReleaseLookup,
+  type LibraryHealth,
+  type PlayerState,
+  type TagView,
+  type TrackAnalysis,
+  type View,
+  type WatchFolderInfo,
+} from "./types";
+
+/** The shape of Tauri's command bridge, injected so tests need no native window. */
+export type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+interface ItemWire {
+  id: number;
+  kind: View;
+  title: string;
+  artist: string;
+  artistId: number;
+  release: string;
+  releaseId: number;
+  bpm: number | null;
+  musicalKey: string;
+  durationMs: number;
+  format: Format | null;
+  trackCount: number;
+  missing: boolean;
+}
+
+interface PageWire {
+  items: ItemWire[];
+  total: number;
+  start: number;
+}
+
+const VIEWS: readonly string[] = ["tracks", "releases", "artists"];
+const FORMATS: readonly string[] = ["AIFF", "MP3", "FLAC"];
+
+/** How the desktop app turns a release id into an address the window can load, if it can. */
+export function tauriArtwork(): ((releaseId: number) => string) | null {
+  const internals = (globalThis as { __TAURI_INTERNALS__?: { convertFileSrc?: (path: string, protocol: string) => string } }).__TAURI_INTERNALS__;
+  const convert = internals?.convertFileSrc;
+  return typeof convert === "function" ? (releaseId) => convert.call(internals, String(releaseId), "artwork") : null;
+}
+
+/** Tauri's bridge when running inside the desktop app, otherwise null. */
+export function tauriInvoke(): Invoke | null {
+  const internals = (globalThis as { __TAURI_INTERNALS__?: { invoke?: Invoke } }).__TAURI_INTERNALS__;
+  const invoke = internals?.invoke;
+  return typeof invoke === "function" ? (command, args) => invoke.call(internals, command, args) : null;
+}
+
+export interface LibraryMode {
+  canManageFolders: boolean;
+  persistent: boolean;
+}
+
+export interface LibraryStatus {
+  /** Null unless the desktop app was started with a database-backed library. */
+  mode: LibraryMode | null;
+  /** Why a requested library could not be opened. */
+  error: string | null;
+}
+
+export async function readLibraryStatus(invoke: Invoke): Promise<LibraryStatus> {
+  try {
+    const answer = await invoke("library_mode");
+    if (!isRecord(answer)) return { mode: null, error: null };
+    const error = typeof answer.error === "string" ? answer.error : null;
+    if (answer.mode !== "database") return { mode: null, error };
+    return { mode: { canManageFolders: answer.canManageFolders === true, persistent: answer.persistent === true }, error };
+  } catch {
+    return { mode: null, error: null };
+  }
+}
+
+/** What the desktop app offers: null unless it was started with a database-backed library. */
+export async function readLibraryMode(invoke: Invoke): Promise<LibraryMode | null> {
+  return (await readLibraryStatus(invoke)).mode;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function toItem(value: unknown): LibraryItem {
+  if (!isRecord(value)) throw new Error("The library returned an unreadable row.");
+  const row = value as Partial<ItemWire>;
+  const text = (field: unknown) => (typeof field === "string" ? field : null);
+  const number = (field: unknown) => (typeof field === "number" && Number.isFinite(field) ? field : null);
+  const id = number(row.id);
+  const artistId = number(row.artistId);
+  const releaseId = number(row.releaseId);
+  const durationMs = number(row.durationMs);
+  const trackCount = number(row.trackCount);
+  const title = text(row.title);
+  const artist = text(row.artist);
+  const release = text(row.release);
+  const musicalKey = text(row.musicalKey);
+  if (
+    id === null || artistId === null || releaseId === null || durationMs === null || trackCount === null ||
+    title === null || artist === null || release === null || musicalKey === null ||
+    typeof row.kind !== "string" || !VIEWS.includes(row.kind) ||
+    (row.bpm !== null && number(row.bpm) === null) ||
+    (row.format !== null && (typeof row.format !== "string" || !FORMATS.includes(row.format)))
+  ) {
+    throw new Error("The library returned an unreadable row.");
+  }
+  return {
+    id, kind: row.kind as View, title, artist, artistId, release, releaseId, missing: row.missing === true,
+    bpm: row.bpm ?? null, musicalKey,
+    duration: Math.round(durationMs / 1000),
+    format: row.format as Format | null,
+    trackCount,
+    color: ((releaseId % 8) + 8) % 8,
+  };
+}
+
+function toPage(value: unknown): LibraryPage {
+  if (!isRecord(value)) throw new Error("The library returned an unreadable page.");
+  const page = value as Partial<PageWire>;
+  if (!Array.isArray(page.items) || typeof page.total !== "number" || typeof page.start !== "number") {
+    throw new Error("The library returned an unreadable page.");
+  }
+  return { items: page.items.map(toItem), total: page.total, start: page.start };
+}
+
+const text = (value: unknown, what: string) => {
+  if (typeof value !== "string") throw new Error(`The library returned an unreadable ${what}.`);
+  return value;
+};
+const whole = (value: unknown, what: string) => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(`The library returned an unreadable ${what}.`);
+  return value;
+};
+
+function toFolder(value: unknown): FolderInfo {
+  if (!isRecord(value)) throw new Error("The library returned an unreadable folder.");
+  const last = value.lastAvailableMs;
+  return {
+    id: whole(value.id, "folder"), label: text(value.label, "folder"), path: text(value.path, "folder"),
+    availability: text(value.availability, "folder"), reason: text(value.reason, "folder"),
+    lastAvailableMs: last === null ? null : whole(last, "folder"),
+    files: whole(value.files, "folder"), missing: whole(value.missing, "folder"),
+  };
+}
+
+function toWatchFolder(value: unknown): WatchFolderInfo {
+  if (!isRecord(value) || typeof value.enabled !== "boolean" || typeof value.online !== "boolean") {
+    throw new Error("The library returned an unreadable download folder.");
+  }
+  const seen = value.lastSeenMs;
+  return {
+    id: whole(value.id, "download folder"), label: text(value.label, "download folder"),
+    path: text(value.path, "download folder"), enabled: value.enabled, online: value.online,
+    lastSeenMs: seen === null ? null : whole(seen, "download folder"),
+  };
+}
+
+function toTagView(value: unknown): TagView {
+  const bad = () => new Error("The library returned an unreadable import preview.");
+  if (!isRecord(value) || !Array.isArray(value.fields) || !Array.isArray(value.warnings)) throw bad();
+  return {
+    fields: value.fields.map((field: unknown) => {
+      if (!isRecord(field) || typeof field.guessed !== "boolean") throw bad();
+      return {
+        name: text(field.name, "import preview"), value: field.value === null ? null : text(field.value, "import preview"), guessed: field.guessed,
+        tidiedFrom: field.tidiedFrom === null || field.tidiedFrom === undefined ? null : text(field.tidiedFrom, "import preview"),
+      };
+    }),
+    audio: value.audio === null ? null : text(value.audio, "import preview"),
+    length: value.length === null || value.length === undefined ? null : text(value.length, "import preview"),
+    readError: value.readError === null ? null : text(value.readError, "import preview"),
+    warnings: value.warnings.map((warning: unknown) => text(warning, "import preview")),
+  };
+}
+
+function toLookup(value: unknown): ReleaseLookup {
+  const bad = () => new Error("The library returned an unreadable lookup.");
+  if (!isRecord(value) || !Array.isArray(value.files)) throw bad();
+  const maybe = (field: unknown) => (field === null || field === undefined ? null : text(field, "lookup"));
+  let found: ReleaseLookup["found"] = null;
+  if (value.found !== null && value.found !== undefined) {
+    const f = value.found;
+    if (!isRecord(f)) throw bad();
+    found = {
+      title: text(f.title, "lookup"), artist: text(f.artist, "lookup"), year: f.year === null ? null : whole(f.year, "lookup"),
+      label: maybe(f.label), tracks: whole(f.tracks, "lookup"), url: text(f.url, "lookup"),
+    };
+  }
+  return {
+    found, note: maybe(value.note),
+    files: value.files.map((file: unknown) => {
+      if (!isRecord(file) || !Array.isArray(file.changes)) throw bad();
+      return {
+        source: text(file.source, "lookup"), matchedBy: maybe(file.matchedBy),
+        changes: file.changes.map((change: unknown) => {
+          if (!isRecord(change)) throw bad();
+          return { field: text(change.field, "lookup"), from: maybe(change.from), to: text(change.to, "lookup") };
+        }),
+      };
+    }),
+  };
+}
+
+function toPlayer(value: unknown): PlayerState {
+  const bad = () => new Error("The player returned an unreadable state.");
+  if (!isRecord(value) || typeof value.playing !== "boolean" || typeof value.ended !== "boolean") throw bad();
+  return {
+    trackId: value.trackId === null || value.trackId === undefined ? null : whole(value.trackId, "player"),
+    playing: value.playing, ended: value.ended,
+    positionMs: whole(value.positionMs, "player"),
+    durationMs: value.durationMs === null || value.durationMs === undefined ? null : whole(value.durationMs, "player"),
+    error: value.error === null || value.error === undefined ? null : text(value.error, "player"),
+  };
+}
+
+function toHealth(value: unknown): LibraryHealth {
+  const bad = () => new Error("The library returned an unreadable check.");
+  if (!isRecord(value) || !Array.isArray(value.untidy) || !Array.isArray(value.duplicates)) throw bad();
+  return {
+    files: whole(value.files, "check"),
+    untidy: value.untidy.map((item: unknown) => {
+      if (!isRecord(item)) throw bad();
+      return { rootLabel: text(item.rootLabel, "check"), folder: text(item.folder, "check"), suggested: text(item.suggested, "check"), files: whole(item.files, "check") };
+    }),
+    duplicates: value.duplicates.map((item: unknown) => {
+      if (!isRecord(item) || !Array.isArray(item.files)) throw bad();
+      return { artist: text(item.artist, "check"), title: text(item.title, "check"), files: item.files.map((file: unknown) => text(file, "check")) };
+    }),
+  };
+}
+
+function toLayout(value: unknown): FolderLayout {
+  const bad = () => new Error("The library returned an unreadable folder layout.");
+  if (!isRecord(value) || !Array.isArray(value.presets) || typeof value.canConvert !== "boolean") throw bad();
+  return {
+    layout: text(value.layout, "folder layout"), example: text(value.example, "folder layout"), canConvert: value.canConvert,
+    presets: value.presets.map((preset: unknown) => {
+      if (!isRecord(preset)) throw bad();
+      return { name: text(preset.name, "folder layout"), layout: text(preset.layout, "folder layout") };
+    }),
+  };
+}
+
+function toReleaseImport(value: unknown): ReleaseImport {
+  const bad = () => new Error("The library returned an unreadable import result.");
+  if (!isRecord(value) || !Array.isArray(value.skipped)) throw bad();
+  return {
+    rootId: whole(value.rootId, "import"), rootLabel: text(value.rootLabel, "import"), filed: whole(value.filed, "import"),
+    skipped: value.skipped.map((item: unknown) => {
+      if (!isRecord(item)) throw bad();
+      return { source: text(item.source, "import"), problem: text(item.problem, "import") };
+    }),
+  };
+}
+
+function toPlan(value: unknown): ImportPlan {
+  const bad = () => new Error("The library returned an unreadable import preview.");
+  if (!isRecord(value) || !Array.isArray(value.files)) throw bad();
+  return {
+    release: text(value.release, "import preview"), rootLabel: text(value.rootLabel, "import preview"),
+    ready: whole(value.ready, "import preview"), blocked: whole(value.blocked, "import preview"),
+    files: value.files.map((file: unknown) => {
+      if (!isRecord(file) || typeof file.shortened !== "boolean") throw bad();
+      return {
+        source: text(file.source, "import preview"),
+        destination: file.destination === null ? null : text(file.destination, "import preview"),
+        shortened: file.shortened,
+        problem: file.problem === null ? null : text(file.problem, "import preview"),
+        tags: file.tags === null ? null : toTagView(file.tags),
+        becomes: file.becomes === null || file.becomes === undefined ? null : text(file.becomes, "import preview"),
+      };
+    }),
+  };
+}
+
+const DOWNLOAD_STATES: readonly string[] = ["ready", "downloading", "settling", "nothing"];
+const WATCH_STATES = ["watching", "off", "offline", "unreadable"] as const;
+
+function toDownloads(value: unknown): DownloadsSnapshot {
+  if (!isRecord(value) || !Array.isArray(value.folders) || !Array.isArray(value.releases)) {
+    throw new Error("The library returned an unreadable list of downloads.");
+  }
+  const folders = value.folders.map((folder: unknown) => {
+    const state = isRecord(folder) ? WATCH_STATES.find((candidate) => candidate === folder.state) : undefined;
+    if (!isRecord(folder) || !state || typeof folder.truncated !== "boolean") {
+      throw new Error("The library returned an unreadable list of downloads.");
+    }
+    return {
+      folderId: whole(folder.folderId, "download"), label: text(folder.label, "download"), state,
+      unreadableDirs: whole(folder.unreadableDirs, "download"), truncated: folder.truncated,
+    };
+  });
+  const releases = value.releases.map((release: unknown): DownloadRelease => {
+    if (
+      !isRecord(release) || typeof release.state !== "string" || !DOWNLOAD_STATES.includes(release.state) ||
+      typeof release.loose !== "boolean" || typeof release.alreadyThere !== "boolean" ||
+      typeof release.imported !== "boolean"
+    ) {
+      throw new Error("The library returned an unreadable list of downloads.");
+    }
+    return {
+      folderId: whole(release.folderId, "download"), folderLabel: text(release.folderLabel, "download"),
+      name: text(release.name, "download"), loose: release.loose, state: release.state as DownloadState,
+      quietSeconds: release.quietSeconds === null ? null : whole(release.quietSeconds, "download"),
+      audioFiles: whole(release.audioFiles, "download"), archives: whole(release.archives, "download"),
+      alreadyThere: release.alreadyThere, imported: release.imported,
+      newestModifiedMs: typeof release.newestModifiedMs === "number" ? release.newestModifiedMs : 0,
+    };
+  });
+  return { folders, releases };
+}
+
+function toAnalysis(value: unknown): TrackAnalysis {
+  const bad = () => new Error("The library returned an unreadable cue list.");
+  if (!isRecord(value) || !Array.isArray(value.cues) || !Array.isArray(value.tempos)) throw bad();
+  const real = (field: unknown) => {
+    if (typeof field !== "number" || !Number.isFinite(field)) throw bad();
+    return field;
+  };
+  const maybe = (field: unknown) => (field === null ? null : real(field));
+  return {
+    generation: whole(value.generation, "cue list"),
+    bpm: maybe(value.bpm),
+    musicalKey: text(value.musicalKey, "cue list"),
+    cues: value.cues.map((cue: unknown) => {
+      if (!isRecord(cue)) throw bad();
+      return {
+        kind: real(cue.kind), number: maybe(cue.number), startSeconds: real(cue.startSeconds),
+        endSeconds: maybe(cue.endSeconds), name: text(cue.name, "cue list"),
+      };
+    }),
+    tempos: value.tempos.map((tempo: unknown) => {
+      if (!isRecord(tempo)) throw bad();
+      return {
+        startSeconds: real(tempo.startSeconds), bpm: real(tempo.bpm),
+        meter: tempo.meter === null ? null : text(tempo.meter, "cue list"), beat: maybe(tempo.beat),
+      };
+    }),
+  };
+}
+
+function toSummary(value: unknown): ScanSummary {
+  if (!isRecord(value)) throw new Error("The library returned an unreadable scan result.");
+  const n = (field: string) => whole(value[field], "scan result");
+  return {
+    availability: text(value.availability, "scan result"), reason: text(value.reason, "scan result"),
+    inserted: n("inserted"), updated: n("updated"), unchanged: n("unchanged"), revived: n("revived"),
+    markedMissing: n("markedMissing"), heldMissing: n("heldMissing"), tracksCreated: n("tracksCreated"),
+    tracksUpdated: n("tracksUpdated"), tagErrors: n("tagErrors"), cancelled: value.cancelled === true,
+  };
+}
+
+const SCAN_STATES = ["idle", "running", "finished", "failed"] as const;
+
+function toStatus(value: unknown): ScanStatus {
+  if (!isRecord(value)) throw new Error("The library returned an unreadable scan status.");
+  const state = SCAN_STATES.find((candidate) => candidate === value.state);
+  if (!state) throw new Error("The library returned an unreadable scan status.");
+  const id = value.rootId;
+  return {
+    state,
+    rootId: id === null ? null : whole(id, "scan status"),
+    phase: value.phase === null ? null : text(value.phase, "scan status"),
+    filesSeen: whole(value.filesSeen, "scan status"),
+    tagsRead: whole(value.tagsRead, "scan status"),
+    tagsTotal: whole(value.tagsTotal, "scan status"),
+    summary: value.summary === null ? null : toSummary(value.summary),
+    error: value.error === null ? null : text(value.error, "scan status"),
+  };
+}
+
+function toMirror(value: unknown): MirrorInfo {
+  if (!isRecord(value) || !isRecord(value.counts)) throw new Error("The library returned an unreadable rekordbox export.");
+  const counts = value.counts;
+  const optional = (field: unknown) => (field === null ? null : whole(field, "rekordbox export"));
+  const n = (field: string) => whole(counts[field], "rekordbox export");
+  return {
+    sourceId: whole(value.sourceId, "rekordbox export"), path: text(value.path, "rekordbox export"),
+    generation: whole(value.generation, "rekordbox export"), entries: whole(value.entries, "rekordbox export"),
+    fileMtimeMs: optional(value.fileMtimeMs), lastReadMs: optional(value.lastReadMs),
+    lastAttemptMs: optional(value.lastAttemptMs),
+    lastError: value.lastError === null ? null : text(value.lastError, "rekordbox export"),
+    counts: {
+      matched: n("matched"), unmapped: n("unmapped"), notIndexed: n("notIndexed"), ambiguous: n("ambiguous"),
+      unrecognized: n("unrecognized"), playlists: n("playlists"), unresolvedReferences: n("unresolvedReferences"),
+    },
+  };
+}
+
+function toPlaylist(value: unknown): PlaylistInfo {
+  if (!isRecord(value) || typeof value.isFolder !== "boolean") throw new Error("The library returned an unreadable playlist.");
+  return {
+    id: whole(value.id, "playlist"), parentId: value.parentId === null ? null : whole(value.parentId, "playlist"),
+    isFolder: value.isFolder, name: text(value.name, "playlist"), position: whole(value.position, "playlist"),
+    entries: whole(value.entries, "playlist"), inLibrary: whole(value.inLibrary, "playlist"),
+  };
+}
+
+function toImport(value: unknown): ImportResult {
+  if (!isRecord(value) || typeof value.unchanged !== "boolean") throw new Error("The library returned an unreadable import result.");
+  return {
+    sourceId: whole(value.sourceId, "import result"), generation: whole(value.generation, "import result"),
+    unchanged: value.unchanged, entries: whole(value.entries, "import result"),
+    matched: whole(value.matched, "import result"), derivedSet: whole(value.derivedSet, "import result"),
+  };
+}
+
+function toCrate(value: unknown): CrateInfo {
+  if (!isRecord(value)) throw new Error("The library returned an unreadable crate.");
+  return { id: whole(value.id, "crate"), name: text(value.name, "crate"), tracks: whole(value.tracks, "crate") };
+}
+
+const ids = (value: unknown, what: string): number[] => {
+  if (!Array.isArray(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  return value.map((id) => whole(id, what));
+};
+
+function toSuggestion(value: unknown): AliasSuggestion {
+  if (!isRecord(value)) throw new Error("The library returned an unreadable suggestion.");
+  return {
+    rootId: whole(value.rootId, "suggestion"), rootLabel: text(value.rootLabel, "suggestion"),
+    prefix: text(value.prefix, "suggestion"), entries: whole(value.entries, "suggestion"),
+  };
+}
+
+function failure(error: unknown): Error {
+  return error instanceof Error ? error : new Error(typeof error === "string" ? error : "The library could not be read.");
+}
+
+function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
+  return {
+    persistent,
+    folders: async () => {
+      const response = await invoke("library_roots").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable folder list.");
+      return response.map(toFolder);
+    },
+    checkFolders: async () => {
+      const response = await invoke("library_check_roots").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable folder list.");
+      return response.map(toFolder);
+    },
+    confirmFolder: async (folderId) => {
+      await invoke("library_confirm_root", { rootId: folderId }).catch((error: unknown) => { throw failure(error); });
+    },
+    watchFolders: async () => {
+      const response = await invoke("library_watch_folders").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of download folders.");
+      return response.map(toWatchFolder);
+    },
+    checkWatchFolders: async () => {
+      const response = await invoke("library_check_watch_folders").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of download folders.");
+      return response.map(toWatchFolder);
+    },
+    addWatchFolder: async () => {
+      const response = await invoke("library_add_watch_folder").catch((error: unknown) => { throw failure(error); });
+      return response === null ? null : toWatchFolder(response);
+    },
+    downloadReleases: async () => toDownloads(await invoke("library_download_releases").catch((error: unknown) => { throw failure(error); })),
+    planRelease: async (folderId, name, rootId, options) =>
+      toPlan(await invoke("library_plan_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
+    importRelease: async (folderId, name, rootId, options) =>
+      toReleaseImport(await invoke("library_import_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
+    lookupRelease: async (folderId, name, rootId, options) =>
+      toLookup(await invoke("library_lookup_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
+    waveform: async (trackId) => {
+      const value = await invoke("library_waveform", { trackId }).catch((error: unknown) => { throw failure(error); });
+      if (value === null) return null;
+      if (!Array.isArray(value) || value.length > 4096 || !value.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+        throw new Error("The library returned an unreadable waveform.");
+      }
+      return value as number[];
+    },
+    playTrack: async (trackId, startMs = 0, play = true) => {
+      await invoke("player_load", { trackId, startMs, play }).catch((error: unknown) => { throw failure(error); });
+    },
+    player: async (action, value) => {
+      const args = action === "seek" ? { action, positionMs: Math.max(0, Math.round(value ?? 0)) } : action === "volume" ? { action, volume: value ?? 1 } : { action };
+      return toPlayer(await invoke("player_control", args).catch((error: unknown) => { throw failure(error); }));
+    },
+    checkLibrary: async () => toHealth(await invoke("library_check").catch((error: unknown) => { throw failure(error); })),
+    folderLayout: async () => toLayout(await invoke("library_folder_layout").catch((error: unknown) => { throw failure(error); })),
+    setFolderLayout: async (layout) => toLayout(await invoke("library_set_folder_layout", { layout }).catch((error: unknown) => { throw failure(error); })),
+    setWatchFolderEnabled: async (id, enabled) => {
+      await invoke("library_set_watch_folder_enabled", { id, enabled }).catch((error: unknown) => { throw failure(error); });
+    },
+    retakeWatchBaseline: async (id) => {
+      await invoke("library_retake_watch_baseline", { id }).catch((error: unknown) => { throw failure(error); });
+    },
+    removeWatchFolder: async (id) => {
+      await invoke("library_remove_watch_folder", { id }).catch((error: unknown) => { throw failure(error); });
+    },
+    addFolder: async () => {
+      const response = await invoke("library_add_root").catch((error: unknown) => { throw failure(error); });
+      return response === null ? null : toFolder(response);
+    },
+    scan: async (folderId, confirmMissing = false) => {
+      const args = confirmMissing ? { rootId: folderId, confirmMissing: true } : { rootId: folderId };
+      await invoke("library_scan", args).catch((error: unknown) => { throw failure(error); });
+    },
+    removeFolder: async (folderId) => {
+      const removed = await invoke("library_remove_root", { rootId: folderId }).catch((error: unknown) => { throw failure(error); });
+      return whole(removed, "removal result");
+    },
+    scanStatus: async () => toStatus(await invoke("library_scan_status").catch((error: unknown) => { throw failure(error); })),
+    cancelScan: async () => {
+      await invoke("library_scan_cancel").catch((error: unknown) => { throw failure(error); });
+    },
+    mirrors: async () => {
+      const response = await invoke("library_mirrors").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of exports.");
+      return response.map(toMirror);
+    },
+    playlists: async () => {
+      const response = await invoke("library_playlists").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of playlists.");
+      return response.map(toPlaylist);
+    },
+    trackAnalysis: async (trackId) => {
+      const response = await invoke("library_track_analysis", { trackId }).catch((error: unknown) => { throw failure(error); });
+      return response === null ? null : toAnalysis(response);
+    },
+    crates: async () => {
+      const response = await invoke("library_crates").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of crates.");
+      return response.map(toCrate);
+    },
+    createCrate: async (name) => toCrate(await invoke("library_create_crate", { name }).catch((error: unknown) => { throw failure(error); })),
+    renameCrate: async (crateId, name) => {
+      await invoke("library_rename_crate", { crateId, name }).catch((error: unknown) => { throw failure(error); });
+    },
+    deleteCrate: async (crateId) => {
+      await invoke("library_delete_crate", { crateId }).catch((error: unknown) => { throw failure(error); });
+    },
+    addToCrate: async (crateId, trackIds) =>
+      whole(await invoke("library_add_to_crate", { crateId, trackIds }).catch((error: unknown) => { throw failure(error); }), "crate result"),
+    removeFromCrate: async (crateId, trackIds) =>
+      whole(await invoke("library_remove_from_crate", { crateId, trackIds }).catch((error: unknown) => { throw failure(error); }), "crate result"),
+    moveInCrate: async (crateId, trackIds, beforeId) =>
+      ids(await invoke("library_move_in_crate", { crateId, trackIds, beforeId }).catch((error: unknown) => { throw failure(error); }), "crate order"),
+    moveTracks: async (trackIds, beforeId, fromSort) => {
+      await invoke("library_move_tracks", { trackIds, beforeId, fromSort }).catch((error: unknown) => { throw failure(error); });
+    },
+    importExport: async () => {
+      const response = await invoke("library_import_xml").catch((error: unknown) => { throw failure(error); });
+      return response === null ? null : toImport(response);
+    },
+    rereadMirror: async (sourceId) => toImport(await invoke("library_reread_mirror", { sourceId }).catch((error: unknown) => { throw failure(error); })),
+    aliasSuggestions: async (sourceId) => {
+      const response = await invoke("library_alias_suggestions", { sourceId }).catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of suggestions.");
+      return response.map(toSuggestion);
+    },
+    addAlias: async (folderId, prefix) => {
+      const response = await invoke("library_add_alias", { rootId: folderId, prefix }).catch((error: unknown) => { throw failure(error); });
+      return response === true;
+    },
+  };
+}
+
+/** Reads the library from the Rust backend. Used only when the backend has a database. */
+export class TauriLibraryApi implements LibraryApi {
+  private closed = false;
+  readonly admin?: LibraryAdmin;
+
+  constructor(
+    private readonly invoke: Invoke,
+    mode: LibraryMode = { canManageFolders: false, persistent: false },
+    private readonly artwork: ((releaseId: number) => string) | null = null,
+  ) {
+    if (mode.canManageFolders) this.admin = adminFor(invoke, mode.persistent);
+  }
+
+  private readonly artistCache = new Map<number, Promise<number[]>>();
+
+  artistCovers(artistId: number): Promise<number[]> {
+    if (!this.artwork || !Number.isInteger(artistId) || artistId <= 0) return Promise.resolve([]);
+    let found = this.artistCache.get(artistId);
+    if (!found) {
+      found = this.invoke("library_artist_covers", { artistId }).then(
+        (ids) => (Array.isArray(ids) ? ids.filter((id): id is number => Number.isInteger(id) && id > 0).slice(0, 4) : []),
+        () => [],
+      );
+      this.artistCache.set(artistId, found);
+    }
+    return found;
+  }
+
+  artworkUrl(releaseId: number): string | null {
+    return this.artwork && Number.isInteger(releaseId) && releaseId > 0 ? this.artwork(releaseId) : null;
+  }
+
+  read(query: LibraryQuery, start: number, count: number, signal: AbortSignal): Promise<LibraryPage> {
+    if (this.closed) return Promise.reject(new Error("The library was closed."));
+    if (signal.aborted) return Promise.reject(new DOMException("Request cancelled", "AbortError"));
+    if (!Number.isInteger(start) || start < 0 || !Number.isInteger(count) || count < 1 || count > MAX_WINDOW) {
+      return Promise.reject(new Error(`Request a non-negative start and 1-${MAX_WINDOW} rows.`));
+    }
+    const wire = {
+      view: query.view,
+      search: query.search,
+      sort: query.sort,
+      format: query.format === "all" ? null : query.format,
+      artistId: query.artistId,
+      releaseId: query.releaseId,
+      playlistId: query.playlistId,
+      crateId: query.crateId,
+    };
+    return new Promise<LibraryPage>((resolve, reject) => {
+      const abort = () => reject(new DOMException("Request cancelled", "AbortError"));
+      signal.addEventListener("abort", abort, { once: true });
+      this.invoke("library_read", { query: wire, start, count }).then(
+        (response) => {
+          signal.removeEventListener("abort", abort);
+          try {
+            resolve(toPage(response));
+          } catch (error) {
+            reject(error);
+          }
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", abort);
+          reject(error instanceof Error ? error : new Error(typeof error === "string" ? error : "The library could not be read."));
+        },
+      );
+    });
+  }
+
+  dispose() {
+    this.closed = true;
+  }
+}

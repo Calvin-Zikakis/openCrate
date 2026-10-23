@@ -1,0 +1,401 @@
+//! Looking a release up in MusicBrainz when the owner asks, and turning the answer into tag
+//! suggestions for the release's files. Nothing is looked up on its own, and nothing is written:
+//! the page shows the suggestions, and the owner's accepted values travel with the import.
+
+use std::collections::HashMap;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
+
+use oc_core_db::service::LibraryService;
+use oc_lookup::{parse_release, parse_search, pick, release_url, search_url, suggest, FileFacts};
+use oc_tag::TagInfo;
+use serde::Serialize;
+
+use crate::plan::{plan_release, ImportOptions};
+
+/// MusicBrainz allows about one request per second per address.
+const SPACING: Duration = Duration::from_millis(1_100);
+const BUSY_RETRIES: u32 = 2;
+
+/// Fetches from MusicBrainz, never faster than it allows.
+pub struct MusicBrainz {
+    agent: ureq::Agent,
+    last: Mutex<Option<Instant>>,
+}
+
+impl Default for MusicBrainz {
+    fn default() -> Self {
+        let agent = ureq::Agent::config_builder()
+            .user_agent(oc_lookup::USER_AGENT)
+            .timeout_global(Some(Duration::from_secs(15)))
+            .http_status_as_error(false)
+            .build()
+            .into();
+        Self {
+            agent,
+            last: Mutex::new(None),
+        }
+    }
+}
+
+impl MusicBrainz {
+    fn wait_turn(&self) {
+        let mut last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(left) = (*last).and_then(|previous| SPACING.checked_sub(previous.elapsed())) {
+            std::thread::sleep(left);
+        }
+        *last = Some(Instant::now());
+    }
+
+    /// One GET. A busy answer (503) is tried again after a pause, twice at most.
+    fn get(&self, url: &str) -> Result<String, String> {
+        for attempt in 0..=BUSY_RETRIES {
+            self.wait_turn();
+            let mut response = self.agent.get(url).call().map_err(|_| {
+                "MusicBrainz could not be reached. Check the internet connection.".to_owned()
+            })?;
+            let status = response.status().as_u16();
+            if status == 503 && attempt < BUSY_RETRIES {
+                std::thread::sleep(Duration::from_secs(2 << attempt));
+                continue;
+            }
+            return match status {
+                200 => response
+                    .body_mut()
+                    .with_config()
+                    .limit(4 << 20)
+                    .read_to_string()
+                    .map_err(|error| error.to_string()),
+                503 => Err("MusicBrainz is busy right now. Try again in a minute.".to_owned()),
+                404 => Err("MusicBrainz no longer has that release.".to_owned()),
+                other => Err(format!("MusicBrainz answered with an error ({other}).")),
+            };
+        }
+        Err("MusicBrainz is busy right now. Try again in a minute.".to_owned())
+    }
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundDto {
+    pub title: String,
+    pub artist: String,
+    pub year: Option<i32>,
+    pub label: Option<String>,
+    pub tracks: usize,
+    /// The release's page on musicbrainz.org.
+    pub url: String,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeDto {
+    /// As the preview names it: "Title", "Album artist"...
+    pub field: &'static str,
+    pub from: Option<String>,
+    pub to: String,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSuggestionDto {
+    pub source: String,
+    /// How the file was matched to a track; `None` when it was not.
+    pub matched_by: Option<&'static str>,
+    pub changes: Vec<ChangeDto>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LookupDto {
+    pub found: Option<FoundDto>,
+    pub files: Vec<FileSuggestionDto>,
+    /// Why nothing was found, in plain words.
+    pub note: Option<String>,
+}
+
+/// The most common value among the files, for naming the release in a search.
+fn most_common<'a>(values: impl Iterator<Item = Option<&'a String>>) -> Option<String> {
+    let mut counts: HashMap<&String, usize> = HashMap::new();
+    for value in values.flatten() {
+        *counts.entry(value).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+        .map(|(value, _)| value.clone())
+}
+
+fn changes(current: &TagInfo, wanted: &TagInfo) -> Vec<ChangeDto> {
+    let text = |value: Option<&String>| value.cloned();
+    let number = |value: Option<u32>| value.map(|n| n.to_string());
+    let mut found = Vec::new();
+    let mut add = |field, from: Option<String>, to: Option<String>| {
+        if let Some(to) = to {
+            found.push(ChangeDto { field, from, to });
+        }
+    };
+    add(
+        "Artist",
+        text(current.artist.as_ref()),
+        text(wanted.artist.as_ref()),
+    );
+    add(
+        "Title",
+        text(current.title.as_ref()),
+        text(wanted.title.as_ref()),
+    );
+    add(
+        "Album",
+        text(current.album.as_ref()),
+        text(wanted.album.as_ref()),
+    );
+    add(
+        "Album artist",
+        text(current.album_artist.as_ref()),
+        text(wanted.album_artist.as_ref()),
+    );
+    add(
+        "Track",
+        number(current.track_number),
+        number(wanted.track_number),
+    );
+    add(
+        "Disc",
+        number(current.disc_number),
+        number(wanted.disc_number),
+    );
+    add(
+        "Year",
+        current.year.map(|y| y.to_string()),
+        wanted.year.map(|y| y.to_string()),
+    );
+    add(
+        "Label",
+        text(current.label.as_ref()),
+        text(wanted.label.as_ref()),
+    );
+    found
+}
+
+/// What the files say, ready to compare with a release. Pure, for tests.
+pub fn facts_of(plan: &crate::plan::PlanDto) -> Vec<FileFacts> {
+    plan.files
+        .iter()
+        .filter_map(|file| {
+            let (tags, duration_ms) = file.facts.clone()?;
+            Some(FileFacts {
+                source: file.source.clone(),
+                tags,
+                duration_ms,
+            })
+        })
+        .collect()
+}
+
+/// Compare a fetched release with the files. Pure, for tests.
+pub fn compare(release: &oc_lookup::Release, files: &[FileFacts]) -> LookupDto {
+    let suggestions = suggest(release, files);
+    LookupDto {
+        found: Some(FoundDto {
+            title: release.title.clone(),
+            artist: release.artist.clone(),
+            year: release.year,
+            label: release.label.clone(),
+            tracks: release.track_count(),
+            url: release.web_page(),
+        }),
+        files: suggestions
+            .iter()
+            .zip(files)
+            .map(|(suggestion, file)| FileSuggestionDto {
+                source: suggestion.source.clone(),
+                matched_by: suggestion.matched_by,
+                changes: changes(&file.tags, &suggestion.values),
+            })
+            .collect(),
+        note: None,
+    }
+}
+
+fn nothing(note: String) -> LookupDto {
+    LookupDto {
+        found: None,
+        files: Vec::new(),
+        note: Some(note),
+    }
+}
+
+pub fn lookup_release(
+    service: &LibraryService,
+    client: &MusicBrainz,
+    folder_id: i64,
+    name: &str,
+    root_id: i64,
+    options: ImportOptions,
+) -> Result<LookupDto, String> {
+    let plan = plan_release(service, folder_id, name, root_id, options)?;
+    let files = facts_of(&plan);
+    let artist = most_common(files.iter().map(|file| {
+        file.tags
+            .album_artist
+            .as_ref()
+            .or(file.tags.artist.as_ref())
+    }));
+    let album = most_common(files.iter().map(|file| file.tags.album.as_ref()));
+    let (Some(artist), Some(album)) = (artist, album) else {
+        return Ok(nothing(
+            "A release is looked up by its artist and album name, and these files have none."
+                .to_owned(),
+        ));
+    };
+    let candidates = parse_search(&client.get(&search_url(&artist, &album))?)
+        .map_err(|error| error.to_string())?;
+    let Some(best) = pick(&candidates, files.len()) else {
+        return Ok(nothing(format!(
+            "MusicBrainz has no release that matches \"{album}\" by {artist} closely enough."
+        )));
+    };
+    let release =
+        parse_release(&client.get(&release_url(&best.id))?).map_err(|error| error.to_string())?;
+    Ok(compare(&release, &files))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RELEASE: &str = r#"{
+        "id": "0b1d1c3e-0000-4000-8000-000000000001", "title": "Between Spaces", "date": "2019-05-03",
+        "artist-credit": [{"name": "Studio 001", "joinphrase": ""}],
+        "label-info": [{"label": {"name": "Test Label"}}],
+        "media": [{"position": 1, "tracks": [
+            {"position": 1, "title": "Night Drive", "length": 225000, "artist-credit": [{"name": "Studio 001", "joinphrase": ""}]},
+            {"position": 2, "title": "Soft Focus", "length": 301000, "artist-credit": [{"name": "Studio 001", "joinphrase": ""}]}
+        ]}]
+    }"#;
+
+    fn file(source: &str, title: &str, track: Option<u32>) -> FileFacts {
+        FileFacts {
+            source: source.into(),
+            tags: TagInfo {
+                artist: Some("Studio 001".into()),
+                title: Some(title.into()),
+                album: Some("Between Spaces".into()),
+                track_number: track,
+                ..TagInfo::default()
+            },
+            duration_ms: 0,
+        }
+    }
+
+    #[test]
+    fn suggestions_name_each_field_with_what_it_was_and_would_be() {
+        let release = parse_release(RELEASE).unwrap();
+        let found = compare(
+            &release,
+            &[
+                file("R/a.flac", "Night Drive", Some(1)),
+                file("R/b.flac", "soft focus", None),
+            ],
+        );
+        let about = found.found.as_ref().unwrap();
+        assert_eq!(
+            (about.year, about.tracks, about.url.as_str()),
+            (
+                Some(2019),
+                2,
+                "https://musicbrainz.org/release/0b1d1c3e-0000-4000-8000-000000000001"
+            )
+        );
+        let second = &found.files[1];
+        assert_eq!(second.matched_by, Some("title"));
+        let names: Vec<_> = second
+            .changes
+            .iter()
+            .map(|c| (c.field, c.from.as_deref(), c.to.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Title", Some("soft focus"), "Soft Focus"),
+                ("Album artist", None, "Studio 001"),
+                ("Track", None, "2"),
+                ("Year", None, "2019"),
+                ("Label", None, "Test Label"),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_release_is_named_by_what_most_files_say() {
+        let a = "Between Spaces".to_owned();
+        let b = "Between Spaces (Bonus)".to_owned();
+        assert_eq!(
+            most_common([Some(&a), Some(&b), Some(&a), None].into_iter()).as_deref(),
+            Some("Between Spaces")
+        );
+        assert_eq!(most_common([None, None].into_iter()), None);
+    }
+
+    #[test]
+    fn requests_are_spaced_a_second_apart() {
+        let client = MusicBrainz::default();
+        let start = Instant::now();
+        client.wait_turn();
+        client.wait_turn();
+        assert!(start.elapsed() >= SPACING, "{:?}", start.elapsed());
+    }
+
+    /// Asks the real MusicBrainz about a well-known public release (two requests). Run by hand:
+    /// `cargo test -p opencrate-desktop live_lookup -- --ignored`.
+    #[test]
+    #[ignore = "uses the network"]
+    fn live_lookup() {
+        use std::fs;
+
+        use oc_tag::fixtures::{aiff, write_tags};
+
+        let data = tempfile::tempdir().unwrap();
+        let service = LibraryService::open(data.path(), 2).unwrap();
+        let area = tempfile::tempdir().unwrap();
+        let release = area.path().join("Downloads/Discovery");
+        fs::create_dir_all(&release).unwrap();
+        fs::create_dir_all(area.path().join("Music")).unwrap();
+        for (number, title) in [(1, "one more time"), (2, "Aerodynamic")] {
+            let path = release.join(format!("{number:02} - {title}.aif"));
+            fs::write(&path, aiff(1)).unwrap();
+            write_tags(
+                &path,
+                &TagInfo {
+                    artist: Some("Daft Punk".into()),
+                    album: Some("Discovery".into()),
+                    title: Some(title.into()),
+                    track_number: Some(number),
+                    ..TagInfo::default()
+                },
+            );
+        }
+        let folder = service
+            .add_watch_folder(&area.path().join("Downloads"), "Downloads")
+            .unwrap();
+        let root = service
+            .add_root(&area.path().join("Music"), "Music")
+            .unwrap();
+        let found = lookup_release(
+            &service,
+            &MusicBrainz::default(),
+            folder,
+            "Discovery",
+            root,
+            ImportOptions::default(),
+        )
+        .unwrap();
+        eprintln!("{found:#?}");
+        assert_eq!(found.found.as_ref().unwrap().title, "Discovery");
+        assert!(found.files[0]
+            .changes
+            .iter()
+            .any(|change| change.field == "Title" && change.to == "One More Time"));
+    }
+}

@@ -21,7 +21,7 @@ flowchart LR
 
 | Stage | Does | Writes to |
 | --- | --- | --- |
-| Watch | Sees a new folder or file in a watch folder. Local folders use file-system events; a folder on a network drive is polled | Nothing |
+| Watch | Sees a new folder or file in a download folder (set in Settings). Local folders use file-system events; a folder on a network drive is polled | Nothing |
 | Stage | Waits until size and modified time stop changing, then copies the release into staging | Staging only |
 | Identify | Reads tags, parses folder and file names, reads MusicBrainz IDs already in the tags, and later asks providers. Records the source quality of every file before anything is converted | `import_item`, `file` (state `staged`), `source_quality`, `claim` |
 | Decide | Scores the claims. Auto-file needs artist, title and version agreed by at least two different sources with none disagreeing, and the release matched as a unit | `review_item` for anything not strong |
@@ -34,11 +34,23 @@ flowchart LR
 
 | Place | Location | Why |
 | --- | --- | --- |
-| Watch folders | Anywhere the owner chooses (the downloads folders) | Where Bandcamp and Soulseek put files |
+| Download folders | Set in Settings. One or more, anywhere the owner chooses | Where Bandcamp and Soulseek put files. Rules below |
 | Staging | Outside the synced library folder, on the same volume as the library where possible | The sync tool never sees half-written files, and the last step can be an atomic rename |
 | Review queue files | A subfolder of staging | Not indexed by anything, not synced |
 | Archive | Outside the synced library folder | A replaced file is kept, without Navidrome or the NAS ever seeing the copy |
 | Database | The app data directory | See [decision 0003](../decisions/0003-local-library-synced-copy.md) |
+
+## Download folders
+
+The download folders are a setting the owner can change at any time ([interface](interface.md), Settings).
+
+- One or more folders, each chosen with the operating system's folder picker. Bandcamp and Soulseek can use different ones. Each folder has an on/off switch, so it can be paused without being removed.
+- Adding, removing or switching off a folder takes effect at once, with no restart.
+- A folder is refused, with a plain message, if it does not exist or cannot be read, if it is the library root, staging or archive or lies inside or contains one of them, or if it lies inside or contains another download folder.
+- A folder that cannot be reached (an unplugged drive, a network share that is down) is marked offline and kept in the list. It is picked up again when it returns.
+- Adding a folder lists what is already in it and stages nothing. Only releases that arrive afterwards are staged on their own. "Import existing" brings in what was already there.
+- openCrate only reads a download folder. It copies releases into staging and never moves, renames or deletes the originals.
+- With no download folder set, nothing is watched and the Import screen shows an empty state with a button that opens the picker.
 
 ## State of an import item
 

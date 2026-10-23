@@ -2,6 +2,15 @@
 
 What will be built, in what order, and how each step is judged. The decisions are in the [Game Plan](<../DJ Library Manager — Game Plan.md>). This file turns them into milestones. It is a proposal for the owner and a reviewer to challenge; the order and the cut lines are open (see "Questions for the review").
 
+[Decision 0009](decisions/0009-reduced-foundation-and-recovery.md) accepts a
+reduced first slice of milestone 0. Its lifecycle and codec code pass locally.
+[Decision 0010](decisions/0010-synthetic-interface-shell.md) brings the synthetic
+visual part of 0e ahead of 0d; that sub-slice is built locally, not full milestone
+0. Rust/frontend CI are configured, not remotely run. The remaining boundaries
+below still apply.
+Milestones 1-9 retain their scope and order. Neither review's full sequence has
+been adopted, and the review gates below still apply.
+
 ## Principles
 
 1. **Every milestone ends with something the owner can try on the Windows desktop.** Nothing is "done" because it compiles on the Mac.
@@ -25,26 +34,112 @@ What will be built, in what order, and how each step is judged. The decisions ar
 | 8 | Dedupe and upgrades | Duplicates found, better copies replace old ones, old ones are archived | 4, 5 |
 | 9 | Installers, onboarding and user docs | Another DJ can install it, set it up and use it | all |
 
-Each milestone is sized to fit the owner's two-to-five-week window. Split one that does not.
+The two-to-five-week window is a planning target, not a measured estimate.
+Estimate each remaining slice and give it a defer/split condition before
+scheduling. Split work that cannot fit.
 
 ### 0. Foundation and Windows CI
 
-Scope
-- Cargo workspace: `oc-core-db`, `oc-ingest`, `oc-identify`, `oc-dedupe`, `oc-convert`, `oc-tag`, `oc-organize`, `oc-rekordbox`, `oc-player` and the Tauri app. Crates not yet needed are empty with a purpose line.
-- `oc-core-db`: schema version 1 from [data-model](design/data-model.md), migrations with a snapshot first, WAL, one writer and a read pool, FTS5, windowed reads, a synthetic library generator, and a benchmark.
-- `oc-organize`: the sanitizer, the path template engine, the 260-character rule, an atomic move, a copy-verify move, and the archive move.
-- `oc-identify`: parsing of folder and file names (format tokens, track numbers, version and remixer) and the claim scorer.
-- `oc-ingest`: the stability tracker.
-- The interface shell from [interface](design/interface.md) on mock data: tokens, sidebar, search, virtualized track list, release grid, player bar.
-- CI on Windows and macOS: format, clippy, tests, type check, build. An unsigned Windows installer per run.
+Build only crates that a slice needs. The workspace currently has `oc-core-db`,
+`oc-rekordbox` and the Tauri host `opencrate-desktop`. Default members are the
+two library crates; `--workspace` includes the host. The planned boundaries
+remain `oc-core-db`, `oc-ingest`, `oc-identify`, `oc-dedupe`, `oc-convert`,
+`oc-tag`, `oc-organize`, `oc-rekordbox` and `oc-player`, plus Tauri.
 
-Not in this milestone: scanning real files, any network, any audio.
+| Slice | Status and boundary | Acceptance still needed |
+| --- | --- | --- |
+| 0a. Database lifecycle | Done locally: v1 `app_state` only, cooperative directory ownership, app-ID/version checks, WAL FULL, read-only connections, clean/dirty marker, online backups and no-clobber restore | Hosted Windows/macOS results; application shutdown/worker integration belongs to later slices |
+| 0b. Location codec | Done locally: one-pass percent decoding to lossless bytes, with malformed escapes/NUL/prefix refusal | Hosted Windows/macOS results; matching/root mapping is not this slice |
+| 0c. Rust validation | Configured Windows/macOS workflow builds the frontend first, then fmt, strict clippy, workspace tests and build; local checks include Tauri | Actual hosted runs, platform failures resolved and results recorded |
+| 0d. Read-only library/query workload | Built locally, provisional (overnight run): library, mirror and catalog migrations (schema v4), FTS5 search, windowed API with a cached reader, writer thread, reader pool, synthetic generator and benchmark ([research 008](research/008-library-query-benchmark.md)); also the scanner walk, tag reading and rekordbox mirror | Defined identity/availability fixtures, versioned migration/restore tests, deterministic windows/totals, first/deep/filtered queries on 100,000 synthetic tracks; command, hardware and dataset recorded |
+| 0e. Shell and Windows artifact | Visual sub-slice built locally under 0010, and since then connected to the Rust library through Tauri commands, opt-in (`OPENCRATE_DATA` / `OPENCRATE_DEMO`): folders, scans, rekordbox sync, playlists, offline banner; macOS development bundle built and launched (liveness only) | Native UI readiness, hosted CI, Windows NSIS build/install and owner smoke check; later database/IPC/render instrumentation. The shell does not use core-db or implement 0d |
+| 0f. Pure pipeline helpers | Partly built: `oc-organize` (sanitizer, templates, Windows path fitting, title and version parsing, 27 tests). `oc-ingest` (partial-name filter, stability tracker, release grouping, read-only lister, 29 tests). Not built: name scorer (needs the identity/scoring contracts), the watcher; no production library mutation | Synthetic cross-platform fixtures and resolved identity/scoring contracts. Mutation helpers cannot be accepted before the R1 recovery/publication gate |
 
-Acceptance
-- Tests and clippy are clean on both OSes in CI, including Windows-style path fixtures run on macOS.
-- The 100,000-track benchmark meets the database budgets in decision 0004, and the numbers are in a research note.
-- The mock list scrolls 100,000 rows at 60 fps in the measurement script.
-- The owner installs the Windows build and the shell opens.
+Local evidence is in [research 003](research/003-reduced-foundation-validation.md),
+[004](research/004-synthetic-interface-validation.md) and later notes; current
+counts and what each check could not observe are in [HANDOFF](HANDOFF.md) and
+[LOG](LOG.md). Format, strict clippy and workspace check pass; the Tauri
+development bundle compiles and launches.
+
+Using `npx -y -p node@24 -p npm@11 npm <...>`, `npm ci`, `npm run build`,
+`npm test` (12 tests in three files) and `npm run test:browser` (nine Chromium
+tests) passed. Node 24/npm, React 19, Vite 7, TypeScript 5.9, TanStack Virtual 3
+and plain CSS are implemented. Vitest 5 replaced the newly added v3 graph after
+audit warnings; the current install reports zero findings.
+
+Research 004 records the latest browser-demo workload and measurement limits.
+It is not a SQLite/windowed-IPC benchmark or Windows evidence. Only appearance
+persists in localStorage; filesystem pickers, importing, XML and audio are not
+connected. The macOS app's three-second executable check proves process
+liveness, not native rendering or responsiveness.
+
+Lifecycle limits: local storage is a caller contract, not network detection.
+Snapshots use SQLite's online backup API before upgrades of existing schemas;
+initial creation from version 0 has no snapshot. Restore writes only into an
+unused local app directory and refuses existing databases and orphan journals.
+There is no retention or scheduling. The current synchronous owner is not a
+background writer, and independent read-only connections are not a pool.
+
+Remaining milestone-0 acceptance:
+
+- Tests and strict clippy pass in hosted Windows/macOS CI, including portable
+  Windows-style fixtures. Local checks alone do not finish the milestone.
+- Before library migrations or matching, settle the path and state contracts.
+  [Data-model](design/data-model.md) is a future sketch, not the shipped v1.
+- Define backend, IPC and render allocations within decision 0004's
+  user-visible budgets; it does not yet define separate database budgets.
+  Record the synthetic 100,000-track benchmark and a real IPC list/search
+  baseline. No unmeasured performance claim is acceptance.
+- Browser synthetic scrolling/search and stale-result checks now have named
+  evidence in research 004. Keep the 60 fps target and end-to-end application
+  measurement open; this browser workload alone does not prove the budget.
+- The owner installs the Windows shell and it opens. Linux frontend checks and
+  an on-demand unsigned Windows NSIS build are configured in `frontend.yml`,
+  not run. Both hosted workflows and owner installation still need evidence.
+- Pure helpers pass synthetic fixtures. Atomic move, copy-verify and archive
+  helpers remain gated on a durable operation/recovery contract and failure
+  injection before they can be called complete.
+
+Not in this milestone: scanning real files, provider/network features or audio.
+The player bar is a shell. No real library or export is needed for this work.
+
+#### Next safe checkpoint: standalone XML parser
+
+Not started at the reconciled shell endpoint. Stage a read-only parser in
+`oc-rekordbox` using synthetic XML fixtures only. Define its bounded API,
+malformed-input checks, estimate and defer/split condition before coding.
+This is parser groundwork for milestone 2, not a change to milestones 1-9 or
+acceptance of that milestone. No path matching, root mapping, mirror database,
+UI/native picker, live rekordbox access or private export reading belongs here.
+Keep R3/R7 ahead of indexing/matching and all mutation gates unchanged.
+
+#### Review gates before later work
+
+These gates qualify the later scopes; they do not silently change product policy.
+See the [GPT review](../plan_review_gpt6.md) and [Opus review](../plan_review_opus.md).
+
+- **R3/R7, before schema, scanner or matching acceptance:** filesystem identity,
+  raw paths, volume case/Unicode semantics, explicit root mapping, containment,
+  and distinct lifecycle/availability/match states. The byte codec does not
+  resolve R3.
+- **R1, before any mutation helper or milestone 4 filing** (file side built in `oc-publish` with fault injection and a SQLite
+  store in `oc-core-db`; release-level grouping and the no-hard-link fallback are not): a durable operation
+  record and restart protocol spanning file and database changes; no-clobber
+  publication; destination-volume staging outside the synced subtree; crash
+  tests before and after each side effect.
+- **R5/R6 and Opus 7-9, before automation:** signal provenance, unknown-version
+  policy, conflict handling, held-out labels, durable download baselines and
+  archive/loose-file completeness rules.
+- **R4/R8, before milestone 5:** exported is not confirmed imported. Define
+  freeze/confirmation/source identity and a consistent external database-copy
+  contract. The app's own online backups do not implement that contract.
+- **R2/R9 and Opus 11-12, before conversion/upgrades:** owner decisions on
+  conversion compatibility and existing-library/synced upgrades; per-volume
+  space/recovery tests and cue alignment. Copy-only read-back does not authorize
+  live rekordbox writes. No write mode or replacement policy is selected here.
+- **R10-R13:** dependency and packaging validation, supported platforms,
+  end-to-end performance, provider privacy/retry contracts and realistic
+  estimates remain open at their relevant milestones.
 
 ### 1. Index in place and library views
 
@@ -83,11 +178,12 @@ Acceptance
 ### 3. Import pipeline, dry run
 
 Scope
-- Watch folders, stability tracking, staging, identification from local signals only (tags, folder and file names, MusicBrainz IDs already in tags), scoring, and the review queue UI grouped by release.
+- Download folders as a setting: one or more, chosen with the folder picker, validated, switched on and off in Settings with no restart ([import-pipeline](design/import-pipeline.md)). Then watching, stability tracking, staging, identification from local signals only (tags, folder and file names, MusicBrainz IDs already in tags), scoring, and the review queue UI grouped by release.
 - A plan view: for every file, the proposed destination and tag changes.
 - Nothing is moved into the library.
 
 Acceptance
+- A download folder added in Settings is watched at once. One that is the library root, staging or archive, or nested with another, is refused. The originals in a download folder are never changed (checked by hash).
 - On a hand-checked set of about 200 downloads, no wrong auto-file, with coverage reported.
 - Re-running is idempotent. Killing the app mid-run and restarting resumes.
 - The proposed paths follow the template and the 260-character rule.
@@ -146,7 +242,7 @@ Acceptance
 ### 9. Installers, onboarding and user docs
 
 Scope
-- Windows and macOS installers, first-run setup (library root, watch folders, the rekordbox export file), user documentation, an accessibility pass, and the performance gate in CI.
+- Windows and macOS installers, first-run setup (library root, download folders, the rekordbox export file), user documentation, an accessibility pass, and the performance gate in CI.
 
 Release gates
 - Every budget in decision 0004 met on the 100,000-track benchmark and on the owner's real library.
@@ -174,7 +270,7 @@ Release gates
 | Windows 260-character path limit | Files that cannot be opened or synced | Enforced in `organize`, shown in the plan, long-path detection | 0, 3 |
 | The sync tool copies half-written files or a live database | Corruption on the NAS | Staging and database outside the synced folder, atomic renames | 3, 4 |
 | A sync tool that mirrors deletes and moves | Loss on both sides | Archive instead of delete, nothing moves in the existing library | 4, 8 |
-| CI minutes on a private repository are limited, and macOS runs count for more | CI cost or queueing | Run the Windows job on every push and the macOS job on pull requests. Check the plan's minutes | 0 |
+| CI minutes on a private repository are limited, and macOS runs count for more | CI cost or queueing | Current Rust workflow runs both OSes on push, pull request and manual dispatch. Measure usage and check the account's allowance before changing triggers | 0 |
 | rbxport crates are GPL-2.0-or-later | License mismatch | GPL-3.0-or-later is compatible; confirm per crate when reusing | 5 |
 | ffmpeg license and LAME | Cannot ship | Check the build's configuration and license before choosing it | 4 |
 | Fake-lossless false positives | Good files flagged | Flag only, tune on samples before any blocking | 4 |

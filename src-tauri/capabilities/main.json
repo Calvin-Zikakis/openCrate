@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Local UI only; no filesystem, network, shell or plugin permissions. The app's own library commands are open to the local origin and refused to any other.",
+  "windows": ["main"],
+  "permissions": []
+}

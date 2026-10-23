@@ -1,0 +1,16 @@
+[package]
+name = "oc-rekordbox"
+description = "Read-only rekordbox interoperability for openCrate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+percent-encoding.workspace = true
+thiserror.workspace = true
+quick-xml.workspace = true
+
+[lints]
+workspace = true

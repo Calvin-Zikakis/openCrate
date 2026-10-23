@@ -1,7 +1,13 @@
 # Assumptions
 
-Calls made on 2026-10-22 that the game plan did not settle. A1 to A30 were made while the owner was away; A31 to A47 build on the owner's answers and files. A28 to A32 and A43 are withdrawn and stay in the table so the numbering holds.
-Every item is open until the owner confirms or changes it. "If wrong" says what to touch.
+Calls recorded on 2026-10-22. A1 to A30 were made while the owner was away;
+A31 to A50 include the owner's choices and later planning calls. A51 to A54
+record the reduced foundation under decision 0009. A55 to A57 record the
+synthetic shell under decision 0010. A58 to A64 record the in-progress standalone
+XML parser contract under decision 0011, not verified implementation. A28 to
+A32 and A43 are withdrawn and stay in the table so the numbering holds.
+Owner-confirmed choices remain in force; other calls are open until confirmed
+or changed. These are not all implemented features. "If wrong" says what to touch.
 Add a new item here whenever a call is made that the plan does not cover.
 
 ## Naming and licensing
@@ -16,37 +22,37 @@ Add a new item here whenever a call is made that the plan does not cover.
 
 | ID | Assumption | Why | If wrong |
 | --- | --- | --- | --- |
-| A4 | npm, not pnpm | pnpm is not installed on this Mac and npm ships with Node. rbxport uses pnpm through `npx --yes pnpm@10.17.1` | Delete `package-lock.json`, run `pnpm import`, and set `packageManager` |
-| A5 | Frontend unit tests run in the `node` environment with no DOM | Node 26 is installed, and rbxport has 15 DOM tests that fail under Node 26 (`localStorage`, React `act`) | Add jsdom tests once Node 24 is pinned |
-| A6 | Rust is pinned to 1.99.0 with clippy and rustfmt, and `rust-version` is 1.89 | Both match rbxport, and 1.99.0 is already installed with those components | Edit `rust-toolchain.toml` and the workspace `rust-version` |
+| A4 | Node 24 and npm, not pnpm; `.nvmrc` selects 24, the engine range is `>=24 <25`, and `package-lock.json` is used with `npm ci` | Decision 0010 selects the shell toolchain. Local evidence used Node 24.22.1/npm 11.21.1, not global Node 26 | Change the toolchain and lockfile deliberately, then revalidate |
+| A5 | Vitest 5 unit tests run in the `node` environment; actual DOM behavior is tested separately with Playwright Chromium | Twelve unit tests in three files and nine browser tests pass locally. The newly added Vitest 3 graph had audit warnings; the deliberate move to Vitest 5 now reports zero findings | Revalidate test environments and dependencies; do not treat Node unit tests as DOM coverage |
+| A6 | Rust is pinned to 1.99.0 with clippy and rustfmt, and workspace `rust-version` is 1.99 | Matches the implemented manifest and locally validated toolchain. The owner lock uses `std::fs::File::try_lock`, not an added lock crate | Edit `rust-toolchain.toml` and the workspace `rust-version`, then validate deliberately |
 | A7 | Lints follow rbxport, trimmed: `unsafe_code` denied; `unwrap`, `expect`, `panic`, `dbg!` and `print_stdout` denied outside tests; clippy `pedantic` as warnings | They are the owner's own standard, and "nothing may panic across the IPC boundary" applies here too | Edit `[workspace.lints]` |
-| A8 | Frontend majors mirror rbxport: React 19, Vite 7, TypeScript 5.9, TanStack Virtual 3 | They are known to work together on this machine | Bump deliberately, in their own change |
-| A9 | Commits and pushes happen only when the owner asks or has just said to do them. The owner has now said to commit and push (A47) | rbxport's handoff says to ask before committing work the owner has not reviewed | Tell the agent to stop committing |
-| A10 | The app icon will be a generated placeholder (planned; `src-tauri` does not exist yet) | Tauri will not build without icons | Replace `src-tauri/icons/` (run `npx tauri icon <1024px png>`) |
+| A8 | The shell implements React 19, Vite 7, TypeScript 5.9, TanStack Virtual 3 and plain CSS | Decision 0010; manifests, production build and browser tests now provide local evidence | Bump deliberately, in their own change |
+| A9 | Commits and pushes happen only when the owner asks or has just said to do them. A47 records an earlier authorization, not permission for this continuation | Preserve uncommitted work until the owner authorizes publishing it | Ask for fresh authorization |
+| A10 | The Tauri host uses desktop icons generated from the original `src-tauri/icon.svg`; no mobile icons are retained | The local macOS development bundle uses these placeholders, not third-party artwork | Replace the source and regenerate desktop icons before release |
 
 ## Product
 
 | ID | Assumption | Why | If wrong |
 | --- | --- | --- | --- |
-| A11 | The first milestone is a foundation, not a feature: workspace, shell, database, pure naming and identification logic, and a mock-data UI. The order of later milestones is in [BUILD-PLAN](BUILD-PLAN.md) | The plan lists no milestones | Reorder BUILD-PLAN |
+| A11 | The reduced lifecycle/Location foundation and synthetic visual sub-slice are built locally. Decision 0010 brings the mock shell ahead of filesystem-backed queries, not the whole of milestone 0. Library schema/SQLite queries, database workers/pooling, Windows validation and end-to-end benchmarks remain later; milestones 1-9 keep their scope and order | [0009](decisions/0009-reduced-foundation-and-recovery.md) and [0010](decisions/0010-synthetic-interface-shell.md); see [BUILD-PLAN](BUILD-PLAN.md) | Reorder remaining slices explicitly; do not treat browser measurements as database or Windows acceptance |
 | A12 | Default path template is `{folder_artist}/{release}/{track:02} - {artist} - {title}`, where `title` includes the version and `folder_artist` is the remixer, else the album artist, else the artist | The plan fixes Artist/Release/Track and the remixer rule but not file names. The owner's tidier files already use `NN - Artist - Title` ([research 002](research/002-owner-data-shapes.md)). Putting the artist in the file name keeps a remix identifiable when it sits in the remixer's folder | Change `DEFAULT_TEMPLATE` in `oc-organize` |
 | A13 | When comparing claims, no version means "Original Mix". "Original Mix" and "Extended Mix" stay different | The plan says version is part of identity. Bandcamp titles carry no version while Beatport titles say "Original Mix" | Edit `oc-identify`'s `normalize_version` |
 | A14 | Auto-file needs artist, title and version each agreed by at least two different signal sources, with no source disagreeing | The plan says "at least two independent signals" and "start strict" | Edit `Policy` in `oc-identify` |
 | A15 | Names are sanitized to the strictest rules of both OSes on every host, with each path component capped at 100 characters and 240 bytes, and the whole path kept under 260 characters on Windows unless long paths are available | The plan requires identical behavior on macOS and Windows, and the owner is on Windows | Edit the limits in `oc-organize` |
-| A16 | Dark theme only, a warm orange accent, the system font stack. The layout and feel follow Spotify, not its colors, logo or fonts | "Think Spotify UI", without borrowing a brand | Edit the tokens in `src/styles/tokens.css` |
-| A17 | The player bar, waveform and cue markers in the UI are a visual shell with mock data. No audio plays | The player is milestone work (decode, peaks, cue read-back) | Not applicable until the player milestone |
+| A16 | Dark theme only, a warm orange accent, the system font stack. The layout and feel follow Spotify, not its colors, logo or fonts | "Think Spotify UI", without borrowing a brand | Edit the tokens in `src/styles.css` |
+| A17 | The player bar is a disabled visual shell with synthetic details and a decorative waveform. No audio plays and no real cue markers are loaded | The player is milestone work (decode, peaks, cue read-back) | Not applicable until the player milestone |
 
 ## Data and storage
 
 | ID | Assumption | Why | If wrong |
 | --- | --- | --- | --- |
 | A18 | `oc-core-db` uses plain `bundled` SQLite for now, and moves to the SQLCipher build when `oc-rekordbox` links `rbl-db` | Avoids compiling OpenSSL from source before it is needed. Cargo builds one SQLite per binary | Change the `rusqlite` feature in the workspace `Cargo.toml` |
-| A19 | The app database always lives in the local app data directory. Only library roots may be remote | SQLite's WAL mode does not work over a network filesystem | Not recommended |
-| A20 | Development uses synthetic data and temp directories only. `OPENCRATE_DEMO=<count>` opens a separate demo database seeded with fake tracks | The owner's NAS, Navidrome and rekordbox libraries must never be touched by tests or experiments | Remove the demo mode |
-| A21 | `bpm` and `musical_key` columns exist but stay empty until the `rekordbox` read-back fills them | The plan says rekordbox analyzes and the app reads it back | Drop the columns in a migration |
+| A19 | The app database must live in a private local app-data directory outside synced folders. Only library roots may be remote. This is a caller contract; the lifecycle crate does not detect network filesystems | SQLite's WAL mode does not work over a network filesystem | Revisit storage validation before application integration |
+| A20 | Development uses synthetic data and temp directories only. The current shell has an in-memory worker catalog, not a seeded database. A future `OPENCRATE_DEMO=<count>` database mode is not implemented | The owner's NAS, Navidrome and rekordbox libraries must never be touched by tests or experiments | Revise the proposed demo interface |
+| A21 | The future library schema includes `bpm` and `musical_key`, initially empty until the `rekordbox` read-back fills them. Neither column exists in lifecycle schema v1 | The plan says rekordbox analyzes and the app reads it back | Revise the future migration |
 | A22 | No dependency on `~/repositories/rbxport-beat-analysis` yet | A path dependency on a sibling folder breaks every other clone. Vendoring, a submodule or a git dependency is a decision for the `rekordbox` milestone | Decide in HANDOFF "Open decisions" |
 | A23 | beets and MiniMediaScanner are references, not dependencies, and the MiniMediaScanner datasets are not used | See [research note 001](research/001-tag-lookup-options.md) and [decision 0002](decisions/0002-metadata-lookup-strategy.md) | Reopen decision 0002 |
-| A24 | Download folders (Bandcamp, Soulseek) are on the owner's Windows desktop, and the library root is a folder on a local drive (G: in the rekordbox export) | The owner says the music lives only on the desktop | Tell me where downloads land. If they are on another machine, `ingest` has to poll |
+| A24 | Download folders (Bandcamp, Soulseek) are on the owner's Windows desktop, and the library root is a folder on a local drive (G: in the rekordbox export) | The owner says the music lives only on the desktop. Which folders is now a setting (A48), so the exact location no longer matters to the plan | If downloads are on another machine, `ingest` has to poll |
 | A25 | The track counts for 500 GB assume six-minute tracks, with AIFF at 16-bit 44.1 kHz and MP3 at 320 kbps | An estimate to size the database question, not a measurement of the owner's library | Replace with the real count from the first index |
 | A26 | The NAS copy mirrors the library, so a move or delete in the library is a move or delete there (QSync syncs both ways, A33), and Navidrome may lose history when files move. This is a risk, not a fact | Not verified. It is why nothing moves in the existing library and replaced files are archived | Read Navidrome's Persistent IDs page before any import writes into a folder it indexes |
 | A27 | Research relied on pages fetched on 2026-10-22 (vendor documentation and repository pages). Limits and prices can change | Nothing was tested against the live services | Re-check before building a provider |
@@ -75,14 +81,110 @@ Add a new item here whenever a call is made that the plan does not cover.
 | A45 | The experimental reader only ever opens a copy of `master.db`, never the live file, and treats it as read-only | The rule is never to touch the owner's rekordbox library. rbxport's own tooling copies first as well | Not applicable |
 | A46 | The XML export file is chosen by the owner in settings and re-read on request. openCrate notices when its modified time changes but never exports on the owner's behalf | rekordbox cannot be asked from outside, so exporting stays a manual step in rekordbox | Add a reminder in the interface |
 | A47 | Commits are authored with the owner's configured git identity (the GitHub no-reply address) | The owner told me to commit and push | Rewrite history before the repository is shared |
+| A48 | The download folders are a setting: one or more, each chosen with the folder picker and switched on or off, changed at any time with no restart. None is set by default, and the Import screen offers to choose one | The owner asked to set the download folder in Settings. Several, because Bandcamp and Soulseek tend to use different folders | Restrict to one folder in Settings |
+| A49 | Adding a download folder lists what is already in it and stages nothing. Only releases that arrive afterwards are staged on their own, and "Import existing" brings in the rest | A new folder may hold years of downloads, and copying them all unasked could fill the disk | Stage everything on add |
+| A50 | openCrate only reads a download folder. It copies into staging and never moves, renames or deletes the originals in v1 | The owner's download folders are not to be touched while the app is young. Cleaning up originals can come later | Add an opt-in "remove originals after filing" setting |
 
-## Questions for the owner
+## Foundation implementation calls
 
-1. Where do Bandcamp and Soulseek downloads land on the desktop?
-2. Should every newly filed track go into rekordbox automatically (by an XML you import), or only when you ask?
-3. Which ID3 version should the `tag` crate write (2.3 or 2.4)? rekordbox needs testing.
-4. Final product name and bundle identifier?
-5. For the rbxport crates, which the experimental `master.db` option needs: vendor them, add a submodule, or depend on a git URL?
-6. Light theme later? Is the orange accent right?
-7. pnpm or npm?
-8. Can your Windows install enable long paths, or should the 260-character limit be treated as hard?
+| ID | Assumption | Why | If wrong |
+| --- | --- | --- | --- |
+| A51 | Build a reduced database/Location/CI slice first; create other crates when needed | Both reviews flag milestone 0 as oversized; see decision 0009 | Reorder the remaining foundation slices |
+| A52 | SQLite's online backup API replaces `VACUUM INTO`; restore writes a new file only | Consistent WAL-aware copies, native filesystem paths, no overwrite of recovery material | Change the backup implementation and recovery tests |
+| A53 | Explicit close marks the database clean; dropped/crashed owners leave a dirty marker; a cooperative OS lock prevents another owner | A destructor cannot reliably report shutdown errors | Revisit the application shutdown integration |
+| A54 | Version 1 contains lifecycle state only; library and matching tables wait for their path/state contracts | Avoid making the reviewed speculative schema persistent | Add versioned migrations as each feature lands |
+| A55 | Build the synthetic visual slice before the filesystem-backed query slice | The user wants continued work and the mock API does not depend on unresolved path identity; decision 0010 | Reorder the next foundation slices |
+| A56 | Pin Node major 24 and use npm; test browser DOM behavior with Playwright Chromium | Decision 0010 avoids the unverified Node 26 DOM-test risk; see A4/A5 for implemented tools and evidence | Change toolchain and lockfile deliberately |
+| A57 | Remember appearance only in local browser storage; show failures explicitly; no real folder settings until native indexing exists | A demo must not imply that it can import or play music. Only compact rows and reduced motion persist; the UI has no core-db connection | Integrate app settings when their features land |
+
+## Standalone XML parser calls: in progress
+
+These calls record the parent's supplied contract in
+[decision 0011](decisions/0011-read-only-xml-parser.md). Code inspection and
+test reconciliation wait for the parent's ready signal.
+
+| ID | Assumption | Why | If wrong |
+| --- | --- | --- | --- |
+| A58 | Build only a standalone read-only XML parser next, using synthetic fixtures; no file I/O, matching, database, UI, writer, `master.db`, import or playback | Parser groundwork can proceed without deciding path identity or availability. Private research 002 counts inform capacity only; no real XML is opened | Split integration into a later decision; do not broaden the slice silently |
+| A59 | Use `quick-xml` with a public `BufRead` reader that returns a complete typed document or an error only after valid EOF | A malformed or truncated document must not publish partial mirror data; streaming input still retains the complete output | Revisit the public API and completion tests before integration |
+| A60 | Keep typed core fields and complete metadata attribute maps for root/product, collection tracks, cues and tempo points; optional known attributes remain `None` when absent | Less common metadata, cue names/types/numbers/colors and beat-grid attributes must not be silently discarded or replaced with defaults | Revise types and preservation tests explicitly |
+| A61 | Represent decimal times as finite, nonnegative `f64` seconds, without millisecond truncation or assumed sample alignment | XML timing is not proof of alignment to decoded audio | Decide playback/conversion alignment separately; change parser types only with fidelity tests |
+| A62 | Keep original XML-unescaped `Location` text and losslessly decoded bytes; raw XML attributes require valid UTF-8, but percent-escaped path bytes need not decode to text; invalid/unusable Locations fail the document | Prevent lossy path matching and silent track omission; decoding alone does not establish filesystem identity | Revisit parser/decoder error policy before matching; never substitute lossy text |
+| A63 | Numeric collection `TrackID` is source-scoped; ordered playlists use numeric `Key` with `KeyType="0"` only, preserve duplicate refs and explicitly retain unresolved IDs | An absent collection ID is not a missing file. Reject duplicate collection IDs, declared count mismatches, malformed numerics, nested tracks and invalid shape | Revisit reference types and validation, not filesystem availability states |
+| A64 | Start with limits of 128 MiB input, 1,000,000 collection tracks, 1,000,000 playlist refs and XML depth 128 for all elements; reject DTDs and unsupported entities; skip unknown elements only as validated, bounded subtrees | Bound hostile or oversized input without turning unknown content into a catch-all success. These limits are not measured capacity claims | Parent reports necessary adjustments; update the contract and boundary tests with actual evidence |
+
+A55-A64 are implementation calls, not new unanswered owner questions. Decision
+0011 narrows existing XML-first work; it does not change product policy.
+The Location decoder, synthetic worker and parser contract do not settle
+filesystem identity (R3) or availability states (R7). Review gates
+for upgrades, conversion, identification and publication remain open; see
+[HANDOFF](HANDOFF.md#5-unresolved-review-gates). A13-A15 and the other challenged
+planning assumptions have not been silently replaced by review recommendations.
+
+## Owner-lock release (decision 0012)
+
+| ID | Assumption | Why | If wrong |
+| --- | --- | --- | --- |
+| A65 | The directory lock lives exactly as long as the owning `Database` or `restore` call and is released by an explicit unlock on drop, never by relying on the descriptor closing | Research 006 shows a child spawned by another thread keeps a lock alive after the owner closes it, which made two tests fail in 24 of 100 runs. Serial tests and retries were rejected as masking | Revisit [0012](decisions/0012-explicit-owner-lock-release.md) with new measurements |
+| A66 | Explicit unlock with a duplicated handle also releases the lock on Windows and Linux; the regression tests will pass there | Rust's `File::unlock` is cross-platform, but only macOS was run | A failing regression test on a hosted or Windows run is a finding to investigate, not a test to skip |
+
+## Filesystem identity and availability (decision 0013, proposed)
+
+Provisional: written for the owner's overnight run and not yet reviewed.
+
+| ID | Assumption | Why | If wrong |
+| --- | --- | --- | --- |
+| A67 | Raw path bytes are stored, as root plus NUL-joined components (WTF-8 on Windows); the lookup key is derived, per root, and never coarser than the volume. Unknown means `exact` | R3. A false match attaches the wrong cues; a missed match is visible and recoverable | Revisit [0013](decisions/0013-filesystem-identity-and-availability.md) before the migration |
+| A68 | Volumes are probed read-only: OS volume query, else `lstat` of case or normalization variants of existing entries. Nothing is created in a library root | The library is synced; probe files would be mirrored to the NAS | Probe in a temporary directory on the same volume only with the owner's approval |
+| A69 | Initial profiles are `exact`, `fold_case` (ASCII only) and `fold_case_normalized` (NFC then ASCII fold). Wider folding needs fixtures from a real volume of that family | Research 007: APFS equates far more than a simple fold, so a wide fold risks the opposite error on other volumes | Add a profile with fixtures; never silently widen |
+| A70 | A key collision demotes the root to `exact` and rekeys it in one transaction; nothing is dropped | A collision proves the profile was too coarse for that directory | Ask the owner on first occurrence instead |
+| A71 | A rekordbox Location maps to a root through explicit aliases (whole-component longest prefix); the root's own path is always an alias; old aliases survive a path change; the app suggests aliases from unmatched prefixes but the owner accepts them | A changed root path cannot explain an old drive prefix in an export (R3) | Auto-accept above a threshold, with the owner's approval |
+| A72 | Symbolic links, junctions and reparse points are neither followed nor indexed; they are counted and reported | Containment through links cannot be proven cheaply (R3). Owner question 8 | Index through links within the same root only |
+| A73 | Roots may not overlap, nest, duplicate or alias one another (checked by canonical path and directory token). A volume token, when available, makes a changed volume `unverified` | A letter can point at another drive; an empty mount point looks like deletion | Allow overlaps with explicit precedence |
+| A74 | Offline is derived from the root. A file row has `lifecycle` (staged, active, archived) and `presence` (present, missing). A row becomes missing only under directories enumerated successfully while the root was available, and a pass that would mark 25% of a root (at least 20 files) is held for confirmation. The numbers are unmeasured | R7 and the Opus review | Tune after the first real index |
+| A75 | Match status (`matched`, `unmapped`, `not_indexed`, `ambiguous`, `unrecognized`) is a database computation; on-disk existence is a separate on-demand check. "Not on disk" is claimed only for `absent` on an available root | rekordbox lists deleted files; roots go offline | Revise the Sync screen wording |
+| A76 | A mirror read is one transaction per source with a `generation`; derived BPM and key record source and generation, are cleared when a successful read drops the match, and are shown as stale when older than the current generation | R7: old values must not stay authoritative | Keep values and mark stale only |
+| A77 | Platform name rules (NTFS case-insensitive, no normalization; exFAT and FAT case-insensitive; ext4 exact; SMB server-dependent; Windows per-directory case sensitivity) and how rekordbox writes UNC and compares names are general knowledge, not tested here. Only APFS on macOS 27.0.1 was measured ([research 007](research/007-volume-name-equivalence-probe.md)) | No Windows machine or real export was used | Windows CI and the owner's rekordbox settle these; failing fixtures are findings, not skips |
+| A78 | The shared path logic lives in a new pure crate `oc-paths`, a tenth boundary beyond the Game Plan's nine | Keeps `oc-rekordbox` free of SQLite and gives `oc-core-db` the same key code | Move it into `oc-core-db`; the Game Plan is unchanged until the owner confirms |
+
+## Library queries and IPC (overnight run)
+
+| ID | Assumption | Why | If wrong |
+| --- | --- | --- | --- |
+| A79 | Library search matches word prefixes (FTS5, ignoring case and accents) and requires every term, not the demo's substring match; text with no word characters matches nothing | Prefix search is what an index can answer inside the 50 ms budget; substring needs a trigram index and three or more characters | Add a trigram index and a fallback; research 008 numbers would change |
+| A80 | The UI reads the Rust library only when the desktop app is started with `OPENCRATE_DEMO=<tracks>`; the default stays the in-memory catalog, and the demo database lives in a temporary folder | Keeps the owner's preview unchanged and writes nothing into their app-data folder until a real library flow exists | Make the database the default once roots, picker and import exist |
+| A81 | Artists are a table; the `bpm` sort orders tracks only (releases and artists fall back to title); the format filter means an active file in that container; rows with no tempo sort last | The UI needs artist ids and counts; tempo belongs to tracks | Adjust the sorts and the schema before the library UI is final |
+| A82 | Tag reading uses `lofty` (read-only; cover art skipped) in the planned `oc-tag` crate; the file's container comes from its content, so a mislabeled extension is corrected in the index | Mature, MIT/Apache, many formats; `symphonia` was the alternative. A dependency choice made under the overnight run | Swap the reader behind `read_file`; the rest of the crate is unaffected |
+| A83 | A file with no usable tags is catalogued from its folders and name; with no artist at all, as "Unknown Artist", and with no album as "Unknown Release". Tempo and key are not taken from tags | Everything stays findable; rekordbox owns tempo and key (A21) | Hide such tracks until identified, or add a review queue |
+| A84 | One track per file in this slice; the same recording in two files makes two tracks, and artist and release identity is the case- and accent-folded name | Duplicate and version handling belongs to milestone 8 | Add merge rules before dedupe |
+| A85 | The only way to register a folder from the UI is the native system dialog opened by the Rust side; the page cannot supply a path, and no dialog or filesystem permission is granted to the webview | A compromised page then cannot point the scanner at an arbitrary directory | Add a typed path command with its own validation and a capability |
+| A86 | The app opens a persistent library only when started with `OPENCRATE_DATA=<absolute folder>`; where the real default lives (app-data folder, sync-safe location) is the owner's call | The folder must be private, local and outside any synced folder (A19); detecting that is not built | Choose the default location and add network and sync detection first |
+| A87 | rekordbox read-back is XML only, read through the native file dialog or the stored path; a Location prefix is learned from evidence (which prefix depth makes entries match indexed files) and applied only when the owner presses "Use this"; a failed read keeps the previous mirror | decision 0008 and R3: nothing is guessed silently and the export is never written | Auto-accept above a confidence threshold, with the owner's approval |
+| A88 | Credits move a track to the credited name's folder for Remix, Rework, Bootleg, Flip and Dub; Edit, Re-Edit and VIP stay with the original artist. A group the parser does not recognise stays in the title | The plan only says "remixes"; the Opus review (item 17) asked for this to be written down | Edit `RemixKind::moves_folder` and the corpus in `oc-organize` |
+| A89 | Path budget: 259 UTF-16 units (classic MAX_PATH less the NUL) minus 16 for the temporary suffix, counted over the whole path including the root; long paths raise it to 32,000. Only the file stem is shortened, to at least 8 characters, and the plan must show it | R3 and Opus finding 15: the unit is UTF-16, the limit includes the root, and shortening a stem cannot fix a long root | Make the limit hard or relaxed once Windows long-path behavior is measured (question 7) |
+| A90 | Leading and trailing spaces in a name are trimmed; trailing dots are replaced by `_`; an empty name becomes `_`; a missing template value is an error, not a blank | A36 says never delete forbidden characters; padding is not a character that fuses words | Replace trailing spaces too, or fall back to "Unknown ..." names |
+| A91 | A folder whose recorded directory identity differs is `unverified` and is never scanned until the owner confirms; the database folder is reserved so no library root can contain, equal or lie inside it | A recreated folder or a different drive at the same path must not look like "everything was deleted" (R7), and a database inside a synced library is unsafe (decision 0003) | Compare more evidence (a sample of known files) before asking, or allow the database inside a library with a warning |
+| A92 | A download is finished when its size and modified time are unchanged across 2 sightings spanning 10 seconds, or its own modified time is already 30 seconds old and it has not changed since first seen, and no name in its release looks temporary (`.part`, `.crdownload`, `INCOMPLETE~`, `.download` folders); empty files never count | Bandcamp and Soulseek write under temporary names and rename at the end; a pause in a slow transfer longer than 10 s would be mistaken for the end, so the ready check is only a gate before copying into staging, which verifies again | Measure with real slow transfers on the owner's machine; make the period a setting if 10 s is wrong |
+| A93 | `watch_folder` stores path, label, enabled, online and timestamps, without the `kind` column data-model.md lists | Local, removable and network kinds only matter once polling differs from events; add the column with that slice | Add `kind` when the watcher needs it |
+| A94 | Superseded for folders added from schema v7 on: a release is "already there" when its top-level name was in the folder when it was added (copies keep old modified times, which made fresh copies look old). Folders added earlier: when the newest modified time among its files is at or before the moment the download folder was added; the Import screen polls every 3 seconds while open | Matches the design rule that adding a folder stages nothing and only later arrivals are picked up, without storing a per-file baseline; browsers normally stamp a download with the time it finished, but some Soulseek clients keep the sender's original time, which would wrongly mark a fresh download as old | Check against real downloads on the owner's machine; if wrong, record a baseline of names and sizes when the folder is added |
+| A95 | Publication uses a hard link from a staging folder on the destination volume, outside the synced library; on a volume without hard links it stops with an error rather than copying into place | A hard link is the one no-clobber primitive available through safe, portable Rust, and the staged name never appears inside the synced tree; a copy straight to the final name would show a half-written file to the sync tool and could not refuse a concurrent arrival atomically | Owner decision: what to do on exFAT and some network shares (stage and publish through a rename-without-replace API per platform, or keep the library on a volume with links). Run the tests on Windows NTFS |
+| A96 | Imports stage in `.opencrate-staging`, the music folder's sibling, which must be on the same drive (checked); a music folder that is itself a mount point is refused. Files are filed with their tags unchanged, and join the catalog through a scan of the folder after the import rather than inside the publish transaction | Keeps the staging folder out of the synced tree and on the destination volume (A95) without a new setting; tag writing waits for owner question 2 (ID3 version); a scan reuses the tested catalog path | Make the staging location a setting; write tags in staging; make the catalog change part of `commit_record` |
+| A97 | "Tidy names" (on by default) splits artist and album artist on ";" and joins with ", ", and strips trailing `; , / \\ \| -` and padding from text fields; "+", "&" and "_" are never stripped, and nothing splits on "/" or "&" | The owner's sample folder shows ";" left by another tagger in folder names; "+44", "C++" and "AC/DC" are real names | Add more separators (" feat. ") once real downloads show them |
+| A98 | Converting runs ffmpeg found on `PATH` or in `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`; a file already in the target format is kept; output is 16-bit, or 24-bit when the source is deeper; MP3 is 320 kbps CBR; tags and cover are written by openCrate afterwards, not copied by ffmpeg | Game Plan: ffmpeg sidecar for conversion; the owner asked that files already in the format are not converted | Ship ffmpeg as a sidecar; add the fake-lossless check before converting |
+| A99 | The folder layout is a library setting (`app_setting`), default Artist / Album / Track; changing it affects only later imports | The owner keeps Artist / Album / Track but wants it choosable; moving existing files is a separate, riskier job | Offer to re-file existing music under a new layout |
+| A100 | Tags are written into the staged copy only: every field for a converted file; for a copied file only values it lacks (taken from the file name) or that were tidied, plus the release image if it has no picture. A clean, complete file goes in byte for byte | Keeps the owner's files as they are unless something is visibly missing or wrong, and the preview shows exactly those values | Let the owner turn tag writing off per import |
+| A101 | A release is looked up by the artist (album artist first) and album that most of its files name; a release with neither is not looked up. Suggested values replace the file's own for the fields shown, only for ticked files; genre, key and BPM are never suggested | MusicBrainz has no DJ fields, and the owner decides per file | Add Discogs (genre, style, label catalogue) and AcoustID for files with no usable names |
+| A102 | The fake-lossless check runs on every lossless file in a preview when ffmpeg is present, judges at 44.1 kHz, and only warns: below 19 kHz "probably lossy", 19 to 20.5 kHz "may be lossy". The verdict is not stored in the database yet | Research 009 on synthetic noise; the design says the threshold must be tuned on real files before it can block | Tune on real known-good and known-bad files; store the verdict with the source quality; let it hold a file for review |
+| A103 | Playback uses the default output device in 32-bit float at its own rate, with linear resampling; half a second is decoded ahead; a track is played from its lossless file when it has several; next and previous follow the list the track was played from, not a separate queue | Previewing a track before a set does not need a mixer or a high-quality resampler; a queue is a later choice | Add a queue, gapless playback and a better resampler if listening shows the need |
+
+## Remaining owner questions
+
+1. Should every newly filed track go into rekordbox automatically (by an XML you import), or only when you ask?
+2. Answered 2026-10-23: write ID3v2.3, what most of the owner's files use and what rekordbox reads most reliably.
+3. Final product name and bundle identifier?
+4. For the rbxport crates, which the experimental `master.db` option needs: vendor them, add a submodule, or depend on a git URL?
+5. Light theme later? Is the orange accent right?
+6. Resolved for this shell: npm under decision 0010 (A4/A56). Reopen only by an explicit toolchain decision.
+7. Can your Windows install enable long paths, or should the 260-character limit be treated as hard?
+8. Do any folders in your library sit behind a symbolic link or junction? Decision 0013 would skip them, so their tracks would not be indexed.
+9. Fixing what the Library check finds (an untidy artist folder, a recording filed twice) moves files that rekordbox and the NAS copy refer to by path. Should openCrate relocate them and write an updated rekordbox XML, or only report?

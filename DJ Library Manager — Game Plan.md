@@ -27,19 +27,41 @@ v1 is a free, GPL-3.0 desktop app in Rust + Tauri for macOS and Windows. It turn
 | Existing library | Index in place; nothing moves | Only new imports run the full pipeline. The owner's library mixes naming styles, so it is never renamed |
 | Interface | Spotify-style: dark, artwork first, left sidebar, search on top, player bar at the bottom. No rekordbox-style dense panels | A design system, an artwork cache and virtualized lists are v1 work |
 | Speed | The UI never waits on disk, the network or the database writer. Budgets are enforced by a benchmark | Background workers, windowed IPC, local caches, a 100,000-track benchmark |
-| Database | SQLite stays. It holds metadata only, never audio | WAL, one writer and several readers, FTS5 search, a backup before every migration |
+| Database | SQLite stays. It holds no audio; current schema v1 is lifecycle only | WAL FULL, online snapshots before existing-schema upgrades, none before initial creation; library tables, search and workers follow later |
 | Library location | The library folder on the desktop is the source of truth. The NAS holds a synced copy, and nothing is streamed from it. Network folders stay supported but are not the main case | Library roots plus relative paths, an offline state, staging and archive outside the synced folder |
 | Tag lookup | Local first. Online lookups are per release, cached, and throttled on each user's own connection | Per-provider queues and a response cache; no bundled catalog dump |
 | Time | Nights and weekends, about 10 to 15 hours a week | Milestones sized at 2 to 5 weeks each |
 
+Current implementation includes the reduced lifecycle/Location foundation in
+[decision 0009](docs/decisions/0009-reduced-foundation-and-recovery.md) and the
+synthetic visual sub-slice in [0010](docs/decisions/0010-synthetic-interface-shell.md).
+The workspace has `oc-core-db`, `oc-rekordbox` and a minimal Tauri host for the
+React shell. Decision 0010 allows that mock shell before filesystem indexing;
+it does not complete milestone 0 or change milestones 1-9. Local evidence is
+in [research 003](docs/research/003-reduced-foundation-validation.md) and
+[004](docs/research/004-synthetic-interface-validation.md). Rust/frontend
+workflows are configured, not remotely run; native UI readiness and Windows
+installation remain unverified.
+
+There is no library schema/windowed SQLite API, real database IPC, scanner,
+XML parser, matching, reader pool or background database writer. Browser-demo
+measurements are not an application/database benchmark. The rest of this
+document describes the product plan, not shipped behavior. Live database writes, synced upgrades,
+identity, publication and conversion policy remain review gates. No review is
+closed wholesale and no new write mode or conversion policy is chosen here.
+
 ## Architecture and stack
 
-A Tauri 2 shell hosts a React + TypeScript UI over a Rust workspace with one crate per pipeline stage, all sharing the app's own SQLite database. The app database, not rekordbox, is the source of truth for files, tags and sync state. rekordbox stays the source of truth for playlists, cues and grids.
+Planned architecture: a Tauri 2 shell hosts a React + TypeScript UI over a Rust
+workspace with one crate per pipeline stage. The app database will hold files,
+tags and sync state. rekordbox stays the source of truth for playlists, cues and
+grids. The jobs and dependencies below are future scope except for the lifecycle
+and decoder pieces named above.
 
 | Crate | Job | Key dependencies |
 | --- | --- | --- |
 | `core-db` | Tracks, releases, files, fingerprints, source quality, playlists (a read-only mirror of rekordbox's), sync state, review items, audit log | rusqlite (see Database) |
-| `ingest` | Watch folders, wait until a download stops growing, stage a copy | notify, plus polling for network shares |
+| `ingest` | Watch the download folders set in Settings, wait until a download stops growing, stage a copy | notify, plus polling for network shares |
 | `identify` | Parse names, read tags, fingerprint, look up releases, score confidence | lofty, rusty-chromaprint, reqwest |
 | `dedupe` | Fingerprint index plus version-aware title matching | rusqlite |
 | `convert` | Lossless to AIFF, lossy to MP3, fake-lossless check | ffmpeg sidecar, rustfft |
@@ -58,17 +80,24 @@ SQLite stays. The audio lives in files and the database holds metadata only, so 
 
 The alternatives do not help at this size. A client-server database is a service to install and run on every DJ's laptop. Key-value stores such as LMDB or RocksDB mean rebuilding sorting, filtering and search by hand. DuckDB is built for analytics, not for steady small writes.
 
-What keeps it fast and safe:
+Planned performance architecture and current lifecycle safeguards:
 
 | Concern | Approach |
 | --- | --- |
-| The UI never waits on an import | WAL mode, one writer thread, a pool of read connections |
+| The UI never waits on an import | WAL is implemented; a background writer thread and reader pool are planned. The current synchronous owner must stay off the future UI thread |
 | Long lists | Windowed reads: the list asks for rows start to start+n of a sorted view and the total is known up front, so the scrollbar is exact. The benchmark measures deep offsets; a position index replaces them if they ever exceed budget |
 | Search as you type | An FTS5 index over artist, title, release and label |
 | Hot tables stay small | Waveform peaks and artwork thumbnails live in cache files, not in track rows. Fingerprints get their own table |
-| No lost work | A snapshot (`VACUUM INTO`) before every migration and on a schedule, keeping the last few; an integrity check after an unclean exit; versioned migrations in `user_version` |
-| Rebuildable | Tags are written into the files, so tracks can be re-indexed. Only the review queue, audit log, sync state and aliases exist solely in the database, and those are what the backups protect |
-| Where it lives | The database file is in the app data directory, never in the synced library folder or on a network share. SQLite's WAL mode does not work over a network filesystem, and a sync tool can copy a database in the middle of a write |
+| Recovery | Checked, flushed online backup snapshots before existing-schema upgrades, not initial version-0 creation. Migrations and `user_version` commit together. Dirty reopen checks integrity. Restore writes a new database in an unused local app directory, never overwrites and refuses orphan journals; callers select it explicitly. Scheduling and retention follow later |
+| Rebuildable | Tags allow re-indexing, but backups must also protect review decisions, audit and sync state, aliases, original source quality, selected identifiers and pending operations that tags cannot reconstruct |
+| Where it lives | Callers must choose a private local app-data directory, never the synced library or a network share. The crate does not detect network filesystems. SQLite WAL and concurrent sync copying make those locations unsuitable |
+
+The lifecycle owner uses a cooperative OS file lock, application ID/schema checks
+before opening an existing database for writes, and an explicit clean/dirty
+marker. Dropping without orderly close leaves dirty state. Restore and new
+database creation preserve and refuse orphan journals. These safeguards do not
+implement a library mutation protocol or consistent copying of rekordbox's
+external database.
 
 One constraint from the stack: rbxport's `rbl-db` builds `rusqlite` with `bundled-sqlcipher-vendored-openssl` so it can open rekordbox's `master.db`. Cargo builds one SQLite per binary, so once `rekordbox` links `rbl-db` the app's own database runs on that build too, unencrypted. Until then `core-db` uses plain `bundled`, which avoids building OpenSSL from source.
 
@@ -180,8 +209,8 @@ The order, scope and acceptance checks for each milestone are in [docs/BUILD-PLA
 | --- | --- |
 | [docs/BUILD-PLAN.md](docs/BUILD-PLAN.md) | Milestones, acceptance checks, test strategy, risks, what is out of version 1, and questions for the review |
 | [docs/design/interface.md](docs/design/interface.md) | Screens, layout, visual tokens, behavior rules, and how speed is measured |
-| [docs/design/data-model.md](docs/design/data-model.md) | The database schema and its rules |
+| [docs/design/data-model.md](docs/design/data-model.md) | Implemented lifecycle state and future table design; identity remains unresolved |
 | [docs/design/import-pipeline.md](docs/design/import-pipeline.md) | Stages, states, where files live, and failure handling |
-| [docs/decisions/](docs/decisions/) | One record per decision, 0001 to 0008 |
-| [docs/research/](docs/research/) | Evidence: tag lookup options, and the shapes of the owner's real data |
+| [docs/decisions/](docs/decisions/) | One record per decision, 0001 to 0009 |
+| [docs/research/](docs/research/) | Tag lookup evidence, historical aggregate data shapes and synthetic foundation validation |
 | [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | Every call made without the owner, and the questions waiting |
