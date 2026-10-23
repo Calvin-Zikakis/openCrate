@@ -41,7 +41,34 @@ pub fn read_export(path: &Path) -> Result<ExportRead> {
     })
 }
 
+/// Where a mirror came from: an XML export file, or a copy of rekordbox's own `master.db`
+/// (identified by the live library's path, not the copy's).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceKind {
+    Xml,
+    MasterDb,
+}
+
+impl SourceKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Xml => "xml",
+            Self::MasterDb => "master_db",
+        }
+    }
+
+    fn parse(text: &str) -> Option<Self> {
+        match text {
+            "xml" => Some(Self::Xml),
+            "master_db" => Some(Self::MasterDb),
+            _ => None,
+        }
+    }
+}
+
 pub struct MirrorSource<'a> {
+    pub kind: SourceKind,
     pub path: &'a Path,
     pub file_mtime_ms: Option<i64>,
 }
@@ -67,6 +94,7 @@ pub struct MirrorOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorStatus {
     pub source_id: i64,
+    pub kind: SourceKind,
     pub path_raw: Vec<u8>,
     pub generation: i64,
     pub entries: i64,
@@ -79,11 +107,17 @@ pub struct MirrorStatus {
 pub fn mirror_sources(connection: &Connection) -> Result<Vec<MirrorStatus>> {
     let mut statement = connection.prepare(
         "SELECT id, path_raw, generation, entries, file_mtime_ms, last_read_ms, last_attempt_ms, \
-         last_error FROM rb_source ORDER BY id",
+         last_error, kind FROM rb_source ORDER BY id",
     )?;
     let rows = statement.query_map([], |row| {
+        let kind: String = row.get(8)?;
         Ok(MirrorStatus {
             source_id: row.get(0)?,
+            kind: SourceKind::parse(&kind).ok_or(rusqlite::Error::InvalidColumnType(
+                8,
+                "kind".into(),
+                rusqlite::types::Type::Text,
+            ))?,
             path_raw: row.get(1)?,
             generation: row.get(2)?,
             entries: row.get(3)?,
@@ -344,12 +378,12 @@ impl Database {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute(
-            "INSERT OR IGNORE INTO rb_source (kind, path_raw) VALUES ('xml', ?1)",
-            [&path_raw],
+            "INSERT OR IGNORE INTO rb_source (kind, path_raw) VALUES (?1, ?2)",
+            params![source.kind.as_str(), &path_raw],
         )?;
         let (source_id, generation, old_digest): (i64, i64, Option<i64>) = transaction.query_row(
-            "SELECT id, generation, state_digest FROM rb_source WHERE kind = 'xml' AND path_raw = ?1",
-            [&path_raw],
+            "SELECT id, generation, state_digest FROM rb_source WHERE kind = ?1 AND path_raw = ?2",
+            params![source.kind.as_str(), &path_raw],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
 
@@ -420,6 +454,36 @@ impl Database {
         transaction.commit()?;
         outcome.generation = new_generation;
         Ok(outcome)
+    }
+
+    /// Remove every mirror of the given kinds except `keep`, with the tempo and key they gave to
+    /// tracks. Returns how many sources went. The app shows one rekordbox source at a time.
+    pub fn drop_sources(&mut self, keep: i64, kinds: &[SourceKind]) -> Result<usize> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut doomed = Vec::new();
+        {
+            let mut statement =
+                transaction.prepare("SELECT id, kind FROM rb_source WHERE id <> ?1")?;
+            let rows = statement.query_map([keep], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (id, kind) = row?;
+                if SourceKind::parse(&kind).is_some_and(|kind| kinds.contains(&kind)) {
+                    doomed.push(id);
+                }
+            }
+        }
+        for id in &doomed {
+            for statement in CLEAR_SOURCE {
+                transaction.execute(statement, [id])?;
+            }
+            transaction.execute("DELETE FROM rb_source WHERE id = ?1", [id])?;
+        }
+        transaction.commit()?;
+        Ok(doomed.len())
     }
 
     /// Remember that a read failed. The previous mirror and its generation are untouched.
@@ -606,14 +670,17 @@ pub fn parse_alias(prefix: &str) -> Result<LocationPath> {
 
 /// The path an export was last read from, as an OS path.
 pub fn source_path(connection: &Connection, source_id: i64) -> Result<std::path::PathBuf> {
-    let raw: Vec<u8> = connection
+    let (raw, kind): (Vec<u8>, String) = connection
         .query_row(
-            "SELECT path_raw FROM rb_source WHERE id = ?1",
+            "SELECT path_raw, kind FROM rb_source WHERE id = ?1",
             [source_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?
         .ok_or(Error::UnknownSource(source_id))?;
+    if kind != SourceKind::Xml.as_str() {
+        return Err(Error::NotAnExport(source_id));
+    }
     let os =
         oc_paths::bytes_to_os_string(&raw).map_err(|_| Error::InvalidStoredValue("source path"))?;
     Ok(std::path::PathBuf::from(os))

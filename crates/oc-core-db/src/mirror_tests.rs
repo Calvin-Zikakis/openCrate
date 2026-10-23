@@ -10,7 +10,7 @@ use oc_paths::{Availability, Flavor, LocationPath, NameProfile, RelPath};
 use oc_rekordbox::xml::{self, Collection};
 use tempfile::{tempdir, TempDir};
 
-use crate::mirror::{mirror_sources, read_export, MirrorSource};
+use crate::mirror::{mirror_sources, read_export, source_path, MirrorSource, SourceKind};
 use crate::roots::{NewRoot, ProfileSource, RootKind};
 use crate::scan::{ObservedFile, ScanPass};
 use crate::{Database, Error};
@@ -162,6 +162,7 @@ fn export(first_bpm: &str, with_first: bool) -> Collection {
 
 fn source(mtime: Option<i64>) -> MirrorSource<'static> {
     MirrorSource {
+        kind: SourceKind::Xml,
         path: Path::new(EXPORT_PATH),
         file_mtime_ms: mtime,
     }
@@ -534,6 +535,7 @@ fn a_replacement_that_breaks_halfway_changes_nothing() {
 fn two_exports_are_mirrored_independently() {
     let mut library = library();
     let other = MirrorSource {
+        kind: SourceKind::Xml,
         path: Path::new("/exports/other.xml"),
         file_mtime_ms: None,
     };
@@ -575,6 +577,7 @@ fn a_real_file_is_read_then_mirrored_and_a_bad_one_is_an_error() {
         .database
         .replace_mirror(
             &MirrorSource {
+                kind: SourceKind::Xml,
                 path: &path,
                 file_mtime_ms: read.file_mtime_ms,
             },
@@ -709,6 +712,7 @@ fn when_two_exports_match_the_one_read_last_wins() {
         .replace_mirror(&source(Some(77)), &export("128.00", true), 100)
         .unwrap();
     let second = MirrorSource {
+        kind: SourceKind::Xml,
         path: Path::new("/exports/newer.xml"),
         file_mtime_ms: Some(88),
     };
@@ -720,4 +724,127 @@ fn when_two_exports_match_the_one_read_last_wins() {
         .unwrap()
         .unwrap();
     assert_eq!(analysis.bpm, Some(140.0));
+}
+
+#[test]
+fn a_database_read_takes_over_from_every_other_source() {
+    let mut library = library();
+    let xml = library
+        .database
+        .replace_mirror(&source(None), &export("128.00", true), 100)
+        .unwrap();
+    let database_source = MirrorSource {
+        kind: SourceKind::MasterDb,
+        path: Path::new("/rekordbox/master.db"),
+        file_mtime_ms: None,
+    };
+    let read = library
+        .database
+        .replace_mirror(&database_source, &export("131.00", false), 110)
+        .unwrap();
+    assert_ne!(xml.source_id, read.source_id);
+    assert_eq!(
+        mirror_sources(&library.database.connection).unwrap().len(),
+        2
+    );
+    let dropped = library
+        .database
+        .drop_sources(read.source_id, &[SourceKind::Xml, SourceKind::MasterDb])
+        .unwrap();
+    assert_eq!(dropped, 1);
+    let sources = mirror_sources(&library.database.connection).unwrap();
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].kind, SourceKind::MasterDb);
+    assert_eq!(
+        scalar(
+            &library.database,
+            &format!(
+                "SELECT COUNT(*) FROM rb_track WHERE rb_source_id = {}",
+                xml.source_id
+            )
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &library.database,
+            &format!(
+                "SELECT COUNT(*) FROM track WHERE derived_source_id = {}",
+                xml.source_id
+            )
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            &library.database,
+            &format!(
+                "SELECT COUNT(*) FROM playlist WHERE rb_source_id = {}",
+                xml.source_id
+            )
+        ),
+        0
+    );
+    assert!(scalar(&library.database, "SELECT COUNT(*) FROM playlist") > 0);
+}
+
+#[test]
+fn an_xml_read_drops_only_database_reads() {
+    let mut library = library();
+    let database_source = MirrorSource {
+        kind: SourceKind::MasterDb,
+        path: Path::new("/rekordbox/master.db"),
+        file_mtime_ms: None,
+    };
+    library
+        .database
+        .replace_mirror(&database_source, &export("131.00", false), 100)
+        .unwrap();
+    let other = MirrorSource {
+        kind: SourceKind::Xml,
+        path: Path::new("/exports/other.xml"),
+        file_mtime_ms: None,
+    };
+    library
+        .database
+        .replace_mirror(&other, &export("128.00", false), 105)
+        .unwrap();
+    let xml = library
+        .database
+        .replace_mirror(&source(None), &export("128.00", true), 110)
+        .unwrap();
+    assert_eq!(
+        library
+            .database
+            .drop_sources(xml.source_id, &[SourceKind::MasterDb])
+            .unwrap(),
+        1
+    );
+    let kinds: Vec<SourceKind> = mirror_sources(&library.database.connection)
+        .unwrap()
+        .iter()
+        .map(|source| source.kind)
+        .collect();
+    assert_eq!(kinds, [SourceKind::Xml, SourceKind::Xml]);
+}
+
+#[test]
+fn a_database_read_cannot_be_reread_as_a_file() {
+    let mut library = library();
+    let read = library
+        .database
+        .replace_mirror(
+            &MirrorSource {
+                kind: SourceKind::MasterDb,
+                path: Path::new("/rekordbox/master.db"),
+                file_mtime_ms: None,
+            },
+            &export("131.00", false),
+            100,
+        )
+        .unwrap();
+    assert!(matches!(
+        source_path(&library.database.connection, read.source_id),
+        Err(Error::NotAnExport(id)) if id == read.source_id
+    ));
 }

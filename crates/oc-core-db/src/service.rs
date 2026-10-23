@@ -19,13 +19,14 @@ use crate::downloads::{
 use crate::library::{read_playlists, LibraryPage, LibraryQuery, PlaylistRow};
 use crate::mirror::{
     alias_suggestions, mirrors, parse_alias, read_export, read_track_analysis, source_path,
-    AliasSuggestion, MirrorInfo, MirrorOutcome, MirrorSource, TrackAnalysis,
+    AliasSuggestion, MirrorInfo, MirrorOutcome, MirrorSource, SourceKind, TrackAnalysis,
 };
 use crate::publish_store::PublishStore;
 use crate::roots::{check_root, list_roots, root_stats, NewRoot, ProfileSource, Root, RootKind};
 use crate::scan::{ScanOutcome, ScanPass};
 use crate::synthetic;
 use crate::{Database, Error, ReaderPool, Result, Writer};
+use oc_rekordbox::xml::Collection;
 
 /// Files whose tags are read, then applied, per round.
 const TAG_BATCH: usize = 500;
@@ -189,15 +190,48 @@ impl LibraryService {
         };
         let path = path.to_path_buf();
         self.writer.run(move |database| {
-            database.replace_mirror(
+            let outcome = database.replace_mirror(
                 &MirrorSource {
+                    kind: SourceKind::Xml,
                     path: &path,
                     file_mtime_ms: read.file_mtime_ms,
                 },
                 &read.collection,
                 now_ms(),
-            )
+            )?;
+            // An export read after a database read takes over as the rekordbox source.
+            database.drop_sources(outcome.source_id, &[SourceKind::MasterDb])?;
+            Ok(outcome)
         })?
+    }
+
+    /// Mirror a collection read from a checked copy of rekordbox's `master.db`. It is recorded
+    /// under the live library's path and replaces every other rekordbox source.
+    pub fn import_database(
+        &self,
+        live_master_db: &Path,
+        collection: Collection,
+    ) -> Result<MirrorOutcome> {
+        let path = live_master_db.to_path_buf();
+        self.writer.run(move |database| {
+            let outcome = database.replace_mirror(
+                &MirrorSource {
+                    kind: SourceKind::MasterDb,
+                    path: &path,
+                    file_mtime_ms: None,
+                },
+                &collection,
+                now_ms(),
+            )?;
+            database.drop_sources(outcome.source_id, &[SourceKind::Xml, SourceKind::MasterDb])?;
+            Ok(outcome)
+        })?
+    }
+
+    /// The private folder holding the database; app-owned files such as rekordbox backups
+    /// live beside it.
+    pub fn data_directory(&self) -> &Path {
+        &self.data_directory
     }
 
     /// Read a known export again, from the path it was first read from.

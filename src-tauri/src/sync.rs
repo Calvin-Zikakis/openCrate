@@ -40,6 +40,8 @@ impl From<&MirrorCounts> for CountsDto {
 #[serde(rename_all = "camelCase")]
 pub struct MirrorDto {
     pub source_id: i64,
+    /// `xml` for an export file, `master_db` for a read of rekordbox's own library.
+    pub kind: &'static str,
     /// For display only; lossy where the name is not text.
     pub path: String,
     pub generation: i64,
@@ -55,6 +57,7 @@ impl From<MirrorInfo> for MirrorDto {
     fn from(info: MirrorInfo) -> Self {
         Self {
             source_id: info.status.source_id,
+            kind: info.status.kind.as_str(),
             path: String::from_utf8_lossy(&info.status.path_raw).into_owned(),
             generation: info.status.generation,
             entries: info.status.entries,

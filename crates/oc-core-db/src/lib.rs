@@ -81,6 +81,8 @@ pub enum Error {
     InvalidAlias,
     #[error("no rekordbox export with id {0}")]
     UnknownSource(i64),
+    #[error("source {0} is rekordbox's own library; read it from rekordbox again instead")]
+    NotAnExport(i64),
     #[error("root path cannot be recorded as a Location prefix")]
     InvalidRoot,
     #[error("no library root with id {0}")]

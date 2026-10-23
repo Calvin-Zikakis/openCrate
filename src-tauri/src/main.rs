@@ -10,6 +10,7 @@ mod layout;
 mod lookup;
 mod plan;
 mod player;
+mod rekordbox_db;
 mod sync;
 mod tagview;
 
@@ -665,6 +666,76 @@ async fn library_import_xml(
 }
 
 #[tauri::command]
+async fn rekordbox_db_status(
+    state: State<'_, AppState>,
+) -> Result<rekordbox_db::RekordboxDbDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_db::status(&service, &rekordbox_db::Probe::installed())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_db_enable(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<rekordbox_db::RekordboxDbDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_db::set_enabled(&service, &rekordbox_db::Probe::installed(), enabled)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_db_read(state: State<'_, AppState>) -> Result<sync::ImportDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_db::read(&service, &rekordbox_db::Probe::installed())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_backups(
+    state: State<'_, AppState>,
+) -> Result<Vec<rekordbox_db::BackupDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || Ok(rekordbox_db::backups(&service)))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_backup_pin(
+    state: State<'_, AppState>,
+    name: String,
+    pinned: bool,
+) -> Result<Vec<rekordbox_db::BackupDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || rekordbox_db::pin(&service, &name, pinned))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_restore(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<rekordbox_db::BackupDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_db::restore(&service, &rekordbox_db::Probe::installed(), &name)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn library_reread_mirror(
     state: State<'_, AppState>,
     source_id: i64,
@@ -795,6 +866,12 @@ fn main() -> Result<(), tauri::Error> {
             library_reread_mirror,
             library_alias_suggestions,
             library_add_alias,
+            rekordbox_db_status,
+            rekordbox_db_enable,
+            rekordbox_db_read,
+            rekordbox_backups,
+            rekordbox_backup_pin,
+            rekordbox_restore,
         ])
         .build(tauri::generate_context!())?
         .run(|app, event| {

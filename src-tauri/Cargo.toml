@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 oc-core-db = { path = "../crates/oc-core-db" }
+oc-rekordbox = { path = "../crates/oc-rekordbox" }
 oc-ingest.workspace = true
 oc-publish.workspace = true
 oc-convert.workspace = true
@@ -22,13 +23,14 @@ oc-organize.workspace = true
 oc-paths.workspace = true
 oc-tag.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tempfile.workspace = true
 
 [dev-dependencies]
 oc-tag = { workspace = true, features = ["fixtures"] }
-serde_json.workspace = true
+rbl-db.workspace = true
 tauri = { version = "2", features = ["test"] }
 
 [lints]
