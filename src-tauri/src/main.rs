@@ -12,6 +12,7 @@ mod plan;
 mod player;
 mod sync;
 mod tagview;
+mod waves;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -58,6 +59,8 @@ struct AppState {
     musicbrainz: Arc<lookup::MusicBrainz>,
     /// Started with the app; the sound device opens when the first track loads.
     player: Arc<oc_player::Player>,
+    /// Close-up waveforms of the last few tracks played.
+    waves: Arc<waves::DetailCache>,
     /// The database lives in a folder the owner named and survives restarts.
     persistent: bool,
     /// Removed when the process ends. Holds the demo database.
@@ -76,6 +79,7 @@ impl AppState {
             art: Arc::default(),
             musicbrainz: Arc::default(),
             player: Arc::new(oc_player::Player::start()),
+            waves: Arc::default(),
             persistent: false,
             demo_directory: None,
             startup_error: None,
@@ -307,20 +311,31 @@ async fn library_plan_release(
     .map_err(|error| error.to_string())?
 }
 
-/// A track's waveform overview, 800 bytes from 0 to 255; computed once per file version.
+/// A track's waveform overview: 800 slices of low, mid and high, 0 to 255; computed once per
+/// file version.
 #[tauri::command]
 async fn library_waveform(
     state: State<'_, AppState>,
     track_id: i64,
 ) -> Result<Option<Vec<u8>>, String> {
     let service = state.library()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        service
-            .waveform(track_id, |path| oc_player::peaks(path, 800).ok())
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    let cache = Arc::clone(&state.waves);
+    tauri::async_runtime::spawn_blocking(move || waves::overview(&service, &cache, track_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// The close-up of a track's waveform, 100 slices a second, for the scrolling view.
+#[tauri::command]
+async fn library_waveform_detail(
+    state: State<'_, AppState>,
+    track_id: i64,
+) -> Result<Option<waves::DetailDto>, String> {
+    let service = state.library()?;
+    let cache = Arc::clone(&state.waves);
+    tauri::async_runtime::spawn_blocking(move || waves::detail(&service, &cache, track_id))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Load a track and play it (or keep it paused) from `start_ms`.
@@ -770,6 +785,7 @@ fn main() -> Result<(), tauri::Error> {
             library_check,
             player_load,
             library_waveform,
+            library_waveform_detail,
             player_control,
             library_set_folder_layout,
             library_set_watch_folder_enabled,
@@ -845,6 +861,7 @@ mod tests {
                 library_check,
                 player_load,
                 library_waveform,
+                library_waveform_detail,
                 player_control,
                 library_set_folder_layout,
                 library_set_watch_folder_enabled,

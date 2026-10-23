@@ -1,14 +1,14 @@
 //! Playing one track at a time: decoding with symphonia (AIFF, WAV, FLAC, MP3, AAC and ALAC in
 //! MP4) and output through cpal, per the Game Plan. Files are only read.
 
+mod bands;
 mod engine;
 mod output;
-mod peaks;
 mod resample;
 mod source;
 
+pub use bands::{bands, overview, Bands, DETAIL_PER_SECOND};
 pub use engine::{Player, Status};
-pub use peaks::peaks;
 
 use thiserror::Error;
 

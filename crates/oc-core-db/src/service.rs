@@ -332,10 +332,13 @@ impl LibraryService {
     }
 
     /// A track's waveform: the stored one while its file is unchanged, otherwise computed with
-    /// `compute` from the file (only read) and stored. `None` when the track has no reachable file.
+    /// `compute` from the file (only read) and stored. A stored one of another length than
+    /// `expected_len` is from an older shape and is made again. `None` when the track has no
+    /// reachable file.
     pub fn waveform(
         &self,
         track_id: i64,
+        expected_len: usize,
         compute: impl FnOnce(&Path) -> Option<Vec<u8>>,
     ) -> Result<Option<Vec<u8>>> {
         let found = {
@@ -368,9 +371,10 @@ impl LibraryService {
         else {
             return Ok(None);
         };
-        if let Some(peaks) =
-            stored.filter(|_| stored_size == Some(size) && stored_mtime == Some(mtime))
-        {
+        if let Some(peaks) = stored.filter(|peaks| {
+            // A different length is a waveform in an older shape.
+            peaks.len() == expected_len && stored_size == Some(size) && stored_mtime == Some(mtime)
+        }) {
             return Ok(Some(peaks));
         }
         let Some(path) = crate::catalog::full_path(&root, &relative) else {
