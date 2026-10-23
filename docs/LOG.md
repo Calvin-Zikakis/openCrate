@@ -2,6 +2,15 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (accessibility pass; user guide; branch next)
+
+- `@axe-core/playwright` 4.10 (dev only). A survey of the library with the player, the rekordbox, Import and Settings
+  screens in both themes found no WCAG 2.1 A or AA violations; two "needs review" items were fixed: labelled `div`s
+  without a role (format filters now a group, the scrolling list a region), and missing tracks faded to 55%, which put
+  their small text near 3:1 (now the text keeps its colours and only the artwork fades). A test now fails on any
+  violation in those eight scans. Colour contrast over the artwork-backed hero is not measurable by the tool.
+- `docs/user-guide.md`: every screen for DJs using the app, and what openCrate never changes.
+
 ## 2026-10-23 (changed-export notice; branch next)
 
 - The rekordbox screen says when the export file changed since it was read (its modified time differs), or when

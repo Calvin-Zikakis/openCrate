@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 // A stand-in for the Tauri bridge, so the real UI runs against the Rust command contract
@@ -1539,4 +1540,34 @@ test("rekordbox sync: an export changed since it was read is pointed out", async
   await page.getByRole("button", { name: "Import", exact: true }).click();
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await expect(page.getByText("This export has changed since it was read. Read it again to bring in the changes.")).toBeVisible();
+});
+
+test("accessibility: the main screens, in both themes, have no WCAG A or AA violations", async ({ page }) => {
+  const found: string[] = [];
+  const scan = async (label: string) => {
+    const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+    for (const violation of result.violations) {
+      found.push(`${label}: ${violation.id} at ${violation.nodes.map((node) => node.target.join(" ")).join(", ")}`);
+    }
+  };
+  await stubBridge(page, "managed");
+  await page.addInitScript((tracks) => { (window as any).__newTracks = tracks; }, newTracks());
+  for (const theme of ["dark", "light"]) {
+    await page.addInitScript((chosen) => localStorage.setItem("opencrate.appearance.v1", JSON.stringify({ compact: false, reducedMotion: false, theme: chosen })), theme);
+    await page.goto("/");
+    await page.getByText("Rust Track 0002").dblclick();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await scan(`${theme} library and player`);
+    await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+    await page.getByRole("button", { name: "Choose export..." }).click();
+    await expect(page.getByRole("region", { name: "New in your library" })).toBeVisible();
+    await scan(`${theme} rekordbox`);
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await scan(`${theme} import`);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+    await scan(`${theme} settings`);
+    await page.keyboard.press("Escape");
+  }
+  expect(found).toEqual([]);
 });

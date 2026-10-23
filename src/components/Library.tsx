@@ -196,7 +196,7 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"
       ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>This crate is empty</h2><p>Drag tracks from your library onto the crate's name in the sidebar.</p></div>
       : <div className="empty-state"><Icon name="search" size={36} /><h2>No matches this time</h2><p>Try a different title, artist or release, or clear your filters.</p></div>)}
-    <div ref={scroll} className="library-scroll" data-testid="library-scroll" tabIndex={0} aria-label="Scrollable library" onPointerDown={() => {
+    <div ref={scroll} className="library-scroll" data-testid="library-scroll" role="region" tabIndex={0} aria-label="Scrollable library" onPointerDown={() => {
       focusCleanup.current?.();
       focusCleanup.current = null;
     }}

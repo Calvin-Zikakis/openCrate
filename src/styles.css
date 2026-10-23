@@ -257,7 +257,9 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .offline-banner { display: grid; gap: 8px; margin-bottom: 14px; padding: 12px 14px; border-radius: 8px; font-size: 12px; color: var(--warn); background: #ffc8570c; }
 .offline-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .offline-row span { flex: 1 1 320px; }
-.track-row.is-missing { opacity: 0.55; }
+.track-row.is-missing strong { color: var(--secondary); font-weight: 400; }
+/* Text keeps its contrast; only the artwork fades. The Missing badge says what is wrong. */
+.track-row.is-missing .artwork { opacity: 0.45; }
 .missing-tag { font-size: 10px; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 4px; color: var(--warn); background: #ffc8570f; }
 .analysis-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px; }
 .analysis-table th { text-align: left; font-weight: 500; color: var(--secondary); padding: 6px 8px 6px 0; }
