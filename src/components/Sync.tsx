@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./Icon";
-import type { AliasSuggestion, ImportResult, LibraryAdmin, MirrorInfo } from "../library/types";
+import type { AliasSuggestion, ImportResult, LibraryAdmin, MirrorInfo, RekordboxDatabase } from "../library/types";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const number = (value: number) => value.toLocaleString("en-US");
@@ -19,6 +19,7 @@ interface Props {
 
 export function Sync({ admin, onChanged }: Props) {
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
+  const [database, setDatabase] = useState<RekordboxDatabase | null>(null);
   const [suggestions, setSuggestions] = useState<AliasSuggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -27,6 +28,8 @@ export function Sync({ admin, onChanged }: Props) {
 
   const load = useCallback(async () => {
     try {
+      // The direct read is optional; the screen works without it.
+      setDatabase(await admin.rekordboxDatabase().catch(() => null));
       const [first] = await admin.mirrors();
       setMirror(first ?? null);
       setSuggestions(first && first.counts.unmapped > 0 ? await admin.aliasSuggestions(first.sourceId) : []);
@@ -58,34 +61,48 @@ export function Sync({ admin, onChanged }: Props) {
     }
   };
   const choose = () => void run(() => admin.importExport());
+  const readLibrary = () => void run(() => admin.readRekordboxDatabase());
+  const direct = database?.enabled ? database : null;
+  const blocked = direct?.running ? "rekordbox is running. Quit it to read its library."
+    : direct?.needsConfirmation ? `rekordbox is now ${direct.appVersion ?? "a new version"}. Confirm the warning in Settings before reading it.` : "";
+  const readButton = direct && <button className="secondary-button" disabled={busy || blocked !== ""} onClick={readLibrary}>Read from rekordbox</button>;
+  const fromLibrary = mirror?.kind === "master_db";
   const again = () => mirror && void run(() => admin.rereadMirror(mirror.sourceId));
   const accept = (suggestion: AliasSuggestion) => mirror && void run(async () => {
     await admin.addAlias(suggestion.rootId, suggestion.prefix);
-    return admin.rereadMirror(mirror.sourceId);
+    return mirror.kind === "master_db" ? admin.readRekordboxDatabase() : admin.rereadMirror(mirror.sourceId);
   });
 
   return <div className="sync-screen">
     <div className="feature-empty sync-hero">
       <div className="empty-icon"><Icon name="sync" size={36} /></div>
       <h1>rekordbox</h1>
-      <p>Read a rekordbox XML export to bring in tempo, key, cues, beat grids and playlists. openCrate only reads it; rekordbox is never changed.</p>
+      <p>{direct
+        ? "Read rekordbox's library, or an XML export, to bring in tempo, key, cues, My Tags and playlists. openCrate reads a backup copy; rekordbox is never changed."
+        : "Read a rekordbox XML export to bring in tempo, key, cues, beat grids and playlists. openCrate only reads it; rekordbox is never changed."}</p>
     </div>
+    {blocked && <p role="status" className="inline-error">{blocked}</p>}
     {error && <p role="alert" className="inline-error">{error}</p>}
     {loaded && !mirror && <div className="sync-card">
       <h2>No export yet</h2>
       <p className="settings-copy">In rekordbox, choose File, then Export Collection in xml format. Then pick that file here. Add your music folder in Settings first so entries can be matched.</p>
-      <button className="secondary-button" disabled={busy} onClick={choose}>Choose export...</button>
+      {direct && <p className="settings-copy">Or read rekordbox's own library directly. openCrate backs it up first and reads the copy.</p>}
+      <div className="sync-actions">
+        <button className="secondary-button" disabled={busy} onClick={choose}>Choose export...</button>
+        {readButton}
+      </div>
     </div>}
     {mirror && <div className="sync-card">
       <div className="sync-source">
         <div>
-          <h2>{fileName(mirror.path)}</h2>
+          <h2>{fromLibrary ? "rekordbox library" : fileName(mirror.path)}</h2>
           <small title={mirror.path}>{mirror.path}</small>
           <small>{mirror.lastReadMs ? `Read ${new Date(mirror.lastReadMs).toLocaleString()}` : "Not read yet"}{mirror.generation > 0 ? ` - version ${mirror.generation}` : ""}</small>
         </div>
         <div className="sync-actions">
-          <button className="secondary-button" disabled={busy} onClick={again}>Read again</button>
-          <button className="secondary-button" disabled={busy} onClick={choose}>Choose another...</button>
+          {fromLibrary ? readButton : <button className="secondary-button" disabled={busy} onClick={again}>Read again</button>}
+          {!fromLibrary && readButton}
+          <button className="secondary-button" disabled={busy} onClick={choose}>{fromLibrary ? "Choose export..." : "Choose another..."}</button>
         </div>
       </div>
       {mirror.lastError && <p role="alert" className="inline-error">The last read failed: {mirror.lastError} Your earlier data is kept.</p>}

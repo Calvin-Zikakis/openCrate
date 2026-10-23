@@ -11,6 +11,8 @@ import {
   type LibraryPage,
   type LibraryQuery,
   type MirrorInfo,
+  type RekordboxBackup,
+  type RekordboxDatabase,
   type PlaylistInfo,
   type ScanStatus,
   type ScanSummary,
@@ -397,8 +399,9 @@ function toMirror(value: unknown): MirrorInfo {
   const counts = value.counts;
   const optional = (field: unknown) => (field === null ? null : whole(field, "rekordbox export"));
   const n = (field: string) => whole(counts[field], "rekordbox export");
+  if (value.kind !== "xml" && value.kind !== "master_db") throw new Error("The library returned an unreadable rekordbox export.");
   return {
-    sourceId: whole(value.sourceId, "rekordbox export"), path: text(value.path, "rekordbox export"),
+    sourceId: whole(value.sourceId, "rekordbox export"), kind: value.kind, path: text(value.path, "rekordbox export"),
     generation: whole(value.generation, "rekordbox export"), entries: whole(value.entries, "rekordbox export"),
     fileMtimeMs: optional(value.fileMtimeMs), lastReadMs: optional(value.lastReadMs),
     lastAttemptMs: optional(value.lastAttemptMs),
@@ -417,6 +420,37 @@ function toPlaylist(value: unknown): PlaylistInfo {
     isFolder: value.isFolder, name: text(value.name, "playlist"), position: whole(value.position, "playlist"),
     entries: whole(value.entries, "playlist"), inLibrary: whole(value.inLibrary, "playlist"),
   };
+}
+
+const flag = (value: unknown, what: string) => {
+  if (typeof value !== "boolean") throw new Error(`The library returned an unreadable ${what}.`);
+  return value;
+};
+const maybeText = (value: unknown, what: string) => (value === null ? null : text(value, what));
+
+function toRekordboxDatabase(value: unknown): RekordboxDatabase {
+  const what = "rekordbox setting";
+  if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    installed: flag(value.installed, what), appVersion: maybeText(value.appVersion, what), running: flag(value.running, what),
+    enabled: flag(value.enabled, what), confirmedVersion: maybeText(value.confirmedVersion, what),
+    needsConfirmation: flag(value.needsConfirmation, what),
+  };
+}
+
+function toBackup(value: unknown): RekordboxBackup {
+  const what = "rekordbox backup";
+  if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    name: text(value.name, what), takenMs: whole(value.takenMs, what), reason: text(value.reason, what),
+    pinned: flag(value.pinned, what), appVersion: maybeText(value.appVersion, what),
+    tracks: whole(value.tracks, what), playlists: whole(value.playlists, what),
+  };
+}
+
+function toBackups(value: unknown): RekordboxBackup[] {
+  if (!Array.isArray(value)) throw new Error("The library returned an unreadable list of rekordbox backups.");
+  return value.map(toBackup);
 }
 
 function toImport(value: unknown): ImportResult {
@@ -579,6 +613,14 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       const response = await invoke("library_add_alias", { rootId: folderId, prefix }).catch((error: unknown) => { throw failure(error); });
       return response === true;
     },
+    rekordboxDatabase: async () => toRekordboxDatabase(await invoke("rekordbox_db_status").catch((error: unknown) => { throw failure(error); })),
+    setRekordboxDatabase: async (enabled) =>
+      toRekordboxDatabase(await invoke("rekordbox_db_enable", { enabled }).catch((error: unknown) => { throw failure(error); })),
+    readRekordboxDatabase: async () => toImport(await invoke("rekordbox_db_read").catch((error: unknown) => { throw failure(error); })),
+    rekordboxBackups: async () => toBackups(await invoke("rekordbox_backups").catch((error: unknown) => { throw failure(error); })),
+    pinRekordboxBackup: async (name, pinned) =>
+      toBackups(await invoke("rekordbox_backup_pin", { name, pinned }).catch((error: unknown) => { throw failure(error); })),
+    restoreRekordboxBackup: async (name) => toBackup(await invoke("rekordbox_restore", { name }).catch((error: unknown) => { throw failure(error); })),
   };
 }
 

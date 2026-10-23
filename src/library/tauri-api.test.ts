@@ -351,7 +351,7 @@ describe("managing folders", () => {
 describe("rekordbox sync", () => {
   const counts = { matched: 8977, unmapped: 31, notIndexed: 0, ambiguous: 0, unrecognized: 0, playlists: 135, unresolvedReferences: 2 };
   const mirror = {
-    sourceId: 3, path: "/exports/collection.xml", generation: 2, entries: 9008, fileMtimeMs: 10,
+    sourceId: 3, kind: "xml", path: "/exports/collection.xml", generation: 2, entries: 9008, fileMtimeMs: 10,
     lastReadMs: 20, lastAttemptMs: 30, lastError: null, counts,
   };
   const imported = { sourceId: 3, generation: 2, unchanged: false, entries: 9008, matched: 8977, derivedSet: 8977 };
@@ -395,6 +395,7 @@ describe("rekordbox sync", () => {
     await expect(reply([{ ...mirror, counts: { ...counts, matched: "many" } }]).mirrors()).rejects.toThrow("unreadable");
     await expect(reply([{ ...mirror, counts: null }]).mirrors()).rejects.toThrow("unreadable");
     await expect(reply([{ ...mirror, lastError: 5 }]).mirrors()).rejects.toThrow("unreadable");
+    await expect(reply([{ ...mirror, kind: "itunes" }]).mirrors()).rejects.toThrow("unreadable");
     await expect(reply({ ...imported, unchanged: "no" }).importExport()).rejects.toThrow("unreadable");
     await expect(reply({ ...imported, entries: -1 }).rereadMirror(3)).rejects.toThrow("unreadable");
     await expect(reply("no").aliasSuggestions(3)).rejects.toThrow("unreadable");
@@ -443,3 +444,48 @@ describe("a library that could not be opened", () => {
   });
 });
 
+
+describe("rekordbox database", () => {
+  const status = {
+    installed: true, appVersion: "7.2.19.0342", running: false, enabled: true,
+    confirmedVersion: "7.2.19.0342", needsConfirmation: false,
+  };
+  const backup = { name: "20261023-120000-read", takenMs: 5, reason: "read", pinned: false, appVersion: "7.2.19.0342", tracks: 40, playlists: 3 };
+  const imported = { sourceId: 4, generation: 1, unchanged: false, entries: 40, matched: 0, derivedSet: 0 };
+  const admin = (invoke: Invoke) => new TauriLibraryApi(invoke, { canManageFolders: true, persistent: true }).admin!;
+
+  it("uses the matching commands and argument names", async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "rekordbox_db_status" || command === "rekordbox_db_enable") return status;
+      if (command === "rekordbox_db_read") return imported;
+      if (command === "rekordbox_backups" || command === "rekordbox_backup_pin") return [backup];
+      if (command === "rekordbox_restore") return { ...backup, reason: "before-restore", pinned: true };
+      return null;
+    });
+    const db = admin(invoke);
+    expect(await db.rekordboxDatabase()).toEqual(status);
+    expect(await db.setRekordboxDatabase(true)).toEqual(status);
+    expect(await db.readRekordboxDatabase()).toEqual(imported);
+    expect(await db.rekordboxBackups()).toEqual([backup]);
+    expect(await db.pinRekordboxBackup(backup.name, true)).toEqual([backup]);
+    expect((await db.restoreRekordboxBackup(backup.name)).reason).toBe("before-restore");
+    expect(invoke.mock.calls).toEqual([
+      ["rekordbox_db_status"],
+      ["rekordbox_db_enable", { enabled: true }],
+      ["rekordbox_db_read"],
+      ["rekordbox_backups"],
+      ["rekordbox_backup_pin", { name: backup.name, pinned: true }],
+      ["rekordbox_restore", { name: backup.name }],
+    ]);
+  });
+
+  it("refuses unreadable replies and passes refusals on", async () => {
+    const reply = (value: unknown) => admin(vi.fn().mockResolvedValue(value));
+    await expect(reply({ ...status, running: "no" }).rekordboxDatabase()).rejects.toThrow("unreadable");
+    await expect(reply({ ...status, appVersion: 7 }).rekordboxDatabase()).rejects.toThrow("unreadable");
+    await expect(reply([{ ...backup, tracks: -1 }]).rekordboxBackups()).rejects.toThrow("unreadable");
+    await expect(reply("no").rekordboxBackups()).rejects.toThrow("unreadable");
+    const refused = admin(vi.fn().mockRejectedValue("rekordbox is running. Quit it first."));
+    await expect(refused.readRekordboxDatabase()).rejects.toThrow("rekordbox is running");
+  });
+});

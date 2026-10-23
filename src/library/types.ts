@@ -103,6 +103,8 @@ export interface MirrorCounts {
 
 export interface MirrorInfo {
   sourceId: number;
+  /** An XML export file, or a read of rekordbox's own library. */
+  kind: "xml" | "master_db";
   path: string;
   generation: number;
   entries: number;
@@ -120,6 +122,28 @@ export interface ImportResult {
   entries: number;
   matched: number;
   derivedSet: number;
+}
+
+/** Reading rekordbox's own library directly: off until the owner confirms the warning. */
+export interface RekordboxDatabase {
+  installed: boolean;
+  appVersion: string | null;
+  running: boolean;
+  enabled: boolean;
+  confirmedVersion: string | null;
+  /** On, but rekordbox changed version since the warning was confirmed. */
+  needsConfirmation: boolean;
+}
+
+export interface RekordboxBackup {
+  /** The backup's folder name; the only way the page names a backup. */
+  name: string;
+  takenMs: number;
+  reason: string;
+  pinned: boolean;
+  appVersion: string | null;
+  tracks: number;
+  playlists: number;
 }
 
 export interface AliasSuggestion {
@@ -390,6 +414,15 @@ export interface LibraryAdmin {
   aliasSuggestions(sourceId: number): Promise<AliasSuggestion[]>;
   /** Tell a folder which rekordbox Location prefix belongs to it. */
   addAlias(folderId: number, prefix: string): Promise<boolean>;
+  rekordboxDatabase(): Promise<RekordboxDatabase>;
+  /** Turning it on records the rekordbox version the warning was confirmed for. */
+  setRekordboxDatabase(enabled: boolean): Promise<RekordboxDatabase>;
+  /** Backs up rekordbox's library, then reads the copy. rekordbox must be closed. */
+  readRekordboxDatabase(): Promise<ImportResult>;
+  rekordboxBackups(): Promise<RekordboxBackup[]>;
+  pinRekordboxBackup(name: string, pinned: boolean): Promise<RekordboxBackup[]>;
+  /** Puts a backup back; resolves to the backup of the library it replaced. */
+  restoreRekordboxBackup(name: string): Promise<RekordboxBackup>;
 }
 
 export interface LibraryApi {

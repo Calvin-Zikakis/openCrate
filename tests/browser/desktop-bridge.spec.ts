@@ -43,9 +43,22 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
       let scanStarted = false;
       let mirror: Record<string, any> | null = null;
       let aliasAdded = false;
+      // rekordbox's own library, read directly once the owner confirms the warning.
+      // Tests set __rbEnabled in a later init script, so it is read when first asked for.
+      let rekordbox: { enabled: boolean; confirmedVersion: string | null } | null = null;
+      const rb = () => (rekordbox ??= (window as any).__rbEnabled
+        ? { enabled: true, confirmedVersion: "7.2.19.0342" } : { enabled: false, confirmedVersion: null });
+      const rbVersion = () => ((window as any).__rbVersion ?? "7.2.19.0342") as string;
+      const rbState = () => ({
+        installed: true, appVersion: rbVersion(), running: !!(window as any).__rbRunning, enabled: rb().enabled,
+        confirmedVersion: rb().confirmedVersion, needsConfirmation: rb().enabled && rb().confirmedVersion !== rbVersion(),
+      });
+      const rbBackups: Record<string, any>[] = [];
+      const rbBackup = (name: string, reason: string, pinned: boolean) =>
+        ({ name, takenMs: Date.UTC(2026, 9, 23, 12, rbBackups.length), reason, pinned, appVersion: rbVersion(), tracks: 40, playlists: 3 });
       const counts = (matched: number, unmapped: number) => ({ matched, unmapped, notIndexed: 0, ambiguous: 0, unrecognized: 0, playlists: 135, unresolvedReferences: 2 });
       const makeMirror = (generation: number, matched: number, unmapped: number) => ({
-        sourceId: 3, path: "/Users/dj/exports/collection.xml", generation, entries: 9008, fileMtimeMs: 1,
+        sourceId: 3, kind: "xml", path: "/Users/dj/exports/collection.xml", generation, entries: 9008, fileMtimeMs: 1,
         lastReadMs: Date.now(), lastAttemptMs: Date.now(), lastError: null, counts: counts(matched, unmapped),
       });
       const summary = () => ({
@@ -282,6 +295,31 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               if (args?.prefix !== "/G:/Library") throw "That is not a valid rekordbox Location prefix.";
               aliasAdded = true;
               return true;
+            case "rekordbox_db_status":
+              return rbState();
+            case "rekordbox_db_enable":
+              rb().enabled = args?.enabled === true;
+              rb().confirmedVersion = rb().enabled ? rbVersion() : null;
+              return rbState();
+            case "rekordbox_db_read":
+              if ((window as any).__rbRunning) throw "rekordbox is running. Quit it (and wait for its agent to stop) first.";
+              rbBackups.unshift(rbBackup(`2026102${rbBackups.length}-120000-read`, "read", false));
+              mirror = { ...makeMirror(1, 38, 2), kind: "master_db", path: "/Users/dj/Library/Pioneer/rekordbox/master.db", entries: 40 };
+              return { sourceId: 3, generation: 1, unchanged: false, entries: 40, matched: 38, derivedSet: 38 };
+            case "rekordbox_backups":
+              return rbBackups;
+            case "rekordbox_backup_pin": {
+              const found = rbBackups.find((backup) => backup.name === args?.name);
+              if (!found) throw "That backup was not found.";
+              found.pinned = args?.pinned === true;
+              return rbBackups;
+            }
+            case "rekordbox_restore": {
+              if (!rbBackups.some((backup) => backup.name === args?.name)) throw "That backup was not found.";
+              const saved = rbBackup("20261023-130000-before-restore", "before-restore", true);
+              rbBackups.unshift(saved);
+              return saved;
+            }
             case "library_reread_mirror":
               mirror = makeMirror(2, 8977, 31);
               return { sourceId: 3, generation: 2, unchanged: false, entries: 9008, matched: 8977, derivedSet: 8977 };
@@ -1231,3 +1269,86 @@ test("a folder that is not the one that was added can be used anyway, only on re
   expect(confirmed.map((call) => call.args)).toEqual([{ rootId: 7 }]);
 });
 
+
+test("rekordbox database: the setting warns before it turns on", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  const toggle = dialog.getByRole("checkbox", { name: "Let openCrate read rekordbox's library directly" });
+  await expect(toggle).not.toBeChecked();
+  await toggle.click();
+  const warning = dialog.getByRole("region", { name: "Before you turn this on" });
+  await expect(warning).toContainText("backup");
+  await expect(warning).toContainText("rekordbox must be closed");
+  await warning.getByRole("button", { name: "Cancel" }).click();
+  await expect(toggle).not.toBeChecked();
+  expect((await calls(page)).some((call) => call.command === "rekordbox_db_enable")).toBe(false);
+  await toggle.click();
+  await dialog.getByRole("button", { name: "I understand, turn it on" }).click();
+  await expect(toggle).toBeChecked();
+  await expect(dialog.getByText("On for rekordbox 7.2.19.0342.")).toBeVisible();
+  await page.screenshot({ path: "test-results/rekordbox-database-on.png" });
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  const sent = (await calls(page)).filter((call) => call.command === "rekordbox_db_enable").map((call) => call.args.enabled);
+  expect(sent).toEqual([true, false]);
+});
+
+test("rekordbox database: reading fills the playlists and keeps a backup", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbEnabled = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await page.getByRole("button", { name: "Read from rekordbox" }).click();
+  await expect(page.getByText("Read 40 entries. 38 match your files, so 38 tracks now show rekordbox's tempo and key.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "rekordbox library" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Friday warm-up" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Read again" })).toHaveCount(0);
+  await page.screenshot({ path: "test-results/rekordbox-database-read.png" });
+  await page.getByRole("button", { name: "Settings" }).click();
+  const backups = page.getByRole("dialog", { name: "Settings" }).getByRole("list", { name: "rekordbox backups" });
+  await expect(backups.getByRole("listitem")).toHaveCount(1);
+  await expect(backups).toContainText("Before reading");
+  await expect(backups).toContainText("40 tracks, 3 playlists");
+});
+
+test("rekordbox database: a running rekordbox is reported and nothing is read", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbEnabled = true; (window as any).__rbRunning = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await expect(page.getByText("rekordbox is running. Quit it to read its library.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Read from rekordbox" })).toBeDisabled();
+  expect((await calls(page)).some((call) => call.command === "rekordbox_db_read")).toBe(false);
+});
+
+test("rekordbox database: restore asks first, and a new rekordbox version must be confirmed again", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbEnabled = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await page.getByRole("button", { name: "Read from rekordbox" }).click();
+  await expect(page.getByRole("heading", { name: "rekordbox library" })).toBeVisible();
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  const backups = dialog.getByRole("list", { name: "rekordbox backups" });
+  await backups.getByRole("button", { name: /^Pin backup/ }).click();
+  await expect(backups.getByRole("button", { name: /^Unpin backup/ })).toBeVisible();
+  await backups.getByRole("button", { name: /^Restore backup/ }).click();
+  const confirm = dialog.getByRole("region", { name: "Restore this backup?" });
+  await expect(confirm).toContainText("saved as a backup first");
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  expect((await calls(page)).some((call) => call.command === "rekordbox_restore")).toBe(false);
+  await backups.getByRole("button", { name: /^Restore backup/ }).click();
+  await dialog.getByRole("region", { name: "Restore this backup?" }).getByRole("button", { name: "Restore" }).click();
+  await expect(dialog.getByRole("status").filter({ hasText: "Restored" })).toBeVisible();
+  await expect(backups.getByRole("listitem")).toHaveCount(2);
+  await expect(backups).toContainText("Before a restore");
+  await page.evaluate(() => { (window as any).__rbVersion = "7.2.20.0001"; });
+  await dialog.getByRole("button", { name: "Close settings" }).click();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(dialog.getByText("rekordbox is now 7.2.20.0001")).toBeVisible();
+  await dialog.getByRole("button", { name: "Confirm for 7.2.20.0001" }).click();
+  await expect(dialog.getByText("On for rekordbox 7.2.20.0001.")).toBeVisible();
+});
