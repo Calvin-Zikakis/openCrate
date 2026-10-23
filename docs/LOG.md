@@ -19,7 +19,7 @@ Newest first. Each entry says what was done, what was measured, and what comes n
   pin and restore. One rekordbox source at a time (A106).
 - Laptop check (research 010): rekordbox 7.2.19, 503 of 503 tracks and 96 of 96 playlist nodes read through a backup
   copy in 0.2 s; the live `master.db` unchanged afterwards.
-- Checks: fmt, clippy, 403 Rust tests (7 ignored), 54 unit, 57 browser runs.
+- Checks: fmt, clippy, 404 Rust tests (7 ignored), 54 unit, 57 browser runs.
 - Next: compare a database read with an XML export of the same library field by field; then the next plan (send new
   imports to rekordbox's "Imported" playlist through XML).
 

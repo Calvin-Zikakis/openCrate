@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { LibraryAdmin, RekordboxBackup, RekordboxDatabase as Status } from "../library/types";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
-const REASONS: Record<string, string> = { read: "Before reading", "before-restore": "Before a restore" };
+const REASONS: Record<string, string> = {
+  read: "Before reading", "before-restore": "Before a restore", "before-restore-damaged": "Before a restore (the library was damaged)",
+};
 const when = (ms: number) => new Date(ms).toLocaleString();
 
 /** Settings: the opt-in switch for reading rekordbox's own library, and its backups. */

@@ -571,3 +571,22 @@ fn live_installed_read() {
         snapshot.tracks
     );
 }
+
+#[test]
+fn restore_works_when_the_current_library_is_damaged() {
+    let (live, backups) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let location = library(live.path());
+    let good = take_snapshot(&location, backups.path(), "read", false, NOW).unwrap();
+    let bytes = fs::read(&location.master_db).unwrap();
+    let damaged = &bytes[..bytes.len() / 3];
+    fs::write(&location.master_db, damaged).unwrap();
+    let saved = restore(&good.dir, &location, backups.path(), false, NOW + 1000).unwrap();
+    assert_eq!(playlist_count(&location), 3);
+    assert!(saved.pinned);
+    assert_eq!(saved.reason, "before-restore-damaged");
+    assert_eq!(
+        fs::read(&saved.master_db).unwrap(),
+        damaged,
+        "the damaged library is kept as it was"
+    );
+}

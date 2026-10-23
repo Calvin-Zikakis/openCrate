@@ -7,7 +7,7 @@ Built from the plan `docs/superpowers/plans/2026-10-23-rekordbox-database-read.m
 Settings behind a warning, always through a backup copy taken while rekordbox and its agent are closed; backups can be
 pinned and restored. Nothing writes to rekordbox except an explicit restore. Vendored `rbl-db` (decision 0015) brought
 SQLCipher's SQLite into every build; read decision 0015 before adding a paged query with a correlated `EXISTS`.
-Checked on the laptop's rekordbox 7.2.19 (research 010). Workspace: 403 Rust tests (7 ignored), 54 unit, 57 browser
+Checked on the laptop's rekordbox 7.2.19 (research 010). Workspace: 404 Rust tests (7 ignored), 54 unit, 57 browser
 runs. Next: a field-by-field comparison with an XML export, then the "Imported" playlist send (XML route).
 
 ## Earlier: overnight run, library core built (provisional)

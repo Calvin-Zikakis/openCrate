@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use rbl_db::{DbError, LibraryLocation};
 
-use super::snapshot::{check, sibling, write_record, RECORD};
+use super::snapshot::{check, keep_raw, sibling, write_record, RECORD};
 use super::{take_snapshot, Snapshot};
 
 /// Every backup folder under `backups` that holds a readable record, newest first.
@@ -87,7 +87,11 @@ fn restore_through(
 ) -> Result<Snapshot, DbError> {
     fs::copy(backup.join("master.db"), incoming)?;
     check(location, incoming)?;
-    let mut saved = take_snapshot(location, backups, "before-restore", false, now_ms)?;
+    // A library too damaged to check is still kept, byte for byte, before it is replaced.
+    let mut saved = match take_snapshot(location, backups, "before-restore", false, now_ms) {
+        Ok(saved) => saved,
+        Err(_) => keep_raw(location, backups, "before-restore-damaged", now_ms)?,
+    };
     saved.pinned = true;
     write_record(&saved)?;
     // The old log belongs to the old file: remove it before the restored file takes its place,

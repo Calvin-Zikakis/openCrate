@@ -75,6 +75,46 @@ fn copy_and_check(
     Ok(snapshot)
 }
 
+/// Keep the library exactly as it is, unchecked: for a library too damaged to snapshot, so a
+/// restore can still save what it replaces.
+pub(super) fn keep_raw(
+    location: &LibraryLocation,
+    backups: &Path,
+    reason: &str,
+    now_ms: i64,
+) -> Result<Snapshot, DbError> {
+    fs::create_dir_all(backups)?;
+    let dir = new_folder(backups, now_ms, reason)?;
+    let master_db = dir.join("master.db");
+    let copied = (|| -> Result<(), DbError> {
+        fs::copy(&location.master_db, &master_db)?;
+        for suffix in ["-wal", "-shm"] {
+            let from = sibling(&location.master_db, suffix);
+            if from.is_file() {
+                fs::copy(&from, sibling(&master_db, suffix))?;
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = copied {
+        let _ = fs::remove_dir_all(&dir);
+        return Err(error);
+    }
+    let snapshot = Snapshot {
+        dir,
+        master_db,
+        taken_ms: now_ms,
+        reason: reason.to_owned(),
+        db_version: None,
+        app_version: rekordbox_app_version(),
+        tracks: 0,
+        playlists: 0,
+        pinned: true,
+    };
+    write_record(&snapshot)?;
+    Ok(snapshot)
+}
+
 /// Open a copy, fold its log in, and prove it whole. Returns the schema version and counts.
 pub(super) fn check(
     location: &LibraryLocation,
