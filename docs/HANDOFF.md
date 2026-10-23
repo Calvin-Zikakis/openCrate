@@ -1,6 +1,14 @@
 # Handoff for coding agents
 
-## Latest change: rekordbox database read (branch `rekordbox-db-read`)
+## Latest change: send new tracks to rekordbox (branch `rekordbox-send`, on top of `rekordbox-db-read`)
+
+The rekordbox screen lists tracks openCrate filed that rekordbox does not have and writes the chosen ones into one stable
+XML file (`<app data>/rekordbox/opencrate.xml`, playlist "openCrate new tracks"); the owner drags them onto Imported in
+rekordbox. Offered tracks stay marked until a read matches them. The rekordbox steps are unverified (A108, A109; owner
+check in the LOG). Plan: `docs/superpowers/plans/2026-10-23-rekordbox-send-new-tracks.md`. Workspace: 413 Rust tests
+(7 ignored), 56 unit, 60 browser runs.
+
+## Earlier: rekordbox database read (branch `rekordbox-db-read`)
 
 Built from the plan `docs/superpowers/plans/2026-10-23-rekordbox-database-read.md` on the branch `rekordbox-db-read`
 (not merged or pushed; `main` holds everything before it). openCrate can read rekordbox's own library, opt-in from

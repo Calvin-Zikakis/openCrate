@@ -23,6 +23,7 @@ imports the shared agent instructions. The repository remains private.
 | [review-findings.md](review-findings.md) | What is still open from the two 2026-10-22 plan reviews (the full reviews are in git history) |
 | [design/rekordbox-sync.md](design/rekordbox-sync.md) | Agreed design for two-way rekordbox sync; the database read, backups and restore are built, the rest is not |
 | [superpowers/plans/2026-10-23-rekordbox-database-read.md](superpowers/plans/2026-10-23-rekordbox-database-read.md) | Plan for that first slice |
+| [superpowers/plans/2026-10-23-rekordbox-send-new-tracks.md](superpowers/plans/2026-10-23-rekordbox-send-new-tracks.md) | Plan for sending new tracks through XML |
 | [../crates/oc-core-db/README.md](../crates/oc-core-db/README.md) | Implemented lifecycle/recovery API, caller contracts and tests |
 | [../crates/oc-rekordbox/README.md](../crates/oc-rekordbox/README.md) | Implemented byte decoder API and limits; no matching |
 | [../src-tauri/README.md](../src-tauri/README.md) | Minimal synthetic desktop host, capability/CSP limits, build and preview commands |

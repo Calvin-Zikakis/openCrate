@@ -2,6 +2,23 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (send new tracks to rekordbox, XML route; branch rekordbox-send)
+
+- Plan: `docs/superpowers/plans/2026-10-23-rekordbox-send-new-tracks.md`, built on `rekordbox-send` (on top of
+  `rekordbox-db-read`; neither merged nor pushed).
+- `oc-rekordbox`: `encode_location` (research 002 spelling, A108) and `write_offer`, an XML document with the new
+  tracks and one playlist, which reads back exactly through the existing reader.
+- `oc-core-db` schema v14 `rekordbox_offer`; `offers::candidates`: files openCrate filed that the mirror does not match,
+  newest first (A110).
+- Host: `rekordbox_new_tracks`, `rekordbox_send` (only current candidates; one stable file in the app data folder,
+  written through a temporary file and rename; offers recorded).
+- Interface: "New in your library" on the rekordbox screen with ticks, "Send N to rekordbox", the import steps, and a
+  warning when rekordbox was not read since the newest filing.
+- Checks: 413 Rust tests (7 ignored), 56 unit, 60 browser runs.
+- Owner check, not done: on the laptop's rekordbox, set the Imported Library to the file once, open "openCrate new
+  tracks" under rekordbox xml, drag the tracks onto Imported; confirm no duplicates and that a read afterwards shows them
+  as no longer new.
+
 ## 2026-10-23 (rekordbox database read, backups and restore; branch rekordbox-db-read)
 
 - Plan: `docs/superpowers/plans/2026-10-23-rekordbox-database-read.md`, the first slice of the rekordbox sync design.
