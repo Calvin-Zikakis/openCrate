@@ -2,6 +2,12 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (changed-export notice; branch next)
+
+- The rekordbox screen says when the export file changed since it was read (its modified time differs), or when
+  rekordbox's library or its log was written after a direct read. Read only. Milestone 2's "notice when the file's
+  modified time changes".
+
 ## 2026-10-23 (first-start welcome; branch next)
 
 - A library on disk with no music folder opens with "Welcome to openCrate": add the music folder (picked, then read with

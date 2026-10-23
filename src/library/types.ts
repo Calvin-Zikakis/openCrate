@@ -113,6 +113,8 @@ export interface MirrorInfo {
   lastAttemptMs: number | null;
   lastError: string | null;
   counts: MirrorCounts;
+  /** The export file, or rekordbox's own library, changed after the last read. */
+  changedSinceRead: boolean;
 }
 
 export interface ImportResult {

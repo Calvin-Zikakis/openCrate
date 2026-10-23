@@ -61,6 +61,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
       const makeMirror = (generation: number, matched: number, unmapped: number) => ({
         sourceId: 3, kind: "xml", path: "/Users/dj/exports/collection.xml", generation, entries: 9008, fileMtimeMs: 1,
         lastReadMs: Date.now(), lastAttemptMs: Date.now(), lastError: null, counts: counts(matched, unmapped),
+        changedSinceRead: Boolean((window as any).__exportChanged),
       });
       const summary = () => ({
         availability: "available", reason: "reachable", inserted: 20, updated: 0, unchanged: 0, revived: 0,
@@ -290,7 +291,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_scan_cancel":
               return null;
             case "library_mirrors":
-              return mirror ? [mirror] : [];
+              return mirror ? [{ ...mirror, changedSinceRead: Boolean((window as any).__exportChanged) }] : [];
             case "library_playlists":
               return mirror ? [
                 { id: 1, parentId: null, isFolder: true, name: "ROOT", position: 0, entries: 0, inLibrary: 0 },
@@ -1525,4 +1526,17 @@ test("first start: a demo or a library that already has folders shows no welcome
   await page.goto("/");
   await expect(page.getByText("Rust Track 0001")).toBeVisible();
   await expect(page.getByRole("region", { name: "Welcome to openCrate" })).toHaveCount(0);
+});
+
+test("rekordbox sync: an export changed since it was read is pointed out", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await page.getByRole("button", { name: "Choose export..." }).click();
+  await expect(page.getByRole("heading", { name: "collection.xml" })).toBeVisible();
+  await expect(page.getByText("This export has changed since it was read.")).toHaveCount(0);
+  await page.evaluate(() => { (window as any).__exportChanged = true; });
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await expect(page.getByText("This export has changed since it was read. Read it again to bring in the changes.")).toBeVisible();
 });

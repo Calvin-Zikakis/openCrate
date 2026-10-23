@@ -352,7 +352,7 @@ describe("rekordbox sync", () => {
   const counts = { matched: 8977, unmapped: 31, notIndexed: 0, ambiguous: 0, unrecognized: 0, playlists: 135, unresolvedReferences: 2 };
   const mirror = {
     sourceId: 3, kind: "xml", path: "/exports/collection.xml", generation: 2, entries: 9008, fileMtimeMs: 10,
-    lastReadMs: 20, lastAttemptMs: 30, lastError: null, counts,
+    lastReadMs: 20, lastAttemptMs: 30, lastError: null, counts, changedSinceRead: false,
   };
   const imported = { sourceId: 3, generation: 2, unchanged: false, entries: 9008, matched: 8977, derivedSet: 8977 };
   const suggestion = { rootId: 7, rootLabel: "Music", prefix: "/G:/Library", entries: 8977 };
@@ -396,6 +396,7 @@ describe("rekordbox sync", () => {
     await expect(reply([{ ...mirror, counts: null }]).mirrors()).rejects.toThrow("unreadable");
     await expect(reply([{ ...mirror, lastError: 5 }]).mirrors()).rejects.toThrow("unreadable");
     await expect(reply([{ ...mirror, kind: "itunes" }]).mirrors()).rejects.toThrow("unreadable");
+    await expect(reply([{ ...mirror, changedSinceRead: "yes" }]).mirrors()).rejects.toThrow("unreadable");
     await expect(reply({ ...imported, unchanged: "no" }).importExport()).rejects.toThrow("unreadable");
     await expect(reply({ ...imported, entries: -1 }).rereadMirror(3)).rejects.toThrow("unreadable");
     await expect(reply("no").aliasSuggestions(3)).rejects.toThrow("unreadable");

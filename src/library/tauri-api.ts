@@ -412,6 +412,7 @@ function toMirror(value: unknown): MirrorInfo {
     fileMtimeMs: optional(value.fileMtimeMs), lastReadMs: optional(value.lastReadMs),
     lastAttemptMs: optional(value.lastAttemptMs),
     lastError: value.lastError === null ? null : text(value.lastError, "rekordbox export"),
+    changedSinceRead: flag(value.changedSinceRead, "rekordbox export"),
     counts: {
       matched: n("matched"), unmapped: n("unmapped"), notIndexed: n("notIndexed"), ambiguous: n("ambiguous"),
       unrecognized: n("unrecognized"), playlists: n("playlists"), unresolvedReferences: n("unresolvedReferences"),

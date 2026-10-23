@@ -6,7 +6,9 @@
 use std::path::Path;
 
 use oc_core_db::library::PlaylistRow;
-use oc_core_db::mirror::{AliasSuggestion, MirrorCounts, MirrorInfo, MirrorOutcome, TrackAnalysis};
+use oc_core_db::mirror::{
+    AliasSuggestion, MirrorCounts, MirrorInfo, MirrorOutcome, SourceKind, TrackAnalysis,
+};
 use oc_core_db::service::LibraryService;
 use serde::Serialize;
 
@@ -51,10 +53,45 @@ pub struct MirrorDto {
     pub last_attempt_ms: Option<i64>,
     pub last_error: Option<String>,
     pub counts: CountsDto,
+    /// The export file, or rekordbox's own library, changed after the last read.
+    pub changed_since_read: bool,
+}
+
+fn modified_ms(path: &Path) -> Option<i64> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    i64::try_from(since.as_millis()).ok()
+}
+
+/// Whether the source changed after it was read: an export file whose modified time differs
+/// from the one read, or rekordbox's library (or its log) written after the read. Only looked
+/// at; a source that cannot be found counts as unchanged.
+fn changed_since_read(info: &MirrorInfo) -> bool {
+    let Ok(path) =
+        oc_paths::bytes_to_os_string(&info.status.path_raw).map(std::path::PathBuf::from)
+    else {
+        return false;
+    };
+    match info.status.kind {
+        SourceKind::Xml => match (modified_ms(&path), info.status.file_mtime_ms) {
+            (Some(now), Some(read)) => now != read,
+            _ => false,
+        },
+        SourceKind::MasterDb => {
+            let mut log = path.clone().into_os_string();
+            log.push("-wal");
+            let newest = [modified_ms(&path), modified_ms(Path::new(&log))]
+                .into_iter()
+                .flatten()
+                .max();
+            matches!((newest, info.status.last_read_ms), (Some(now), Some(read)) if now > read)
+        }
+    }
 }
 
 impl From<MirrorInfo> for MirrorDto {
     fn from(info: MirrorInfo) -> Self {
+        let changed = changed_since_read(&info);
         Self {
             source_id: info.status.source_id,
             kind: info.status.kind.as_str(),
@@ -66,6 +103,7 @@ impl From<MirrorInfo> for MirrorDto {
             last_attempt_ms: info.status.last_attempt_ms,
             last_error: info.status.last_error,
             counts: CountsDto::from(&info.counts),
+            changed_since_read: changed,
         }
     }
 }
@@ -255,4 +293,55 @@ pub fn track_analysis(
         .track_analysis(track_id)
         .map(|found| found.map(AnalysisDto::from))
         .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod changed_tests {
+    use std::fs;
+    use std::time::{Duration, SystemTime};
+
+    use oc_core_db::service::LibraryService;
+
+    use super::mirrors;
+
+    const EXPORT: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="0"></COLLECTION><PLAYLISTS><NODE Type="0" Name="ROOT" Count="0"/></PLAYLISTS></DJ_PLAYLISTS>"#;
+
+    fn later(path: &std::path::Path) {
+        let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+        file.set_modified(SystemTime::now() + Duration::from_secs(120))
+            .unwrap();
+    }
+
+    #[test]
+    fn an_export_changed_since_its_read_is_pointed_out() {
+        let data = tempfile::tempdir().unwrap();
+        let service = LibraryService::open(data.path(), 2).unwrap();
+        let folder = tempfile::tempdir().unwrap();
+        let export = folder.path().join("collection.xml");
+        fs::write(&export, EXPORT).unwrap();
+        service.import_export(&export).unwrap();
+        assert!(!mirrors(&service).unwrap()[0].changed_since_read);
+        later(&export);
+        assert!(mirrors(&service).unwrap()[0].changed_since_read);
+    }
+
+    #[test]
+    fn a_rekordbox_library_written_since_the_read_is_pointed_out() {
+        let data = tempfile::tempdir().unwrap();
+        let service = LibraryService::open(data.path(), 2).unwrap();
+        let folder = tempfile::tempdir().unwrap();
+        let live = folder.path().join("master.db");
+        fs::write(&live, b"x").unwrap();
+        let empty = oc_rekordbox::xml::read(std::io::Cursor::new(EXPORT.as_bytes())).unwrap();
+        service.import_database(&live, empty).unwrap();
+        assert!(!mirrors(&service).unwrap()[0].changed_since_read);
+        let wal = folder.path().join("master.db-wal");
+        fs::write(&wal, b"y").unwrap();
+        later(&wal);
+        assert!(
+            mirrors(&service).unwrap()[0].changed_since_read,
+            "a change still in the log counts"
+        );
+    }
 }

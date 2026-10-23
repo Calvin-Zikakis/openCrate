@@ -109,6 +109,9 @@ export function Sync({ admin, onChanged }: Props) {
           <button className="secondary-button" disabled={busy} onClick={choose}>{fromLibrary ? "Choose export..." : "Choose another..."}</button>
         </div>
       </div>
+      {mirror.changedSinceRead && <p className="inline-error">{fromLibrary
+        ? "rekordbox's library has changed since the last read. Read it again to bring in the changes."
+        : "This export has changed since it was read. Read it again to bring in the changes."}</p>}
       {mirror.lastError && <p role="alert" className="inline-error">The last read failed: {mirror.lastError} Your earlier data is kept.</p>}
       <dl className="sync-stats">
         <div><dt>Match your files</dt><dd>{number(mirror.counts.matched)}</dd></div>
