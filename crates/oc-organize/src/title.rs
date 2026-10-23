@@ -37,15 +37,11 @@ impl RemixKind {
         ("reedit", Self::ReEdit),
     ];
 
-    /// The default policy: a remix-like credit puts the track in the remixer's folder; an
-    /// edit or a VIP stays with the original artist. Change here if the owner decides
-    /// otherwise.
+    /// A credited remix or edit goes in that artist's folder, so their work is found under
+    /// their name (owner, 2026-10-23); a VIP is the original artist's own version and stays.
     #[must_use]
     pub const fn moves_folder(self) -> bool {
-        matches!(
-            self,
-            Self::Remix | Self::Rework | Self::Bootleg | Self::Flip | Self::Dub
-        )
+        !matches!(self, Self::Vip)
     }
 }
 
@@ -82,6 +78,37 @@ const GENERIC: [&str; 18] = [
     "a cappella",
     "vocal mix",
 ];
+
+/// Words that describe a cut rather than name an artist, so "Short Edit" or "Extended Club
+/// Dub" credits nobody.
+const DESCRIPTIVE: [&str; 21] = [
+    "original",
+    "extended",
+    "radio",
+    "club",
+    "album",
+    "single",
+    "short",
+    "long",
+    "clean",
+    "dirty",
+    "explicit",
+    "vocal",
+    "instrumental",
+    "main",
+    "intro",
+    "outro",
+    "dj",
+    "mix",
+    "version",
+    "special",
+    "alternate",
+];
+
+fn descriptive(name: &str) -> bool {
+    name.split_whitespace()
+        .all(|word| DESCRIPTIVE.contains(&word.to_lowercase().as_str()))
+}
 
 /// The text of a trailing `(...)` or `[...]` group and where it starts.
 fn trailing_group(text: &str) -> Option<(usize, &str)> {
@@ -144,6 +171,13 @@ fn version(group: &str) -> Option<Version> {
             continue;
         }
         let name = text[..head.len()].trim().to_owned();
+        if !name.is_empty() && descriptive(&name) {
+            return Some(Version {
+                text,
+                remixer: None,
+                kind: None,
+            });
+        }
         return Some(Version {
             remixer: (!name.is_empty()).then_some(name),
             kind: Some(kind),
@@ -560,13 +594,23 @@ mod tests {
         let edit = parse_title("Night Drive (Studio 001 Edit)");
         assert_eq!(
             folder_artist(&edit, None, "Original Act"),
-            "Original Act",
-            "an edit keeps the original folder"
+            "Studio 001",
+            "a credited edit goes to the editor"
         );
-        assert_eq!(
-            folder_artist(&edit, Some("Various"), "Original Act"),
-            "Various"
-        );
+        for generic in [
+            "Night Drive (Short Edit)",
+            "Night Drive (Extended Club Edit)",
+            "Night Drive (Clean Radio Edit)",
+            "Night Drive (Club Dub)",
+        ] {
+            let parsed = parse_title(generic);
+            assert_eq!(parsed.remixer, None, "{generic}");
+            assert_eq!(
+                folder_artist(&parsed, Some("Various"), "Original Act"),
+                "Various",
+                "{generic}"
+            );
+        }
         let plain = parse_title("Night Drive");
         assert_eq!(
             folder_artist(&plain, Some("  "), "Original Act"),
@@ -584,12 +628,12 @@ mod tests {
             RemixKind::Bootleg,
             RemixKind::Flip,
             RemixKind::Dub,
+            RemixKind::Edit,
+            RemixKind::ReEdit,
         ] {
             assert!(kind.moves_folder(), "{kind:?}");
         }
-        for kind in [RemixKind::Edit, RemixKind::ReEdit, RemixKind::Vip] {
-            assert!(!kind.moves_folder(), "{kind:?}");
-        }
+        assert!(!RemixKind::Vip.moves_folder());
     }
 
     #[test]

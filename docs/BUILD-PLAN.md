@@ -116,7 +116,7 @@ Keep R3/R7 ahead of indexing/matching and all mutation gates unchanged.
 #### Review gates before later work
 
 These gates qualify the later scopes; they do not silently change product policy.
-See the [GPT review](../plan_review_gpt6.md) and [Opus review](../plan_review_opus.md).
+See the [open review findings](review-findings.md).
 
 - **R3/R7, before schema, scanner or matching acceptance:** filesystem identity,
   raw paths, volume case/Unicode semantics, explicit root mapping, containment,

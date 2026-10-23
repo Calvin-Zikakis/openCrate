@@ -5,7 +5,7 @@ Status: accepted for implementation under the owner's instruction to continue.
 
 ## Context
 
-Both [Opus](../../plan_review_opus.md) and [GPT review](../../plan_review_gpt6.md)
+Both the Opus and GPT plan reviews ([open findings](../review-findings.md); full text in git history)
 identify an oversized foundation and unresolved mutation contracts. Their
 recommendations disagree on later milestone ordering; neither is adopted wholesale.
 

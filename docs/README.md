@@ -20,8 +20,8 @@ imports the shared agent instructions. The repository remains private.
 | --- | --- |
 | [../DJ Library Manager — Game Plan.md](<../DJ Library Manager — Game Plan.md>) | The source of truth for decisions, architecture, speed budgets and identification rules |
 | [BUILD-PLAN.md](BUILD-PLAN.md) | Milestones 0 to 9, acceptance checks, test strategy, risks, what is out of version 1, and the questions for the review |
-| [../plan_review_gpt6.md](../plan_review_gpt6.md) | Advisory review: 13 findings, proposed sequence and answers to all seven review questions; recommendations need decisions |
-| [../plan_review_opus.md](../plan_review_opus.md) | Independent advisory review; later sequence and policy recommendations are not adopted wholesale |
+| [review-findings.md](review-findings.md) | What is still open from the two 2026-10-22 plan reviews (the full reviews are in git history) |
+| [design/rekordbox-sync.md](design/rekordbox-sync.md) | Agreed design for two-way rekordbox sync; not built |
 | [../crates/oc-core-db/README.md](../crates/oc-core-db/README.md) | Implemented lifecycle/recovery API, caller contracts and tests |
 | [../crates/oc-rekordbox/README.md](../crates/oc-rekordbox/README.md) | Implemented byte decoder API and limits; no matching |
 | [../src-tauri/README.md](../src-tauri/README.md) | Minimal synthetic desktop host, capability/CSP limits, build and preview commands |

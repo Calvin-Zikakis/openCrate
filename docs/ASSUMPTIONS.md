@@ -160,7 +160,7 @@ Provisional: written for the owner's overnight run and not yet reviewed.
 | A85 | The only way to register a folder from the UI is the native system dialog opened by the Rust side; the page cannot supply a path, and no dialog or filesystem permission is granted to the webview | A compromised page then cannot point the scanner at an arbitrary directory | Add a typed path command with its own validation and a capability |
 | A86 | The app opens a persistent library only when started with `OPENCRATE_DATA=<absolute folder>`; where the real default lives (app-data folder, sync-safe location) is the owner's call | The folder must be private, local and outside any synced folder (A19); detecting that is not built | Choose the default location and add network and sync detection first |
 | A87 | rekordbox read-back is XML only, read through the native file dialog or the stored path; a Location prefix is learned from evidence (which prefix depth makes entries match indexed files) and applied only when the owner presses "Use this"; a failed read keeps the previous mirror | decision 0008 and R3: nothing is guessed silently and the export is never written | Auto-accept above a confidence threshold, with the owner's approval |
-| A88 | Credits move a track to the credited name's folder for Remix, Rework, Bootleg, Flip and Dub; Edit, Re-Edit and VIP stay with the original artist. A group the parser does not recognise stays in the title | The plan only says "remixes"; the Opus review (item 17) asked for this to be written down | Edit `RemixKind::moves_folder` and the corpus in `oc-organize` |
+| A88 | Credits move a track to the credited name's folder for Remix, Rework, Bootleg, Flip, Dub, Edit and Re-Edit; a VIP stays with the original artist. A credit made only of descriptive words ("Short Edit", "Extended Club Dub") names nobody. A group the parser does not recognise stays in the title | Owner, 2026-10-23: remixes go under the remixer so their work is found under their name; edits follow the same rule (the owner left the edge to the usual practice). The descriptive word list is my call | Edit `RemixKind::moves_folder`, `DESCRIPTIVE` and the corpus in `oc-organize` |
 | A89 | Path budget: 259 UTF-16 units (classic MAX_PATH less the NUL) minus 16 for the temporary suffix, counted over the whole path including the root; long paths raise it to 32,000. Only the file stem is shortened, to at least 8 characters, and the plan must show it | R3 and Opus finding 15: the unit is UTF-16, the limit includes the root, and shortening a stem cannot fix a long root | Make the limit hard or relaxed once Windows long-path behavior is measured (question 7) |
 | A90 | Leading and trailing spaces in a name are trimmed; trailing dots are replaced by `_`; an empty name becomes `_`; a missing template value is an error, not a blank | A36 says never delete forbidden characters; padding is not a character that fuses words | Replace trailing spaces too, or fall back to "Unknown ..." names |
 | A91 | A folder whose recorded directory identity differs is `unverified` and is never scanned until the owner confirms; the database folder is reserved so no library root can contain, equal or lie inside it | A recreated folder or a different drive at the same path must not look like "everything was deleted" (R7), and a database inside a synced library is unsafe (decision 0003) | Compare more evidence (a sample of known files) before asking, or allow the database inside a library with a warning |
@@ -179,12 +179,12 @@ Provisional: written for the owner's overnight run and not yet reviewed.
 
 ## Remaining owner questions
 
-1. Should every newly filed track go into rekordbox automatically (by an XML you import), or only when you ask?
+1. Answered 2026-10-23: only when asked ("Send to rekordbox", into a rolling "Imported" playlist); see design/rekordbox-sync.md.
 2. Answered 2026-10-23: write ID3v2.3, what most of the owner's files use and what rekordbox reads most reliably.
 3. Final product name and bundle identifier?
-4. For the rbxport crates, which the experimental `master.db` option needs: vendor them, add a submodule, or depend on a git URL?
-5. Light theme later? Is the orange accent right?
+4. Answered 2026-10-23: bring in `rbl-db` from the owner's rbxport fork if it is sound (vendored copy pinned to a commit, write paths reviewed first).
+5. Answered 2026-10-23: a light theme is wanted (roadmap); the name openCrate is liked.
 6. Resolved for this shell: npm under decision 0010 (A4/A56). Reopen only by an explicit toolchain decision.
-7. Can your Windows install enable long paths, or should the 260-character limit be treated as hard?
-8. Do any folders in your library sit behind a symbolic link or junction? Decision 0013 would skip them, so their tracks would not be indexed.
-9. Fixing what the Library check finds (an untidy artist folder, a recording filed twice) moves files that rekordbox and the NAS copy refer to by path. Should openCrate relocate them and write an updated rekordbox XML, or only report?
+7. Answered 2026-10-23: Windows has long paths on, but the NAS cannot handle very long paths, so the 260-character budget stays hard.
+8. Answered 2026-10-23: no.
+9. Answered 2026-10-23: relocate, keeping everything in rekordbox, through the opt-in database route with backup, review and restore; see design/rekordbox-sync.md.

@@ -45,8 +45,8 @@ the caller's local-directory contract and recovery limits.
 - The `audit_log` is append-only.
 
 The implemented Location decoder preserves bytes; it does not resolve a file,
-fold case or normalize Unicode. R3 in the [plan review](../../plan_review_gpt6.md)
-remains open. The proposed `(root_id, rel_path)` uniqueness and `location_key`
+fold case or normalize Unicode. R3 in the [review findings](../review-findings.md)
+is now settled by decision 0013. The proposed `(root_id, rel_path)` uniqueness and `location_key`
 must not become migration constraints until filesystem identity is defined and
 tested. Existing names must remain distinct from newly sanitized destinations.
 

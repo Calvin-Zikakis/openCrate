@@ -1,8 +1,9 @@
 # 0013: Filesystem identity and availability
 
 Date: 2026-10-22.
-Status: proposed. Implemented provisionally under the owner's overnight
-instruction to keep working; not reviewed by the owner. Revisable.
+Status: approved by the owner on 2026-10-23, after a plain-language walkthrough. Each computer manages its own
+library: the main one on the Windows desktop (the NAS is only a Qsync mirror of it, never a library), and a small local
+one on the Mac laptop. So rekordbox paths match directly on each machine; the prefix aliases stay for other setups.
 
 ## Context
 

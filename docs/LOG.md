@@ -2,6 +2,17 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (edits filed under the editor; rekordbox sync design)
+
+- Owner answers: remixes go under the remixer, and credited edits now do too ("Song (X Edit)" files under X); a VIP
+  stays with the original artist (A88). Generic cuts such as "Short Edit" or "Extended Club Dub" no longer read the
+  descriptive words as an artist. Decision 0013 approved. The agreed rekordbox sync design is in
+  `docs/design/rekordbox-sync.md` (not built).
+- The two plan review files are removed; what is still open from them is in `docs/review-findings.md` (full text in git
+  history at `3f1395b`).
+- Checks: fmt, clippy and 374 Rust tests pass. Before committing, the tree was scanned for audio, databases, archives,
+  keys, tokens, personal paths and names from the owner's sample folder: none found.
+
 ## 2026-10-23 (waveform with cue markers; player fixes)
 
 - Waveform: `oc_player::peaks` decodes a file once into 800 one-byte peaks (largest sample per slice); schema v13
@@ -844,7 +855,7 @@ and build plan with the documenter agent. No commit or push is planned.
 
 ## 2026-10-22 (plan review complete, recommendations pending)
 
-The root [plan_review_gpt6.md](../plan_review_gpt6.md) reviews the current plan, including the download-folder changes. It records 13 findings (five High, eight Medium), evidence, recommendations and closure checks, a proposed sequence, and answers to all seven BUILD-PLAN review questions. The report is advisory. No product decisions were made or recommendations accepted.
+The root `plan_review_gpt6.md` (removed 2026-10-23; open items in [review-findings.md](review-findings.md)) reviews the current plan, including the download-folder changes. It records 13 findings (five High, eight Medium), evidence, recommendations and closure checks, a proposed sequence, and answers to all seven BUILD-PLAN review questions. The report is advisory. No product decisions were made or recommendations accepted.
 
 - **Documentation.** HANDOFF now points to the review and its pending decisions; the docs index links it. Existing planning changes, including A48 to A50, are preserved. No source, configuration or lockfiles changed.
 - **Review scope.** Active planning docs, recorded research, workspace manifests, toolchain and lints, plus public primary documentation. The only external repository reads were the local rbxport root and `rbl-db` Cargo manifests, both declaring compatible `rusqlite` 0.40 versions. That is not a build or interoperability result.

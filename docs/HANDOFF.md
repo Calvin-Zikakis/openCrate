@@ -4,8 +4,8 @@
 
 The owner asked for code over documentation and for continuous work overnight. After the lock fix
 (decision 0012, research 006) the following is built and tested locally on macOS, all provisional and
-unreviewed by the owner (the R3/R7 contract is only proposed in
-[0013](decisions/0013-filesystem-identity-and-availability.md); assumptions A67-A84):
+unreviewed by the owner except where noted (the R3/R7 contract in
+[0013](decisions/0013-filesystem-identity-and-availability.md) was approved on 2026-10-23; assumptions A67-A84):
 
 - `oc-paths` (pure): stored path form and WTF-8, name profiles and keys, Location parsing and alias
   resolution, read-only volume probes and root checks, state rules, read-only directory walker. 60 tests.
@@ -46,8 +46,9 @@ Native check (debug macOS bundle with `OPENCRATE_DEMO=5000`): launched, alive 9 
 NOT verified (no screen capture here); it is liveness only. Windows: `oc-paths`, `oc-tag` and `oc-rekordbox` type-check and pass strict clippy for the Windows target (nothing run); `oc-core-db` and the host were not checked there.
 
 Cues and beat grids from the export are shown read only ("Cues and grid" on a selected track; `read_track_analysis`).
-Not built yet: the default app-data location (owner decision, A86), file-system watching, cue and beat-grid editing (they are
-read only by design), master.db read, the owner's approval of 0013.
+Not built yet: the default app-data location (owner chose the normal app-data folder, set up by a future installer; A86),
+file-system watching, cue and beat-grid editing (read only by design), master.db read. Decision 0013 was approved by the
+owner on 2026-10-23. The agreed rekordbox sync design is docs/design/rekordbox-sync.md (not built).
 
 State as of 2026-10-22: the reduced Rust foundation and synthetic React/Tauri
 visual sub-slice are built and validated locally. A macOS development bundle
@@ -242,8 +243,7 @@ blanket approval to change product policy.
 
 ## 5. Unresolved review gates
 
-Read both [GPT review](../plan_review_gpt6.md) and
-[Opus review](../plan_review_opus.md). This list is a restart aid, not a claim
+Read the [open review findings](review-findings.md). This list is a restart aid, not a claim
 that other findings are closed:
 
 | Before | Gate |
@@ -299,8 +299,7 @@ compatibility and responsibility for private labels. CI minutes are unmeasured.
    folder, Scan; then the rekordbox screen, Choose export. Use a COPY of a small music folder and a COPY of an
    export; everything only reads except Import, which copies files into the chosen music folder (never replacing one) and writes `.opencrate-staging` beside it. This build is unreviewed. Next, in order: import, Import all, converting (ffmpeg), tag writing (ID3v2.3), tidy names and the folder layout setting are done (A96-A100); MusicBrainz lookups from the Import all review are done (decision 0014, on request only); the read-only Library check and "03 Title" track numbers are done; fixing what the check finds waits for the owner (moving files breaks rekordbox and NAS paths); the fake-lossless check is done (research 009, A102; flags only); playback with a stored waveform and rekordbox cue markers is done (`oc-player`, A103, schema v13); next: Discogs and AcoustID lookups, file watching instead of polling, release-level publishing; release-level publishing for R1 (a `group` on each operation so a rejection holds the release's unstarted files, and creating destination folders before the link; not started, nothing half-edited); file watching (the Import screen polls today); then the Windows NTFS run of `oc-publish`
    before any filing or mutation. Use synthetic data only for tests; never the owner's library or export.
-5. The R3/R7 contract is implemented provisionally (0013); revise it if the owner
-   objects. Do not reuse metadata normalization as filesystem identity. Scheduling and
+5. The R3/R7 contract (0013) is approved by the owner (2026-10-23). Do not reuse metadata normalization as filesystem identity. Scheduling and
    all mutation/recovery gates above remain unchanged. Remote workflows,
    Windows NSIS installation and owner checks require separate authorization
    and evidence; do not push to obtain them without permission.
