@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::location::LocationError;
 
-pub use writer::{write_offer, NewTrack};
+pub use writer::{write_document, write_offer, Entry, NewTrack, OfferPlaylist};
 
 pub type Attributes = BTreeMap<String, String>;
 

@@ -458,3 +458,84 @@ fn an_offer_reads_back_through_the_reader() {
     let ids: Vec<u64> = collection.tracks.iter().map(|track| track.id).collect();
     assert_eq!(track_ids, &ids);
 }
+
+#[test]
+fn an_echo_of_rekordbox_entries_reads_back_the_same() {
+    use super::{write_document, Entry, NewTrack, OfferPlaylist};
+    let original = read(Cursor::new(FIXTURE.as_bytes())).unwrap();
+    let mut entries: Vec<Entry> = original
+        .tracks
+        .iter()
+        .map(|track| Entry::Echo(track.clone()))
+        .collect();
+    entries.push(Entry::New(NewTrack {
+        path: b"/Users/dj/Music/New One.aif".to_vec(),
+        name: "New One".into(),
+        artist: "Studio 001".into(),
+        album: String::new(),
+        year: None,
+        total_seconds: 10,
+        size: 5,
+        kind: "AIFF".into(),
+    }));
+    let playlists = [
+        OfferPlaylist {
+            folder: None,
+            name: "openCrate new tracks".into(),
+            entries: vec![2],
+        },
+        OfferPlaylist {
+            folder: Some("openCrate crates".into()),
+            name: "Warm-up".into(),
+            entries: vec![1, 0, 2],
+        },
+        OfferPlaylist {
+            folder: Some("openCrate crates".into()),
+            name: "Empty".into(),
+            entries: vec![],
+        },
+    ];
+    let text = write_document(&entries, &playlists, "0.1.0");
+    let again = read(Cursor::new(text.as_bytes())).unwrap();
+    assert_eq!(again.tracks.len(), 3);
+    for (before, after) in original.tracks.iter().zip(&again.tracks) {
+        let mut expected = before.attributes.clone();
+        let mut found = after.attributes.clone();
+        expected.remove("TrackID");
+        found.remove("TrackID");
+        assert_eq!(
+            found, expected,
+            "every attribute rekordbox wrote is written back"
+        );
+        assert_eq!(
+            after.location, before.location,
+            "the Location text itself is kept"
+        );
+        assert_eq!(after.cues, before.cues);
+        assert_eq!(after.tempos, before.tempos);
+    }
+    let [PlaylistNode::Folder { children, .. }] = again.playlists.as_slice() else {
+        panic!("ROOT");
+    };
+    let names: Vec<&str> = children
+        .iter()
+        .map(|node| match node {
+            PlaylistNode::Folder { attributes, .. } | PlaylistNode::Playlist { attributes, .. } => {
+                attributes["Name"].as_str()
+            }
+        })
+        .collect();
+    assert_eq!(names, ["openCrate new tracks", "openCrate crates"]);
+    let PlaylistNode::Folder {
+        children: crates, ..
+    } = &children[1]
+    else {
+        panic!("a folder");
+    };
+    let PlaylistNode::Playlist { track_ids, .. } = &crates[0] else {
+        panic!("a playlist");
+    };
+    let ids: Vec<u64> = again.tracks.iter().map(|track| track.id).collect();
+    assert_eq!(track_ids, &[ids[1], ids[0], ids[2]]);
+    assert!(matches!(&crates[1], PlaylistNode::Playlist { track_ids, .. } if track_ids.is_empty()));
+}
