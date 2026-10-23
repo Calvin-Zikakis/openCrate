@@ -13,6 +13,7 @@ import {
   type MirrorInfo,
   type RekordboxBackup,
   type RekordboxCandidate,
+  type RekordboxCrates,
   type RekordboxNewTracks,
   type RekordboxSent,
   type RekordboxDatabase,
@@ -478,6 +479,21 @@ function toNewTracks(value: unknown): RekordboxNewTracks {
   };
 }
 
+function toCrates(value: unknown): RekordboxCrates {
+  const what = "list of crates for rekordbox";
+  if (!isRecord(value) || !Array.isArray(value.crates)) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    crates: value.crates.map((crate: unknown) => {
+      if (!isRecord(crate)) throw new Error(`The library returned an unreadable ${what}.`);
+      return {
+        crateId: whole(crate.crateId, what), name: text(crate.name, what), inFile: flag(crate.inFile, what),
+        known: whole(crate.known, what), new: whole(crate.new, what), needsExport: whole(crate.needsExport, what), noFile: whole(crate.noFile, what),
+      };
+    }),
+    xmlPath: text(value.xmlPath, what), folder: text(value.folder, what),
+  };
+}
+
 function toSent(value: unknown): RekordboxSent {
   if (!isRecord(value)) throw new Error("The library returned an unreadable send result.");
   return { xmlPath: text(value.xmlPath, "send result"), tracks: whole(value.tracks, "send result") };
@@ -685,6 +701,10 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     restoreRekordboxBackup: async (name) => toBackup(await invoke("rekordbox_restore", { name }).catch((error: unknown) => { throw failure(error); })),
     rekordboxNewTracks: async () => toNewTracks(await invoke("rekordbox_new_tracks").catch((error: unknown) => { throw failure(error); })),
     sendToRekordbox: async (fileIds) => toSent(await invoke("rekordbox_send", { fileIds }).catch((error: unknown) => { throw failure(error); })),
+    rekordboxCrates: async () => toCrates(await invoke("rekordbox_crates").catch((error: unknown) => { throw failure(error); })),
+    setRekordboxCrate: async (crateId, inFile) =>
+      toCrates(await invoke("rekordbox_set_crate", { crateId, inFile }).catch((error: unknown) => { throw failure(error); })),
+    updateRekordboxFile: async () => toCrates(await invoke("rekordbox_update_file").catch((error: unknown) => { throw failure(error); })),
   };
 }
 

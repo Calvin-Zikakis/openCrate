@@ -173,6 +173,27 @@ export interface RekordboxSent {
   tracks: number;
 }
 
+/** A crate as it can go into openCrate's rekordbox file. */
+export interface RekordboxCrate {
+  crateId: number;
+  name: string;
+  inFile: boolean;
+  /** Tracks rekordbox has, written back as its own entries. */
+  known: number;
+  /** Tracks rekordbox does not have yet. */
+  new: number;
+  /** Tracks known only from a direct read of rekordbox; left out until an XML export is read. */
+  needsExport: number;
+  /** Tracks whose files cannot be reached; left out. */
+  noFile: number;
+}
+
+export interface RekordboxCrates {
+  crates: RekordboxCrate[];
+  xmlPath: string;
+  folder: string;
+}
+
 export interface AliasSuggestion {
   rootId: number;
   rootLabel: string;
@@ -455,6 +476,11 @@ export interface LibraryAdmin {
   rekordboxNewTracks(): Promise<RekordboxNewTracks>;
   /** Writes the chosen tracks into openCrate's rekordbox XML file, in this order. */
   sendToRekordbox(fileIds: number[]): Promise<RekordboxSent>;
+  rekordboxCrates(): Promise<RekordboxCrates>;
+  /** Puts a crate in openCrate's rekordbox file or takes it out, and writes the file again. */
+  setRekordboxCrate(crateId: number, inFile: boolean): Promise<RekordboxCrates>;
+  /** Writes openCrate's rekordbox file again, with the crates as they are now. */
+  updateRekordboxFile(): Promise<RekordboxCrates>;
 }
 
 /** A waveform by sound: for each slice, the level of its lows, mids and highs, 0 to 255. */

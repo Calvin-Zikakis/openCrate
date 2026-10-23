@@ -117,7 +117,8 @@ what must not be disturbed), and only openCrate values for fields rekordbox leav
 - Review and sync opens the full list: "openCrate to rekordbox", "rekordbox to openCrate" and "Both changed", each change
   with a tick box. "Both changed" items are unticked by default and offer keep openCrate's, keep rekordbox's, or keep
   both (a playlist conflict kept both becomes two playlists). Sync writes only the ticked changes.
-- A crate can be sent to rekordbox as a new playlist (an idea from the conversation, offered for the roadmap).
+- A crate can be sent to rekordbox as a new playlist: built on the XML route (A113); tracks rekordbox has are echoed
+  exactly from its own export.
 
 Mockup agreed with the owner: sidebar with dots and the bar, and the review panel over it (kept outside the repository in
 the brainstorm session; to be redrawn in the interface design).

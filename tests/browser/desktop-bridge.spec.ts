@@ -54,6 +54,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
         confirmedVersion: rb().confirmedVersion, needsConfirmation: rb().enabled && rb().confirmedVersion !== rbVersion(),
       });
       const rbBackups: Record<string, any>[] = [];
+      const rbCrates = new Set<number>();
       const rbBackup = (name: string, reason: string, pinned: boolean) =>
         ({ name, takenMs: Date.UTC(2026, 9, 23, 12, rbBackups.length), reason, pinned, appVersion: rbVersion(), tracks: 40, playlists: 3 });
       const counts = (matched: number, unmapped: number) => ({ matched, unmapped, notIndexed: 0, ambiguous: 0, unrecognized: 0, playlists: 135, unresolvedReferences: 2 });
@@ -331,6 +332,20 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               const saved = rbBackup("20261023-130000-before-restore", "before-restore", true);
               rbBackups.unshift(saved);
               return saved;
+            }
+            case "rekordbox_crates":
+            case "rekordbox_set_crate":
+            case "rekordbox_update_file": {
+              const shown = crateList.map((crate) => ({
+                crateId: crate.id, name: crate.name, inFile: rbCrates.has(crate.id),
+                known: Math.max(0, crate.order.length - 1), new: crate.order.length > 0 ? 1 : 0, needsExport: crate.id === 2 ? 1 : 0, noFile: 0,
+              }));
+              if (command === "rekordbox_set_crate") {
+                if (!crateList.some((crate) => crate.id === args?.crateId)) throw "no crate with that id";
+                if (args?.inFile) rbCrates.add(args.crateId); else rbCrates.delete(args?.crateId);
+                return { crates: shown.map((crate) => ({ ...crate, inFile: rbCrates.has(crate.crateId) })), xmlPath: "/Users/dj/Library/Application Support/openCrate/rekordbox/opencrate.xml", folder: "openCrate crates" };
+              }
+              return { crates: shown, xmlPath: "/Users/dj/Library/Application Support/openCrate/rekordbox/opencrate.xml", folder: "openCrate crates" };
             }
             case "rekordbox_new_tracks": {
               const now = Date.UTC(2026, 9, 23, 12);
@@ -1439,4 +1454,27 @@ test("send to rekordbox: nothing new shows no card", async ({ page }) => {
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await expect(page.getByRole("heading", { name: "No export yet" })).toBeVisible();
   await expect(page.getByRole("region", { name: "New in your library" })).toHaveCount(0);
+});
+
+test("crates for rekordbox: a crate is switched into the file and the file updated", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const crates = page.getByRole("navigation", { name: "Crates" });
+  await crates.getByRole("button", { name: "New crate" }).click();
+  await crates.getByRole("textbox", { name: "New crate name" }).fill("Warm-up");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Warm-up" })).toBeVisible();
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  const card = page.getByRole("region", { name: "Crates for rekordbox" });
+  const toggle = card.getByRole("checkbox", { name: "Warm-up in openCrate's rekordbox file" });
+  await expect(toggle).not.toBeChecked();
+  await expect(card.getByRole("button", { name: "Update file" })).toHaveCount(0);
+  await toggle.check();
+  await expect(toggle).toBeChecked();
+  await expect(card.getByRole("status")).toContainText('"Warm-up" is in the file.');
+  await expect(card.getByRole("status")).toContainText("openCrate crates");
+  await card.getByRole("button", { name: "Update file" }).click();
+  await expect(card.getByRole("status")).toContainText("as they are");
+  const sent = (await calls(page)).filter((call) => call.command === "rekordbox_set_crate").map((call) => call.args);
+  expect(sent).toEqual([{ crateId: 1, inFile: true }]);
 });

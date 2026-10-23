@@ -541,3 +541,22 @@ describe("waveforms by sound", () => {
     await expect(reply({ perSecond: 300 }).waveformDetail(1)).rejects.toThrow("unreadable");
   });
 });
+
+describe("crates for rekordbox", () => {
+  const crate = { crateId: 3, name: "Warm-up", inFile: true, known: 10, new: 2, needsExport: 1, noFile: 0 };
+  const listed = { crates: [crate], xmlPath: "/data/rekordbox/opencrate.xml", folder: "openCrate crates" };
+  const admin = (invoke: Invoke) => new TauriLibraryApi(invoke, { canManageFolders: true, persistent: true }).admin!;
+  it("uses the matching commands and argument names", async () => {
+    const invoke = vi.fn(async () => listed);
+    const crates = admin(invoke);
+    expect(await crates.rekordboxCrates()).toEqual(listed);
+    expect(await crates.setRekordboxCrate(3, false)).toEqual(listed);
+    expect(await crates.updateRekordboxFile()).toEqual(listed);
+    expect(invoke.mock.calls).toEqual([["rekordbox_crates"], ["rekordbox_set_crate", { crateId: 3, inFile: false }], ["rekordbox_update_file"]]);
+  });
+  it("refuses unreadable replies", async () => {
+    const reply = (value: unknown) => admin(vi.fn().mockResolvedValue(value));
+    await expect(reply({ ...listed, crates: [{ ...crate, inFile: "yes" }] }).rekordboxCrates()).rejects.toThrow("unreadable");
+    await expect(reply({ ...listed, crates: null }).rekordboxCrates()).rejects.toThrow("unreadable");
+  });
+});

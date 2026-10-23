@@ -2,6 +2,19 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (crates to rekordbox through XML; branch next)
+
+- A crate can be switched into openCrate's rekordbox file, as a playlist in the folder "openCrate crates". The file is
+  now rebuilt whole from saved state (the last new tracks sent, still new, and every crate switched on) whenever either
+  changes, or on "Update file".
+- Tracks rekordbox already has are written as an exact echo of rekordbox's own XML entry from the mirror: every
+  attribute, the `Location` text as rekordbox spelled it, the beat grid and the cues, so importing cannot change them
+  even if rekordbox updated existing entries. Tracks known only from a direct database read are left out with a
+  warning (no exact entry to echo); tracks without a reachable file likewise. A113.
+- `write_document` writes several playlists and folders and dedupes a track shared by playlists.
+- Checks: 422 Rust tests (8 ignored), 64 unit, 62 browser runs. The rekordbox steps (drag a playlist from rekordbox xml)
+  are still to be checked by the owner.
+
 ## 2026-10-23 (light theme; branch next)
 
 - `next` now holds everything not on `main`: `rekordbox-db-read`, `rekordbox-send` and `waveform-bands`, merged and

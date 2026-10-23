@@ -305,6 +305,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .import-button:disabled { opacity: .5; cursor: default; }
 .send-row { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; }
 .send-row input { accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.crate-warning { color: var(--warn); }
 .send-steps code { word-break: break-all; }
 .send-steps ol { padding-left: 18px; }
 .warning-panel { border: 1px solid var(--accent); border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
