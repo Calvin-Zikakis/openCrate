@@ -779,6 +779,42 @@ async fn rekordbox_send(
 }
 
 #[tauri::command]
+async fn rekordbox_crates(state: State<'_, AppState>) -> Result<rekordbox_send::CratesDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || rekordbox_send::crates(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_set_crate(
+    state: State<'_, AppState>,
+    crate_id: i64,
+    in_file: bool,
+) -> Result<rekordbox_send::CratesDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_send::set_crate(&service, crate_id, in_file)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Write openCrate's rekordbox file again, so crates changed since show as they are now.
+#[tauri::command]
+async fn rekordbox_update_file(
+    state: State<'_, AppState>,
+) -> Result<rekordbox_send::CratesDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_send::regenerate(&service)?;
+        rekordbox_send::crates(&service)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn library_reread_mirror(
     state: State<'_, AppState>,
     source_id: i64,
@@ -918,6 +954,9 @@ fn main() -> Result<(), tauri::Error> {
             rekordbox_restore,
             rekordbox_new_tracks,
             rekordbox_send,
+            rekordbox_crates,
+            rekordbox_set_crate,
+            rekordbox_update_file,
         ])
         .build(tauri::generate_context!())?
         .run(|app, event| {

@@ -4,13 +4,40 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use oc_core_db::offers::Candidate;
+use oc_core_db::offers::{Candidate, CrateTrack};
 use oc_core_db::service::LibraryService;
-use oc_rekordbox::xml::{write_offer, NewTrack};
-use serde::Serialize;
+use oc_rekordbox::location::encode_location;
+use oc_rekordbox::xml::{write_document, Entry, NewTrack, OfferPlaylist};
+use serde::{Deserialize, Serialize};
 
 /// Never "Imported": importing a playlist of that name could replace the owner's own.
 pub const PLAYLIST: &str = "openCrate new tracks";
+/// Crates the owner puts in the file go in this folder, each as a playlist.
+pub const CRATES_FOLDER: &str = "openCrate crates";
+/// What the file holds, so it can be written again whole: the last new tracks sent and the
+/// crates switched on.
+const STATE: &str = "rekordbox_xml";
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct FileState {
+    new: Vec<i64>,
+    crates: Vec<i64>,
+}
+
+fn load_state(service: &LibraryService) -> Result<FileState, String> {
+    Ok(service
+        .setting(STATE)
+        .map_err(|error| error.to_string())?
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default())
+}
+
+fn save_state(service: &LibraryService, state: &FileState) -> Result<(), String> {
+    let text = serde_json::to_string(state).map_err(|error| error.to_string())?;
+    service
+        .set_setting(STATE, Some(text))
+        .map_err(|error| error.to_string())
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,9 +135,10 @@ pub fn send(service: &LibraryService, file_ids: &[i64], now_ms: i64) -> Result<S
         })?;
         tracks.push(new_track(candidate));
     }
-    let text = write_offer(&tracks, PLAYLIST, env!("CARGO_PKG_VERSION"));
-    let path = xml_path(service);
-    write_atomically(&path, text.as_bytes()).map_err(|error| error.to_string())?;
+    let mut state = load_state(service)?;
+    state.new = file_ids.to_vec();
+    save_state(service, &state)?;
+    let path = regenerate(service)?;
     service
         .record_offers(file_ids.to_vec(), now_ms)
         .map_err(|error| error.to_string())?;
@@ -118,6 +146,153 @@ pub fn send(service: &LibraryService, file_ids: &[i64], now_ms: i64) -> Result<S
         xml_path: path.to_string_lossy().into_owned(),
         tracks: tracks.len(),
     })
+}
+
+/// The document's entries, each written once however many playlists hold it.
+#[derive(Default)]
+struct Entries {
+    list: Vec<Entry>,
+    by_location: HashMap<String, usize>,
+}
+
+impl Entries {
+    fn add(&mut self, entry: Entry) -> usize {
+        let location = match &entry {
+            Entry::New(track) => encode_location(&track.path),
+            Entry::Echo(track) => track
+                .attributes
+                .get("Location")
+                .cloned()
+                .unwrap_or_else(|| encode_location(&track.location_bytes)),
+        };
+        if let Some(index) = self.by_location.get(&location) {
+            return *index;
+        }
+        self.list.push(entry);
+        self.by_location.insert(location, self.list.len() - 1);
+        self.list.len() - 1
+    }
+}
+
+/// Write openCrate's rekordbox file again from what it should hold: the last new tracks sent
+/// that rekordbox still lacks, and every crate switched on, as it is now.
+pub fn regenerate(service: &LibraryService) -> Result<PathBuf, String> {
+    let state = load_state(service)?;
+    let (found, _) = service
+        .rekordbox_candidates()
+        .map_err(|error| error.to_string())?;
+    let mut by_id: HashMap<i64, Candidate> = found
+        .into_iter()
+        .map(|candidate| (candidate.file_id, candidate))
+        .collect();
+    let mut entries = Entries::default();
+    let mut playlists = Vec::new();
+    let new: Vec<usize> = state
+        .new
+        .iter()
+        .filter_map(|id| by_id.remove(id))
+        .map(|candidate| entries.add(Entry::New(new_track(candidate))))
+        .collect();
+    if !new.is_empty() {
+        playlists.push(OfferPlaylist {
+            folder: None,
+            name: PLAYLIST.to_owned(),
+            entries: new,
+        });
+    }
+    for crate_id in &state.crates {
+        // A crate deleted since is left out.
+        let Ok((name, tracks)) = service.crate_for_rekordbox(*crate_id) else {
+            continue;
+        };
+        let members = tracks
+            .into_iter()
+            .filter_map(|track| match track {
+                CrateTrack::Echo(entry) => Some(Entry::Echo(entry)),
+                CrateTrack::New(entry) => Some(Entry::New(entry)),
+                CrateTrack::DatabaseOnly { .. } | CrateTrack::NoFile { .. } => None,
+            })
+            .map(|entry| entries.add(entry))
+            .collect();
+        playlists.push(OfferPlaylist {
+            folder: Some(CRATES_FOLDER.to_owned()),
+            name,
+            entries: members,
+        });
+    }
+    let text = write_document(&entries.list, &playlists, env!("CARGO_PKG_VERSION"));
+    let path = xml_path(service);
+    write_atomically(&path, text.as_bytes()).map_err(|error| error.to_string())?;
+    Ok(path)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrateStatusDto {
+    pub crate_id: i64,
+    pub name: String,
+    pub in_file: bool,
+    /// Tracks rekordbox has, written back as its own entries.
+    pub known: usize,
+    /// Tracks rekordbox does not have yet.
+    pub new: usize,
+    /// Tracks rekordbox has according to a direct read only; left out until an XML export is read.
+    pub needs_export: usize,
+    /// Tracks whose files cannot be reached; left out.
+    pub no_file: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CratesDto {
+    pub crates: Vec<CrateStatusDto>,
+    pub xml_path: String,
+    pub folder: &'static str,
+}
+
+pub fn crates(service: &LibraryService) -> Result<CratesDto, String> {
+    let state = load_state(service)?;
+    let mut found = Vec::new();
+    for row in service.crates().map_err(|error| error.to_string())? {
+        let (_, tracks) = service
+            .crate_for_rekordbox(row.id)
+            .map_err(|error| error.to_string())?;
+        let count =
+            |wanted: fn(&CrateTrack) -> bool| tracks.iter().filter(|track| wanted(track)).count();
+        found.push(CrateStatusDto {
+            crate_id: row.id,
+            name: row.name,
+            in_file: state.crates.contains(&row.id),
+            known: count(|track| matches!(track, CrateTrack::Echo(_))),
+            new: count(|track| matches!(track, CrateTrack::New(_))),
+            needs_export: count(|track| matches!(track, CrateTrack::DatabaseOnly { .. })),
+            no_file: count(|track| matches!(track, CrateTrack::NoFile { .. })),
+        });
+    }
+    Ok(CratesDto {
+        crates: found,
+        xml_path: xml_path(service).to_string_lossy().into_owned(),
+        folder: CRATES_FOLDER,
+    })
+}
+
+/// Put a crate in openCrate's rekordbox file, or take it out, and write the file again.
+pub fn set_crate(
+    service: &LibraryService,
+    crate_id: i64,
+    in_file: bool,
+) -> Result<CratesDto, String> {
+    service
+        .crate_for_rekordbox(crate_id)
+        .map_err(|error| error.to_string())?;
+    let mut state = load_state(service)?;
+    state.crates.retain(|id| *id != crate_id);
+    if in_file {
+        state.crates.push(crate_id);
+    }
+    save_state(service, &state)?;
+    regenerate(service)?;
+    crates(service)
 }
 
 /// A whole file or the previous one: written beside it, flushed, then renamed over it.
@@ -221,6 +396,98 @@ mod tests {
         assert!(!Path::new(&sent.xml_path)
             .with_file_name(".opencrate.xml.part")
             .exists());
+    }
+
+    fn read_back(service: &LibraryService) -> oc_rekordbox::xml::Collection {
+        let text = fs::read_to_string(xml_path(service)).unwrap();
+        oc_rekordbox::xml::read(std::io::Cursor::new(text.as_bytes())).unwrap()
+    }
+
+    fn playlist_names(collection: &oc_rekordbox::xml::Collection) -> Vec<String> {
+        use oc_rekordbox::xml::PlaylistNode;
+        fn walk(nodes: &[PlaylistNode], prefix: &str, out: &mut Vec<String>) {
+            for node in nodes {
+                match node {
+                    PlaylistNode::Folder {
+                        attributes,
+                        children,
+                    } => {
+                        let name = &attributes["Name"];
+                        let next = if name == "ROOT" {
+                            String::new()
+                        } else {
+                            format!("{prefix}{name}/")
+                        };
+                        walk(children, &next, out);
+                    }
+                    PlaylistNode::Playlist {
+                        attributes,
+                        track_ids,
+                    } => {
+                        out.push(format!(
+                            "{prefix}{} ({})",
+                            attributes["Name"],
+                            track_ids.len()
+                        ));
+                    }
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&collection.playlists, "", &mut out);
+        out
+    }
+
+    #[test]
+    fn a_crate_switched_on_joins_the_new_tracks_in_one_file() {
+        let setup = setup(&["Night Drive", "Soft Focus"]);
+        let tracks: Vec<i64> = setup
+            .service
+            .read_page(
+                &oc_core_db::library::LibraryQuery::new(oc_core_db::library::View::Tracks),
+                0,
+                10,
+            )
+            .unwrap()
+            .items
+            .iter()
+            .map(|item| item.id)
+            .collect();
+        let warm = setup.service.create_crate("Warm-up").unwrap();
+        setup.service.add_to_crate(warm, tracks).unwrap();
+        let listed = crates(&setup.service).unwrap();
+        assert_eq!(listed.crates.len(), 1);
+        assert!(!listed.crates[0].in_file);
+        assert_eq!(listed.crates[0].new, 2);
+        let after = set_crate(&setup.service, warm, true).unwrap();
+        assert!(after.crates[0].in_file);
+        assert_eq!(
+            playlist_names(&read_back(&setup.service)),
+            ["openCrate crates/Warm-up (2)"]
+        );
+        let ids: Vec<i64> = new_tracks(&setup.service)
+            .unwrap()
+            .tracks
+            .iter()
+            .map(|track| track.file_id)
+            .collect();
+        send(&setup.service, &ids[..1], 5).unwrap();
+        let both = read_back(&setup.service);
+        assert_eq!(
+            playlist_names(&both),
+            ["openCrate new tracks (1)", "openCrate crates/Warm-up (2)"]
+        );
+        assert_eq!(
+            both.tracks.len(),
+            2,
+            "a track in two playlists is written once"
+        );
+        set_crate(&setup.service, warm, false).unwrap();
+        assert_eq!(
+            playlist_names(&read_back(&setup.service)),
+            ["openCrate new tracks (1)"]
+        );
+        assert!(set_crate(&setup.service, 999, true).is_err());
     }
 
     #[test]
