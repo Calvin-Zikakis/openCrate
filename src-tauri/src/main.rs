@@ -11,6 +11,7 @@ mod lookup;
 mod plan;
 mod player;
 mod rekordbox_db;
+mod rekordbox_send;
 mod sync;
 mod tagview;
 
@@ -736,6 +737,32 @@ async fn rekordbox_restore(
 }
 
 #[tauri::command]
+async fn rekordbox_new_tracks(
+    state: State<'_, AppState>,
+) -> Result<rekordbox_send::NewTracksDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || rekordbox_send::new_tracks(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_send(
+    state: State<'_, AppState>,
+    file_ids: Vec<i64>,
+) -> Result<rekordbox_send::SentDto, String> {
+    let service = state.library()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| i64::try_from(since.as_millis()).ok())
+        .unwrap_or(0);
+    tauri::async_runtime::spawn_blocking(move || rekordbox_send::send(&service, &file_ids, now))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn library_reread_mirror(
     state: State<'_, AppState>,
     source_id: i64,
@@ -872,6 +899,8 @@ fn main() -> Result<(), tauri::Error> {
             rekordbox_backups,
             rekordbox_backup_pin,
             rekordbox_restore,
+            rekordbox_new_tracks,
+            rekordbox_send,
         ])
         .build(tauri::generate_context!())?
         .run(|app, event| {
