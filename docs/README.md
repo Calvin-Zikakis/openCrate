@@ -59,6 +59,7 @@ imports the shared agent instructions. The repository remains private.
 | [research/008-library-query-benchmark.md](research/008-library-query-benchmark.md) | Windowed library queries on 100,000 synthetic tracks |
 | [research/009-fake-lossless-edges.md](research/009-fake-lossless-edges.md) | Where MP3 and AAC encoders cut the spectrum, and the thresholds the fake-lossless check uses |
 | [research/010-rekordbox-database-read.md](research/010-rekordbox-database-read.md) | Reading the laptop's rekordbox 7.2.19 library through a backup copy: counts match, timings |
+| [research/011-download-polling-cost.md](research/011-download-polling-cost.md) | Polling 2,000 new releases costs 86 ms; file watching not needed |
 
 The XML parser is implemented under [decision 0011](decisions/0011-read-only-xml-parser.md).
 [Research 005](research/005-read-only-xml-validation.md) records its synthetic
