@@ -50,6 +50,8 @@ pub struct CandidateDto {
     pub container: String,
     pub filed_ms: i64,
     pub offered_ms: Option<i64>,
+    /// Kept out of rekordbox by the owner.
+    pub hidden: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,6 +96,7 @@ pub fn new_tracks(service: &LibraryService) -> Result<NewTracksDto, String> {
                 container: candidate.container,
                 filed_ms: candidate.filed_ms,
                 offered_ms: candidate.offered_ms,
+                hidden: candidate.hidden,
             })
             .collect(),
         mirror_read_ms,
@@ -126,6 +129,7 @@ pub fn send(service: &LibraryService, file_ids: &[i64], now_ms: i64) -> Result<S
         .map_err(|error| error.to_string())?;
     let mut by_id: HashMap<i64, Candidate> = found
         .into_iter()
+        .filter(|candidate| !candidate.hidden)
         .map(|candidate| (candidate.file_id, candidate))
         .collect();
     let mut tracks = Vec::with_capacity(file_ids.len());
@@ -146,6 +150,20 @@ pub fn send(service: &LibraryService, file_ids: &[i64], now_ms: i64) -> Result<S
         xml_path: path.to_string_lossy().into_owned(),
         tracks: tracks.len(),
     })
+}
+
+/// Keep tracks out of rekordbox, or bring them back, and write the file again.
+pub fn set_hidden(
+    service: &LibraryService,
+    file_ids: &[i64],
+    hidden: bool,
+    now_ms: i64,
+) -> Result<NewTracksDto, String> {
+    service
+        .set_rekordbox_hidden(file_ids.to_vec(), hidden, now_ms)
+        .map_err(|error| error.to_string())?;
+    regenerate(service)?;
+    new_tracks(service)
 }
 
 /// The document's entries, each written once however many playlists hold it.
@@ -183,6 +201,7 @@ pub fn regenerate(service: &LibraryService) -> Result<PathBuf, String> {
         .map_err(|error| error.to_string())?;
     let mut by_id: HashMap<i64, Candidate> = found
         .into_iter()
+        .filter(|candidate| !candidate.hidden)
         .map(|candidate| (candidate.file_id, candidate))
         .collect();
     let mut entries = Entries::default();
@@ -488,6 +507,38 @@ mod tests {
             ["openCrate new tracks (1)"]
         );
         assert!(set_crate(&setup.service, 999, true).is_err());
+    }
+
+    #[test]
+    fn a_hidden_track_leaves_the_file_and_comes_back() {
+        let setup = setup(&["Keep", "Not For Rekordbox"]);
+        let listed = new_tracks(&setup.service).unwrap();
+        let ids: Vec<i64> = listed.tracks.iter().map(|track| track.file_id).collect();
+        send(&setup.service, &ids, 1).unwrap();
+        let hide = listed
+            .tracks
+            .iter()
+            .find(|track| track.title == "Not For Rekordbox")
+            .unwrap()
+            .file_id;
+        let after = set_hidden(&setup.service, &[hide], true, 2).unwrap();
+        assert!(after
+            .tracks
+            .iter()
+            .any(|track| track.file_id == hide && track.hidden));
+        assert_eq!(
+            playlist_names(&read_back(&setup.service)),
+            ["openCrate new tracks (1)"]
+        );
+        assert!(
+            send(&setup.service, &[hide], 3).is_err(),
+            "a hidden track is not sent"
+        );
+        set_hidden(&setup.service, &[hide], false, 4).unwrap();
+        assert_eq!(
+            playlist_names(&read_back(&setup.service)),
+            ["openCrate new tracks (2)"]
+        );
     }
 
     #[test]

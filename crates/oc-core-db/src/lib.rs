@@ -43,6 +43,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/012_app_setting.sql"),
     include_str!("schema/013_waveform.sql"),
     include_str!("schema/014_rekordbox_offer.sql"),
+    include_str!("schema/015_rekordbox_hidden.sql"),
 ];
 
 #[derive(Debug, Error)]

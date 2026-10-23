@@ -347,7 +347,11 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               }
               return { crates: shown, xmlPath: "/Users/dj/Library/Application Support/openCrate/rekordbox/opencrate.xml", folder: "openCrate crates" };
             }
+            case "rekordbox_hide":
             case "rekordbox_new_tracks": {
+              if (command === "rekordbox_hide") {
+                for (const track of (window as any).__newTracks ?? []) if ((args?.fileIds ?? []).includes(track.fileId)) track.hidden = args?.hidden === true;
+              }
               const now = Date.UTC(2026, 9, 23, 12);
               const tracks = ((window as any).__newTracks ?? []) as Record<string, any>[];
               const read = (window as any).__mirrorReadMs;
@@ -1411,9 +1415,9 @@ test("rekordbox database: restore asks first, and a new rekordbox version must b
 });
 
 const newTracks = () => [
-  { fileId: 11, title: "Night Drive", artist: "Studio 001", album: "Between Spaces", durationMs: 301000, container: "AIFF", filedMs: 1, offeredMs: null },
-  { fileId: 12, title: "Soft Focus (Dub Mix)", artist: "Studio 001", album: "Between Spaces", durationMs: 402000, container: "AIFF", filedMs: 1, offeredMs: null },
-  { fileId: 13, title: "Late Train", artist: "Example Artist", album: "Night Lines", durationMs: 250000, container: "MP3", filedMs: 1, offeredMs: null },
+  { fileId: 11, title: "Night Drive", artist: "Studio 001", album: "Between Spaces", durationMs: 301000, container: "AIFF", filedMs: 1, offeredMs: null, hidden: false },
+  { fileId: 12, title: "Soft Focus (Dub Mix)", artist: "Studio 001", album: "Between Spaces", durationMs: 402000, container: "AIFF", filedMs: 1, offeredMs: null, hidden: false },
+  { fileId: 13, title: "Late Train", artist: "Example Artist", album: "Night Lines", durationMs: 250000, container: "MP3", filedMs: 1, offeredMs: null, hidden: false },
 ];
 
 test("send to rekordbox: new tracks are listed, ticked and sent", async ({ page }) => {
@@ -1477,4 +1481,20 @@ test("crates for rekordbox: a crate is switched into the file and the file updat
   await expect(card.getByRole("status")).toContainText("as they are");
   const sent = (await calls(page)).filter((call) => call.command === "rekordbox_set_crate").map((call) => call.args);
   expect(sent).toEqual([{ crateId: 1, inFile: true }]);
+});
+
+test("send to rekordbox: a track kept out is hidden and can be brought back", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript((tracks) => { (window as any).__newTracks = tracks; }, newTracks());
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  const card = page.getByRole("region", { name: "New in your library" });
+  await card.getByRole("button", { name: "Keep Late Train out of rekordbox" }).click();
+  await expect(card.getByRole("checkbox")).toHaveCount(2);
+  await expect(card.getByRole("button", { name: "Send 2 to rekordbox" })).toBeEnabled();
+  await card.getByRole("button", { name: "Show 1 hidden track" }).click();
+  await card.getByRole("button", { name: "Bring Late Train back" }).click();
+  await expect(card.getByRole("checkbox")).toHaveCount(3);
+  const hides = (await calls(page)).filter((call) => call.command === "rekordbox_hide").map((call) => call.args);
+  expect(hides).toEqual([{ fileIds: [13], hidden: true }, { fileIds: [13], hidden: false }]);
 });

@@ -2,6 +2,11 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (keep tracks out of rekordbox; branch next)
+
+- "New in your library" gains Hide per track and "Show N hidden tracks" with Bring back (schema v15
+  `rekordbox_hidden`). A hidden track is not offered, cannot be sent and leaves openCrate's rekordbox file.
+
 ## 2026-10-23 (crates to rekordbox through XML; branch next)
 
 - A crate can be switched into openCrate's rekordbox file, as a playlist in the folder "openCrate crates". The file is

@@ -465,7 +465,7 @@ function toCandidate(value: unknown): RekordboxCandidate {
   return {
     fileId: whole(value.fileId, what), title: text(value.title, what), artist: text(value.artist, what), album: text(value.album, what),
     durationMs: whole(value.durationMs, what), container: text(value.container, what), filedMs: whole(value.filedMs, what),
-    offeredMs: value.offeredMs === null ? null : whole(value.offeredMs, what),
+    offeredMs: value.offeredMs === null ? null : whole(value.offeredMs, what), hidden: flag(value.hidden, what),
   };
 }
 
@@ -701,6 +701,8 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     restoreRekordboxBackup: async (name) => toBackup(await invoke("rekordbox_restore", { name }).catch((error: unknown) => { throw failure(error); })),
     rekordboxNewTracks: async () => toNewTracks(await invoke("rekordbox_new_tracks").catch((error: unknown) => { throw failure(error); })),
     sendToRekordbox: async (fileIds) => toSent(await invoke("rekordbox_send", { fileIds }).catch((error: unknown) => { throw failure(error); })),
+    hideFromRekordbox: async (fileIds, hidden) =>
+      toNewTracks(await invoke("rekordbox_hide", { fileIds, hidden }).catch((error: unknown) => { throw failure(error); })),
     rekordboxCrates: async () => toCrates(await invoke("rekordbox_crates").catch((error: unknown) => { throw failure(error); })),
     setRekordboxCrate: async (crateId, inFile) =>
       toCrates(await invoke("rekordbox_set_crate", { crateId, inFile }).catch((error: unknown) => { throw failure(error); })),

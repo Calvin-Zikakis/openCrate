@@ -16,6 +16,7 @@ export function SendToRekordbox({ admin, refresh }: Props) {
   const [unticked, setUnticked] = useState<Set<number>>(new Set());
   const [sent, setSent] = useState<RekordboxSent | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -30,7 +31,20 @@ export function SendToRekordbox({ admin, refresh }: Props) {
 
   if (!listed || listed.tracks.length === 0) return error ? <p role="alert" className="inline-error">{error}</p> : null;
 
-  const chosen = listed.tracks.filter((track) => !unticked.has(track.fileId)).map((track) => track.fileId);
+  const offered = listed.tracks.filter((track) => !track.hidden);
+  const hidden = listed.tracks.filter((track) => track.hidden);
+  const chosen = offered.filter((track) => !unticked.has(track.fileId)).map((track) => track.fileId);
+  const hide = async (fileId: number, keepOut: boolean) => {
+    setBusy(true);
+    setError("");
+    try {
+      setListed(await admin.hideFromRekordbox([fileId], keepOut));
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
   const toggle = (fileId: number) => setUnticked((current) => {
     const next = new Set(current);
     if (next.has(fileId)) next.delete(fileId);
@@ -57,9 +71,9 @@ export function SendToRekordbox({ admin, refresh }: Props) {
 
   return <section className="sync-card" role="region" aria-label="New in your library">
     <h2>New in your library</h2>
-    <p className="settings-copy">{`${plural(listed.tracks.length, "track", "tracks")} openCrate filed that rekordbox does not have yet. Sending writes them into openCrate's own rekordbox file; rekordbox itself is not changed.`}</p>
+    <p className="settings-copy">{`${plural(offered.length, "track", "tracks")} openCrate filed that rekordbox does not have yet. Sending writes them into openCrate's own rekordbox file; rekordbox itself is not changed.`}</p>
     {stale && <p className="inline-error">{stale}</p>}
-    <ul className="folder-list">{listed.tracks.map((track) => <li key={track.fileId} className="folder-row">
+    <ul className="folder-list">{offered.map((track) => <li key={track.fileId} className="folder-row">
       <label className="send-row">
         <input type="checkbox" checked={!unticked.has(track.fileId)} onChange={() => toggle(track.fileId)} aria-label={`${track.title}, ${track.artist}`} />
         <span className="folder-text">
@@ -67,7 +81,13 @@ export function SendToRekordbox({ admin, refresh }: Props) {
           <small>{[track.artist, track.album, track.container].filter(Boolean).join(" - ")}{track.offeredMs !== null ? " - Sent, waiting for rekordbox" : ""}</small>
         </span>
       </label>
+      <button className="secondary-button" disabled={busy} aria-label={`Keep ${track.title} out of rekordbox`} onClick={() => void hide(track.fileId, true)}>Hide</button>
     </li>)}</ul>
+    {hidden.length > 0 && <button className="link-button" aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>{showHidden ? "Hide the list of hidden tracks" : `Show ${plural(hidden.length, "hidden track", "hidden tracks")}`}</button>}
+    {showHidden && <ul className="folder-list" aria-label="Kept out of rekordbox">{hidden.map((track) => <li key={track.fileId} className="folder-row">
+      <span className="folder-text"><strong>{track.title}</strong><small>{[track.artist, track.album].filter(Boolean).join(" - ")}</small></span>
+      <button className="secondary-button" disabled={busy} aria-label={`Bring ${track.title} back`} onClick={() => void hide(track.fileId, false)}>Bring back</button>
+    </li>)}</ul>}
     {error && <p role="alert" className="inline-error">{error}</p>}
     <button className="import-button" disabled={busy || chosen.length === 0} onClick={() => void send()}>{`Send ${chosen.length} to rekordbox`}</button>
     {sent && <div role="status" className="send-steps">

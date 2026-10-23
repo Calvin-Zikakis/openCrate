@@ -23,6 +23,8 @@ pub struct Candidate {
     pub container: String,
     pub filed_ms: i64,
     pub offered_ms: Option<i64>,
+    /// The owner chose to keep it out of rekordbox.
+    pub hidden: bool,
 }
 
 /// Files openCrate published into the library that are still there and that no rekordbox entry
@@ -38,12 +40,13 @@ pub fn candidates(connection: &Connection) -> Result<Vec<Candidate>> {
         .collect::<rusqlite::Result<_>>()?;
     let mut details = connection.prepare_cached(
         "SELECT t.title, a.name, r.title, r.year, COALESCE(f.duration_ms, t.duration_ms, 0), \
-                f.size, f.container, o.offered_ms \
+                f.size, f.container, o.offered_ms, h.file_id IS NOT NULL \
          FROM file f \
          LEFT JOIN track t ON t.id = f.track_id \
          LEFT JOIN artist a ON a.id = t.artist_id \
          LEFT JOIN release r ON r.id = t.release_id \
          LEFT JOIN rekordbox_offer o ON o.file_id = f.id \
+         LEFT JOIN rekordbox_hidden h ON h.file_id = f.id \
          WHERE f.id = ?1 AND f.lifecycle = 'active' AND f.presence = 'present' \
            AND f.id NOT IN (SELECT file_id FROM rb_track WHERE file_id IS NOT NULL)",
     )?;
@@ -71,10 +74,12 @@ pub fn candidates(connection: &Connection) -> Result<Vec<Candidate>> {
                     row.get::<_, i64>(5)?,
                     row.get::<_, String>(6)?,
                     row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, bool>(8)?,
                 ))
             })
             .optional()?;
-        let Some((title, artist, album, year, duration_ms, size, container, offered_ms)) = row
+        let Some((title, artist, album, year, duration_ms, size, container, offered_ms, hidden)) =
+            row
         else {
             continue;
         };
@@ -90,6 +95,7 @@ pub fn candidates(connection: &Connection) -> Result<Vec<Candidate>> {
             container,
             filed_ms,
             offered_ms,
+            hidden,
         });
     }
     found.sort_by(|a, b| b.filed_ms.cmp(&a.filed_ms).then(b.file_id.cmp(&a.file_id)));

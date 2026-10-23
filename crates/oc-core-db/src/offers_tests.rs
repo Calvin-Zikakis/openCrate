@@ -265,3 +265,31 @@ fn a_crate_from_a_database_read_or_without_files_says_so() {
     );
     assert!(library.service.crate_for_rekordbox(999).is_err());
 }
+
+#[test]
+fn a_hidden_track_stays_listed_as_hidden_until_brought_back() {
+    let library = library();
+    library.file("A/01 - Keep.aif", "Keep");
+    library.file("A/02 - Not For Rekordbox.aif", "Not For Rekordbox");
+    library.scan();
+    let (found, _) = library.service.rekordbox_candidates().unwrap();
+    let hide = found
+        .iter()
+        .find(|c| c.title == "Not For Rekordbox")
+        .unwrap()
+        .file_id;
+    library
+        .service
+        .set_rekordbox_hidden(vec![hide], true, 10)
+        .unwrap();
+    let (found, _) = library.service.rekordbox_candidates().unwrap();
+    let hidden: Vec<(String, bool)> = found.into_iter().map(|c| (c.title, c.hidden)).collect();
+    assert!(hidden.contains(&("Not For Rekordbox".into(), true)));
+    assert!(hidden.contains(&("Keep".into(), false)));
+    library
+        .service
+        .set_rekordbox_hidden(vec![hide], false, 11)
+        .unwrap();
+    let (found, _) = library.service.rekordbox_candidates().unwrap();
+    assert!(found.iter().all(|c| !c.hidden));
+}

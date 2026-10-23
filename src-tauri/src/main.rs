@@ -815,6 +815,25 @@ async fn rekordbox_update_file(
 }
 
 #[tauri::command]
+async fn rekordbox_hide(
+    state: State<'_, AppState>,
+    file_ids: Vec<i64>,
+    hidden: bool,
+) -> Result<rekordbox_send::NewTracksDto, String> {
+    let service = state.library()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| i64::try_from(since.as_millis()).ok())
+        .unwrap_or(0);
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_send::set_hidden(&service, &file_ids, hidden, now)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn library_reread_mirror(
     state: State<'_, AppState>,
     source_id: i64,
@@ -957,6 +976,7 @@ fn main() -> Result<(), tauri::Error> {
             rekordbox_crates,
             rekordbox_set_crate,
             rekordbox_update_file,
+            rekordbox_hide,
         ])
         .build(tauri::generate_context!())?
         .run(|app, event| {

@@ -157,6 +157,8 @@ export interface RekordboxCandidate {
   filedMs: number;
   /** When it was last written into openCrate's rekordbox XML file. */
   offeredMs: number | null;
+  /** Kept out of rekordbox by the owner. */
+  hidden: boolean;
 }
 
 export interface RekordboxNewTracks {
@@ -476,6 +478,8 @@ export interface LibraryAdmin {
   rekordboxNewTracks(): Promise<RekordboxNewTracks>;
   /** Writes the chosen tracks into openCrate's rekordbox XML file, in this order. */
   sendToRekordbox(fileIds: number[]): Promise<RekordboxSent>;
+  /** Keeps tracks out of rekordbox, or brings them back. */
+  hideFromRekordbox(fileIds: number[], hidden: boolean): Promise<RekordboxNewTracks>;
   rekordboxCrates(): Promise<RekordboxCrates>;
   /** Puts a crate in openCrate's rekordbox file or takes it out, and writes the file again. */
   setRekordboxCrate(crateId: number, inFile: boolean): Promise<RekordboxCrates>;

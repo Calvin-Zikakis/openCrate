@@ -249,6 +249,30 @@ impl LibraryService {
         crate::offers::crate_tracks(self.pool.lease().connection(), crate_id)
     }
 
+    /// Keep files out of rekordbox (no longer offered as new), or bring them back.
+    pub fn set_rekordbox_hidden(
+        &self,
+        file_ids: Vec<i64>,
+        hidden: bool,
+        now_ms: i64,
+    ) -> Result<()> {
+        self.writer.run(move |database| {
+            let transaction = database.connection.transaction()?;
+            for file_id in &file_ids {
+                if hidden {
+                    transaction.execute(
+                        "INSERT OR IGNORE INTO rekordbox_hidden (file_id, hidden_ms) VALUES (?1, ?2)",
+                        rusqlite::params![file_id, now_ms],
+                    )?;
+                } else {
+                    transaction.execute("DELETE FROM rekordbox_hidden WHERE file_id = ?1", [file_id])?;
+                }
+            }
+            transaction.commit()?;
+            Ok(())
+        })?
+    }
+
     /// Remember that these files were written into openCrate's rekordbox XML file.
     pub fn record_offers(&self, file_ids: Vec<i64>, now_ms: i64) -> Result<()> {
         self.writer.run(move |database| {
