@@ -228,6 +228,46 @@ impl LibraryService {
         })?
     }
 
+    /// Files openCrate filed that rekordbox does not have yet, newest first, and when rekordbox
+    /// was last read (none if never), so the page can say when the answer may be stale.
+    pub fn rekordbox_candidates(&self) -> Result<(Vec<crate::offers::Candidate>, Option<i64>)> {
+        let lease = self.pool.lease();
+        let connection = lease.connection();
+        let found = crate::offers::candidates(connection)?;
+        let read_ms =
+            connection.query_row("SELECT MAX(last_read_ms) FROM rb_source", [], |row| {
+                row.get(0)
+            })?;
+        Ok((found, read_ms))
+    }
+
+    /// Remember that these files were written into openCrate's rekordbox XML file.
+    pub fn record_offers(&self, file_ids: Vec<i64>, now_ms: i64) -> Result<()> {
+        self.writer.run(move |database| {
+            let transaction = database.connection.transaction()?;
+            {
+                let mut insert = transaction.prepare(
+                    "INSERT INTO rekordbox_offer (file_id, offered_ms) VALUES (?1, ?2) \
+                     ON CONFLICT(file_id) DO UPDATE SET offered_ms = excluded.offered_ms",
+                )?;
+                for file_id in &file_ids {
+                    insert.execute(rusqlite::params![file_id, now_ms])?;
+                }
+            }
+            transaction.commit()?;
+            Ok(())
+        })?
+    }
+
+    #[cfg(test)]
+    pub(crate) fn offer_count(&self) -> Result<i64> {
+        Ok(self.pool.lease().connection().query_row(
+            "SELECT COUNT(*) FROM rekordbox_offer",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
     /// The private folder holding the database; app-owned files such as rekordbox backups
     /// live beside it.
     pub fn data_directory(&self) -> &Path {
