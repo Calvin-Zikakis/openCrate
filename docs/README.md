@@ -28,6 +28,7 @@ imports the shared agent instructions. The repository remains private.
 | [../crates/oc-rekordbox/README.md](../crates/oc-rekordbox/README.md) | Implemented byte decoder API and limits; no matching |
 | [../src-tauri/README.md](../src-tauri/README.md) | Minimal synthetic desktop host, capability/CSP limits, build and preview commands |
 | [ASSUMPTIONS.md](ASSUMPTIONS.md) | A1 to A66, including owner choices, foundation, shell, XML-reader and owner-lock calls; A28 to A32 and A43 withdrawn |
+| [user-guide.md](user-guide.md) | For DJs using the app: every screen, and what openCrate never changes |
 | [HANDOFF.md](HANDOFF.md) | Current state, environment, open decisions, and where a coding agent starts |
 | [LOG.md](LOG.md) | Dated progress log, newest first |
 | [design/interface.md](design/interface.md) | Built demo behavior versus planned screens/shortcuts, tokens, worker boundary and measurement limits |
