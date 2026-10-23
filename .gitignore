@@ -1,0 +1,16 @@
+node_modules/
+dist/
+target/
+.DS_Store
+*.log
+
+# Tauri
+src-tauri/gen/
+
+# Local databases and caches. Never commit a real library.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+.env
+.env.*

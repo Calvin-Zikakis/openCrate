@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned so lint behavior is the same everywhere. Update it deliberately, in its own change.
+channel = "1.99.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
