@@ -11,6 +11,38 @@ pub enum LocationError {
     NullByte,
 }
 
+/// Bytes rekordbox leaves unencoded. Research 002 saw `,`, `#`, `+` and `$` raw and
+/// parentheses never encoded; the rest of the punctuation here is assumed (A108).
+fn kept(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"/:,#+$-._()!~;=@*".contains(&byte)
+}
+
+/// A drive path such as `C:/x`, `C:\x` or the decoded form `/C:/x`.
+fn drive_form(path: &[u8]) -> bool {
+    let rest = path.strip_prefix(b"/").unwrap_or(path);
+    rest.len() >= 2 && rest[0].is_ascii_alphabetic() && rest[1] == b':'
+}
+
+/// The `Location` rekordbox would write for an absolute path: `file://localhost/`, then the
+/// path with forward slashes, percent-encoded with lowercase hex as research 002 measured.
+/// Backslashes are separators only in a drive path; elsewhere they are part of a name.
+pub fn encode_location(path: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let windows = drive_form(path);
+    let rest = path.strip_prefix(b"/").unwrap_or(path);
+    let mut out = String::with_capacity(rest.len() + 24);
+    out.push_str("file://localhost/");
+    for &byte in rest {
+        let byte = if windows && byte == b'\\' { b'/' } else { byte };
+        if kept(byte) {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02x}");
+        }
+    }
+    out
+}
+
 pub fn decode_location(location: &str) -> Result<Vec<u8>, LocationError> {
     let suffix = location
         .strip_prefix("file://localhost/")
@@ -35,7 +67,7 @@ pub fn decode_location(location: &str) -> Result<Vec<u8>, LocationError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_location, LocationError};
+    use super::{decode_location, encode_location, LocationError};
 
     #[test]
     fn preserves_literal_url_delimiters_and_punctuation() {
@@ -115,6 +147,46 @@ mod tests {
             assert_eq!(
                 decode_location(location),
                 Err(LocationError::UnsupportedPrefix)
+            );
+        }
+    }
+
+    #[test]
+    fn locations_are_spelled_like_rekordbox() {
+        assert_eq!(
+            encode_location("G:/Music/A & B/It's [VIP] 100% Café, #1 + $.aif".as_bytes()),
+            "file://localhost/G:/Music/A%20%26%20B/It%27s%20%5bVIP%5d%20100%25%20Caf%c3%a9,%20#1%20+%20$.aif"
+        );
+        assert_eq!(
+            encode_location(b"/Users/dj/Music/x y (Original Mix).mp3"),
+            "file://localhost/Users/dj/Music/x%20y%20(Original%20Mix).mp3"
+        );
+        assert_eq!(
+            encode_location(b"C:\\Music\\a.wav"),
+            "file://localhost/C:/Music/a.wav"
+        );
+        assert_eq!(
+            encode_location(b"/G:/Music/a.wav"),
+            "file://localhost/G:/Music/a.wav"
+        );
+        assert_eq!(
+            encode_location(b"/Users/dj/back\\slash \"quoted\" <x>.mp3"),
+            "file://localhost/Users/dj/back%5cslash%20%22quoted%22%20%3cx%3e.mp3"
+        );
+    }
+
+    #[test]
+    fn encoded_locations_decode_back() {
+        for path in [
+            &b"/Users/dj/Music/A & B/It's [1].aif"[..],
+            b"/G:/Music/100%/Caf\xc3\xa9;=@!~*.aif",
+            b"/Volumes/Music/\xff\x01 tab\t.aif",
+            b"/Volumes/Music/{a}^`|.mp3",
+        ] {
+            assert_eq!(
+                decode_location(&encode_location(path)).unwrap(),
+                path,
+                "{path:?}"
             );
         }
     }

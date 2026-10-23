@@ -3,6 +3,7 @@
 mod parser;
 #[cfg(test)]
 mod tests;
+mod writer;
 
 use std::collections::BTreeMap;
 use std::io::BufRead;
@@ -10,6 +11,8 @@ use std::io::BufRead;
 use thiserror::Error;
 
 use crate::location::LocationError;
+
+pub use writer::{write_offer, NewTrack};
 
 pub type Attributes = BTreeMap<String, String>;
 

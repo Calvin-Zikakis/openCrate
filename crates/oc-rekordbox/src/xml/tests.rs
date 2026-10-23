@@ -390,3 +390,71 @@ fn parses_large_synthetic_collection_with_exact_order_and_count() {
     assert_eq!(parsed.tracks[0].id, 0);
     assert_eq!(parsed.tracks[9_999].id, 9_999);
 }
+
+#[test]
+fn an_offer_reads_back_through_the_reader() {
+    use super::{write_offer, NewTrack};
+    let tracks = [
+        NewTrack {
+            path: "/Users/dj/Music/Studio 001/Night & Day/01 \"Late\" <Train>.aif".into(),
+            name: "\"Late\" <Train> & Co".into(),
+            artist: "Studio 001".into(),
+            album: "Night & Day".into(),
+            year: Some(2024),
+            total_seconds: 301,
+            size: 52_000_000,
+            kind: "AIFF".into(),
+        },
+        NewTrack {
+            path: "G:/Music/Café/02 #1 + $.mp3".as_bytes().to_vec(),
+            name: "Café Ünïcode".into(),
+            artist: String::new(),
+            album: String::new(),
+            year: None,
+            total_seconds: 0,
+            size: 1,
+            kind: "MP3".into(),
+        },
+    ];
+    let text = write_offer(&tracks, "openCrate new tracks", "0.1.0");
+    let collection = read(Cursor::new(text.as_bytes())).unwrap();
+    assert_eq!(collection.tracks.len(), 2);
+    assert_eq!(
+        collection
+            .collection_attributes
+            .get("Entries")
+            .map(String::as_str),
+        Some("2")
+    );
+    let first = &collection.tracks[0];
+    assert_eq!(first.attributes["Name"], "\"Late\" <Train> & Co");
+    assert_eq!(first.attributes["Album"], "Night & Day");
+    assert_eq!(first.attributes["Year"], "2024");
+    assert_eq!(first.attributes["TotalTime"], "301");
+    assert_eq!(first.attributes["Kind"], "AIFF File");
+    assert_eq!(first.location_bytes, tracks[0].path);
+    assert_eq!(collection.tracks[1].attributes["Name"], "Café Ünïcode");
+    assert_eq!(
+        collection.tracks[1].location_bytes,
+        b"/G:/Music/Caf\xc3\xa9/02 #1 + $.mp3"
+    );
+    assert!(!collection.tracks[1].attributes.contains_key("Year"));
+    let [PlaylistNode::Folder {
+        attributes,
+        children,
+    }] = collection.playlists.as_slice()
+    else {
+        panic!("one ROOT folder");
+    };
+    assert_eq!(attributes["Name"], "ROOT");
+    let [PlaylistNode::Playlist {
+        attributes,
+        track_ids,
+    }] = children.as_slice()
+    else {
+        panic!("one playlist");
+    };
+    assert_eq!(attributes["Name"], "openCrate new tracks");
+    let ids: Vec<u64> = collection.tracks.iter().map(|track| track.id).collect();
+    assert_eq!(track_ids, &ids);
+}
