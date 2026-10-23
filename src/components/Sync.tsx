@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./Icon";
+import { SendToRekordbox } from "./SendToRekordbox";
 import type { AliasSuggestion, ImportResult, LibraryAdmin, MirrorInfo, RekordboxDatabase } from "../library/types";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -20,6 +21,7 @@ interface Props {
 export function Sync({ admin, onChanged }: Props) {
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
   const [database, setDatabase] = useState<RekordboxDatabase | null>(null);
+  const [reads, setReads] = useState(0);
   const [suggestions, setSuggestions] = useState<AliasSuggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -50,6 +52,7 @@ export function Sync({ admin, onChanged }: Props) {
       const result = await work();
       if (result) {
         setNote(resultText(result));
+        setReads((count) => count + 1);
         onChanged();
       }
       await load();
@@ -115,6 +118,7 @@ export function Sync({ admin, onChanged }: Props) {
       {mirror.counts.ambiguous + mirror.counts.unrecognized > 0 && <p className="settings-copy">{number(mirror.counts.ambiguous + mirror.counts.unrecognized)} entries could not be placed safely and were left unmatched.</p>}
       {note && <p role="status" className="settings-copy">{note}</p>}
     </div>}
+    {loaded && <SendToRekordbox admin={admin} refresh={reads} />}
     {suggestions.length > 0 && <div className="sync-card">
       <h2>These entries look like they belong to a folder</h2>
       <p className="settings-copy">The export was probably made when your music lived somewhere else. Each suggestion is based on files that really exist in your folder.</p>

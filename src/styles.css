@@ -269,6 +269,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .tag-tidied { color: var(--accent); }
 .import-button { background: var(--accent); color: var(--base); padding: 10px 16px; border-radius: 6px; font-size: 12px; font-weight: 650; margin: 2px 0 12px; }
 .import-button:disabled { opacity: .5; cursor: default; }
+.send-row { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; }
+.send-row input { accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.send-steps code { word-break: break-all; }
+.send-steps ol { padding-left: 18px; }
 .warning-panel { border: 1px solid var(--accent); border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
 .warning-panel h4 { margin: 0 0 6px; }
 .warning-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

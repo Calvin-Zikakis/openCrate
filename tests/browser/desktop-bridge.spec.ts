@@ -320,6 +320,21 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               rbBackups.unshift(saved);
               return saved;
             }
+            case "rekordbox_new_tracks": {
+              const now = Date.UTC(2026, 9, 23, 12);
+              const tracks = ((window as any).__newTracks ?? []) as Record<string, any>[];
+              const read = (window as any).__mirrorReadMs;
+              return {
+                tracks, mirrorReadMs: read === undefined ? now : read, newestFiledMs: tracks.length ? now - 1000 : null,
+                xmlPath: "/Users/dj/Library/Application Support/openCrate/rekordbox/opencrate.xml", playlist: "openCrate new tracks",
+              };
+            }
+            case "rekordbox_send": {
+              const ids = (args?.fileIds ?? []) as number[];
+              if (ids.length === 0) throw "Choose at least one track to send.";
+              for (const track of (window as any).__newTracks ?? []) if (ids.includes(track.fileId)) track.offeredMs = Date.UTC(2026, 9, 23, 13);
+              return { xmlPath: "/Users/dj/Library/Application Support/openCrate/rekordbox/opencrate.xml", tracks: ids.length };
+            }
             case "library_reread_mirror":
               mirror = makeMirror(2, 8977, 31);
               return { sourceId: 3, generation: 2, unchanged: false, entries: 9008, matched: 8977, derivedSet: 8977 };
@@ -1351,4 +1366,50 @@ test("rekordbox database: restore asks first, and a new rekordbox version must b
   await expect(dialog.getByText("rekordbox is now 7.2.20.0001")).toBeVisible();
   await dialog.getByRole("button", { name: "Confirm for 7.2.20.0001" }).click();
   await expect(dialog.getByText("On for rekordbox 7.2.20.0001.")).toBeVisible();
+});
+
+const newTracks = () => [
+  { fileId: 11, title: "Night Drive", artist: "Studio 001", album: "Between Spaces", durationMs: 301000, container: "AIFF", filedMs: 1, offeredMs: null },
+  { fileId: 12, title: "Soft Focus (Dub Mix)", artist: "Studio 001", album: "Between Spaces", durationMs: 402000, container: "AIFF", filedMs: 1, offeredMs: null },
+  { fileId: 13, title: "Late Train", artist: "Example Artist", album: "Night Lines", durationMs: 250000, container: "MP3", filedMs: 1, offeredMs: null },
+];
+
+test("send to rekordbox: new tracks are listed, ticked and sent", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript((tracks) => { (window as any).__newTracks = tracks; }, newTracks());
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  const card = page.getByRole("region", { name: "New in your library" });
+  await expect(card.getByRole("checkbox")).toHaveCount(3);
+  await expect(card.getByRole("checkbox", { name: /Late Train/ })).toBeChecked();
+  await card.getByRole("checkbox", { name: /Late Train/ }).uncheck();
+  await card.getByRole("button", { name: "Send 2 to rekordbox" }).click();
+  await expect(card.getByRole("status")).toContainText("2 tracks are in openCrate's rekordbox file");
+  await expect(card).toContainText("opencrate.xml");
+  await expect(card).toContainText("openCrate new tracks");
+  await expect(card.getByText("Sent, waiting for rekordbox")).toHaveCount(2);
+  await page.screenshot({ path: "test-results/rekordbox-send.png" });
+  const sent = (await calls(page)).filter((call) => call.command === "rekordbox_send").map((call) => call.args.fileIds);
+  expect(sent).toEqual([[11, 12]]);
+});
+
+test("send to rekordbox: a stale or missing read is pointed out", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript((tracks) => { (window as any).__newTracks = tracks; (window as any).__mirrorReadMs = 5; }, newTracks());
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  const card = page.getByRole("region", { name: "New in your library" });
+  await expect(card).toContainText("rekordbox was last read before these were filed");
+  await page.evaluate(() => { (window as any).__mirrorReadMs = null; });
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await expect(page.getByRole("region", { name: "New in your library" })).toContainText("rekordbox has not been read yet");
+});
+
+test("send to rekordbox: nothing new shows no card", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "No export yet" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "New in your library" })).toHaveCount(0);
 });

@@ -489,3 +489,28 @@ describe("rekordbox database", () => {
     await expect(refused.readRekordboxDatabase()).rejects.toThrow("rekordbox is running");
   });
 });
+
+describe("send to rekordbox", () => {
+  const track = { fileId: 9, title: "Night Drive", artist: "Studio 001", album: "Between Spaces", durationMs: 301000, container: "AIFF", filedMs: 50, offeredMs: null };
+  const listed = { tracks: [track], mirrorReadMs: 40, newestFiledMs: 50, xmlPath: "/data/rekordbox/opencrate.xml", playlist: "openCrate new tracks" };
+  const admin = (invoke: Invoke) => new TauriLibraryApi(invoke, { canManageFolders: true, persistent: true }).admin!;
+
+  it("uses the matching commands and argument names", async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "rekordbox_new_tracks") return listed;
+      if (command === "rekordbox_send") return { xmlPath: listed.xmlPath, tracks: 1 };
+      return null;
+    });
+    const send = admin(invoke);
+    expect(await send.rekordboxNewTracks()).toEqual(listed);
+    expect(await send.sendToRekordbox([9])).toEqual({ xmlPath: listed.xmlPath, tracks: 1 });
+    expect(invoke.mock.calls).toEqual([["rekordbox_new_tracks"], ["rekordbox_send", { fileIds: [9] }]]);
+  });
+
+  it("refuses unreadable replies", async () => {
+    const reply = (value: unknown) => admin(vi.fn().mockResolvedValue(value));
+    await expect(reply({ ...listed, tracks: [{ ...track, offeredMs: "soon" }] }).rekordboxNewTracks()).rejects.toThrow("unreadable");
+    await expect(reply({ ...listed, xmlPath: null }).rekordboxNewTracks()).rejects.toThrow("unreadable");
+    await expect(reply({ xmlPath: "x", tracks: -1 }).sendToRekordbox([1])).rejects.toThrow("unreadable");
+  });
+});

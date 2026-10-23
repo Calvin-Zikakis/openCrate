@@ -146,6 +146,33 @@ export interface RekordboxBackup {
   playlists: number;
 }
 
+/** A track openCrate filed that rekordbox does not have yet. */
+export interface RekordboxCandidate {
+  fileId: number;
+  title: string;
+  artist: string;
+  album: string;
+  durationMs: number;
+  container: string;
+  filedMs: number;
+  /** When it was last written into openCrate's rekordbox XML file. */
+  offeredMs: number | null;
+}
+
+export interface RekordboxNewTracks {
+  tracks: RekordboxCandidate[];
+  /** When rekordbox was last read; tracks filed after it may already be in rekordbox. */
+  mirrorReadMs: number | null;
+  newestFiledMs: number | null;
+  xmlPath: string;
+  playlist: string;
+}
+
+export interface RekordboxSent {
+  xmlPath: string;
+  tracks: number;
+}
+
 export interface AliasSuggestion {
   rootId: number;
   rootLabel: string;
@@ -423,6 +450,9 @@ export interface LibraryAdmin {
   pinRekordboxBackup(name: string, pinned: boolean): Promise<RekordboxBackup[]>;
   /** Puts a backup back; resolves to the backup of the library it replaced. */
   restoreRekordboxBackup(name: string): Promise<RekordboxBackup>;
+  rekordboxNewTracks(): Promise<RekordboxNewTracks>;
+  /** Writes the chosen tracks into openCrate's rekordbox XML file, in this order. */
+  sendToRekordbox(fileIds: number[]): Promise<RekordboxSent>;
 }
 
 export interface LibraryApi {

@@ -12,6 +12,9 @@ import {
   type LibraryQuery,
   type MirrorInfo,
   type RekordboxBackup,
+  type RekordboxCandidate,
+  type RekordboxNewTracks,
+  type RekordboxSent,
   type RekordboxDatabase,
   type PlaylistInfo,
   type ScanStatus,
@@ -453,6 +456,31 @@ function toBackups(value: unknown): RekordboxBackup[] {
   return value.map(toBackup);
 }
 
+function toCandidate(value: unknown): RekordboxCandidate {
+  const what = "new track";
+  if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    fileId: whole(value.fileId, what), title: text(value.title, what), artist: text(value.artist, what), album: text(value.album, what),
+    durationMs: whole(value.durationMs, what), container: text(value.container, what), filedMs: whole(value.filedMs, what),
+    offeredMs: value.offeredMs === null ? null : whole(value.offeredMs, what),
+  };
+}
+
+function toNewTracks(value: unknown): RekordboxNewTracks {
+  const what = "list of new tracks";
+  if (!isRecord(value) || !Array.isArray(value.tracks)) throw new Error(`The library returned an unreadable ${what}.`);
+  const optional = (field: unknown) => (field === null ? null : whole(field, what));
+  return {
+    tracks: value.tracks.map(toCandidate), mirrorReadMs: optional(value.mirrorReadMs), newestFiledMs: optional(value.newestFiledMs),
+    xmlPath: text(value.xmlPath, what), playlist: text(value.playlist, what),
+  };
+}
+
+function toSent(value: unknown): RekordboxSent {
+  if (!isRecord(value)) throw new Error("The library returned an unreadable send result.");
+  return { xmlPath: text(value.xmlPath, "send result"), tracks: whole(value.tracks, "send result") };
+}
+
 function toImport(value: unknown): ImportResult {
   if (!isRecord(value) || typeof value.unchanged !== "boolean") throw new Error("The library returned an unreadable import result.");
   return {
@@ -621,6 +649,8 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     pinRekordboxBackup: async (name, pinned) =>
       toBackups(await invoke("rekordbox_backup_pin", { name, pinned }).catch((error: unknown) => { throw failure(error); })),
     restoreRekordboxBackup: async (name) => toBackup(await invoke("rekordbox_restore", { name }).catch((error: unknown) => { throw failure(error); })),
+    rekordboxNewTracks: async () => toNewTracks(await invoke("rekordbox_new_tracks").catch((error: unknown) => { throw failure(error); })),
+    sendToRekordbox: async (fileIds) => toSent(await invoke("rekordbox_send", { fileIds }).catch((error: unknown) => { throw failure(error); })),
   };
 }
 
