@@ -344,8 +344,10 @@ export interface LibraryAdmin {
   importRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseImport>;
   /** Asks MusicBrainz about a release; only when the owner presses the button. Writes nothing. */
   lookupRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseLookup>;
-  /** A track's waveform: up to 800 values from 0 to 255. Null when its file cannot be reached. */
-  waveform(trackId: number): Promise<number[] | null>;
+  /** A track's whole waveform by sound, 800 slices. Null when its file cannot be reached. */
+  waveform(trackId: number): Promise<WaveBands | null>;
+  /** The close-up for the scrolling view. Null when its file cannot be reached. */
+  waveformDetail(trackId: number): Promise<WaveDetail | null>;
   /** Loads a track's file and plays it (or holds it paused) from `startMs`. */
   playTrack(trackId: number, startMs?: number, play?: boolean): Promise<void>;
   /** Controls the loaded track: `seek` takes a position in ms, `volume` 0 to 1. Resolves to where it is. */
@@ -390,6 +392,21 @@ export interface LibraryAdmin {
   aliasSuggestions(sourceId: number): Promise<AliasSuggestion[]>;
   /** Tell a folder which rekordbox Location prefix belongs to it. */
   addAlias(folderId: number, prefix: string): Promise<boolean>;
+}
+
+/** A waveform by sound: for each slice, the level of its lows, mids and highs, 0 to 255. */
+export interface WaveBands {
+  low: number[];
+  mid: number[];
+  high: number[];
+}
+
+/** The close-up: many slices a second, kept as bytes. */
+export interface WaveDetail {
+  perSecond: number;
+  low: ArrayLike<number>;
+  mid: ArrayLike<number>;
+  high: ArrayLike<number>;
 }
 
 export interface LibraryApi {

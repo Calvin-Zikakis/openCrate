@@ -443,3 +443,30 @@ describe("a library that could not be opened", () => {
   });
 });
 
+
+describe("waveforms by sound", () => {
+  const admin = (invoke: Invoke) => new TauriLibraryApi(invoke, { canManageFolders: true, persistent: true }).admin!;
+  it("splits interleaved lows, mids and highs", async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "library_waveform") return [1, 2, 3, 4, 5, 6];
+      if (command === "library_waveform_detail") return new Uint8Array([44, 1, 7, 8, 9, 10, 11, 12]).buffer;
+      return null;
+    });
+    const waves = admin(invoke);
+    expect(await waves.waveform(4)).toEqual({ low: [1, 4], mid: [2, 5], high: [3, 6] });
+    const detail = await waves.waveformDetail(4);
+    expect(detail?.perSecond).toBe(300);
+    expect([Array.from(detail!.low), Array.from(detail!.mid), Array.from(detail!.high)]).toEqual([[7, 10], [8, 11], [9, 12]]);
+    expect(invoke.mock.calls).toEqual([["library_waveform", { trackId: 4 }], ["library_waveform_detail", { trackId: 4 }]]);
+  });
+  it("refuses unreadable waveforms and passes no file on", async () => {
+    const reply = (value: unknown) => admin(vi.fn().mockResolvedValue(value));
+    expect(await reply(null).waveform(1)).toBeNull();
+    expect(await reply(new ArrayBuffer(0)).waveformDetail(1)).toBeNull();
+    await expect(reply([1, 2]).waveform(1)).rejects.toThrow("unreadable");
+    await expect(reply([1, 2, 300]).waveform(1)).rejects.toThrow("unreadable");
+    await expect(reply(new Uint8Array([0, 0, 1, 2, 3]).buffer).waveformDetail(1)).rejects.toThrow("unreadable");
+    await expect(reply(new Uint8Array([44, 1, 1, 2]).buffer).waveformDetail(1)).rejects.toThrow("unreadable");
+    await expect(reply({ perSecond: 300 }).waveformDetail(1)).rejects.toThrow("unreadable");
+  });
+});

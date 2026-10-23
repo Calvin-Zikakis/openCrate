@@ -13,8 +13,9 @@ const RATE_F: f32 = 44_100.0;
 /// Below this the lows; above `HIGH_HZ` the highs; the mids between.
 const LOW_HZ: f32 = 200.0;
 const HIGH_HZ: f32 = 2_500.0;
-/// Slices a second in the close-up view.
-pub const DETAIL_PER_SECOND: u32 = 100;
+/// Slices a second in the close-up view: about one per screen pixel at 10 seconds across, and
+/// short enough (3.3 ms) that the shape of kicks and bass shows.
+pub const DETAIL_PER_SECOND: u32 = 300;
 
 /// One second-order section (RBJ cookbook), Butterworth Q.
 #[derive(Clone, Copy)]
@@ -230,9 +231,9 @@ mod tests {
         let path = folder.path().join("a.aif");
         std::fs::write(&path, oc_tag::fixtures::aiff(3)).unwrap();
         let found = bands(&path).unwrap();
-        assert_eq!(found.per_second, 100);
+        assert_eq!(found.per_second, 300);
         assert!(
-            (299..=301).contains(&found.slices.len()),
+            (899..=901).contains(&found.slices.len()),
             "{}",
             found.slices.len()
         );

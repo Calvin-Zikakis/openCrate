@@ -325,17 +325,18 @@ async fn library_waveform(
         .map_err(|error| error.to_string())?
 }
 
-/// The close-up of a track's waveform, 100 slices a second, for the scrolling view.
+/// The close-up of a track's waveform for the scrolling view, as raw bytes (see `waves::detail`).
 #[tauri::command]
 async fn library_waveform_detail(
     state: State<'_, AppState>,
     track_id: i64,
-) -> Result<Option<waves::DetailDto>, String> {
+) -> Result<tauri::ipc::Response, String> {
     let service = state.library()?;
     let cache = Arc::clone(&state.waves);
     tauri::async_runtime::spawn_blocking(move || waves::detail(&service, &cache, track_id))
         .await
         .map_err(|error| error.to_string())?
+        .map(tauri::ipc::Response::new)
 }
 
 /// Load a track and play it (or keep it paused) from `start_ms`.

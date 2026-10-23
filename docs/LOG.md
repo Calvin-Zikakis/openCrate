@@ -2,6 +2,19 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (waveform coloured by sound; branch waveform-bands)
+
+- Owner asked for a MiniMeters-style waveform, then for higher resolution. `oc_player::bands` decodes a track once at
+  44.1 kHz, splits it into lows, mids and highs and measures each as RMS, 300 slices a second; `overview` folds that to
+  800 slices, stored per file version (a stored one-colour waveform of the old length is made again). The host keeps
+  the close-up of the last 4 tracks in memory and sends it as raw bytes. The old one-colour `peaks` is removed.
+- Player: a scrolling close-up across the top of the player bar (10 seconds, playhead in the middle, moving by the clock
+  between position reports, played part dimmed, cues marked) and the overview drawn as 320 bars of three layers,
+  loudest first. A111.
+- Measured: a six-minute file analyses in 0.12-0.22 s in a release build, about 1.7 s in a debug build (ignored test
+  `six_minute_track`). The look was checked on a generated groove, not on real music.
+- Checks: 379 Rust tests (7 ignored), 57 unit, 53 browser runs (this branch is from `main`).
+
 ## 2026-10-23 (edits filed under the editor; rekordbox sync design)
 
 - Owner answers: remixes go under the remixer, and credited edits now do too ("Song (X Edit)" files under X); a VIP

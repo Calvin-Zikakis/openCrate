@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Artwork } from "./Artwork";
 import { Icon } from "./Icon";
-import { Waveform } from "./Waveform";
-import type { LibraryApi, LibraryItem, LibraryQuery, PlayerState, TrackCue } from "../library/types";
+import { Scope, Waveform } from "./Waveform";
+import type { LibraryApi, LibraryItem, LibraryQuery, PlayerState, TrackCue, WaveBands, WaveDetail } from "../library/types";
 
 /** Ask the player where it is this often while a track is loaded. */
 const POLL_MS = 250;
@@ -63,7 +63,8 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, analys
   const [dragMs, setDragMs] = useState<number | null>(null);
   const [volume, setVolume] = useState(loadVolume);
   const advancing = useRef(false);
-  const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [bands, setBands] = useState<WaveBands | null>(null);
+  const [detail, setDetail] = useState<WaveDetail | null>(null);
   const [cues, setCues] = useState<TrackCue[]>([]);
 
   /** Load and play a track. A track that cannot be played stops the player, so the previous
@@ -133,14 +134,16 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, analys
     void start(request.item, request.index, request.query);
   }, [request, start]);
 
-  // The overview and rekordbox's cues for the track that is loaded.
+  // The waveforms and rekordbox's cues for the track that is loaded.
   const loadedId = playing?.item.id ?? null;
   useEffect(() => {
-    setPeaks(null);
+    setBands(null);
+    setDetail(null);
     setCues([]);
     if (!admin || loadedId === null) return;
     let stopped = false;
-    admin.waveform(loadedId).then((found) => { if (!stopped) setPeaks(found); }, () => undefined);
+    admin.waveform(loadedId).then((found) => { if (!stopped) setBands(found); }, () => undefined);
+    admin.waveformDetail(loadedId).then((found) => { if (!stopped) setDetail(found); }, () => undefined);
     admin.trackAnalysis(loadedId).then((found) => { if (!stopped) setCues(found?.cues ?? []); }, () => undefined);
     return () => { stopped = true; };
   }, [admin, loadedId]);
@@ -190,6 +193,7 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, analys
   const canPlay = Boolean(admin) && (Boolean(playing) || selected?.kind === "tracks");
 
   return <footer className="player-bar" aria-label="Player">
+    {admin && playing && detail && <Scope detail={detail} cues={cues} positionMs={position} playing={isPlaying && dragMs === null} />}
     <div className="now-playing">
       <Artwork color={shown?.color ?? 0} src={shown && shown.kind !== "artists" ? api.artworkUrl?.(shown.releaseId) ?? null : null} />
       <div><strong>{shown?.title ?? "Nothing selected"}</strong><span>{shown?.artist ?? "Select a track"}</span></div>
@@ -203,7 +207,7 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, analys
       {admin && playing
         ? <div className="seek">
           <span>{clock(position)}</span>
-          <Waveform peaks={peaks} cues={cues} positionMs={position} durationMs={duration}>
+          <Waveform bands={bands} cues={cues} positionMs={position} durationMs={duration}>
             <input type="range" aria-label="Position" min={0} max={Math.max(1, duration)} step={250} value={Math.min(position, Math.max(1, duration))}
               onChange={(event) => setDragMs(Number(event.target.value))}
               onPointerUp={() => { if (dragMs !== null) { void admin.player("seek", dragMs).then(setState, () => undefined); setDragMs(null); } }}

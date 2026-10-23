@@ -9,7 +9,6 @@ use std::time::SystemTime;
 
 use oc_core_db::service::LibraryService;
 use oc_player::Bands;
-use serde::Serialize;
 
 /// Overview slices across the whole track; stored as low, mid and high per slice.
 pub const OVERVIEW: usize = 800;
@@ -67,14 +66,6 @@ impl DetailCache {
     }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DetailDto {
-    pub per_second: u32,
-    /// Low, mid and high per slice, 0 to 255.
-    pub values: Vec<u8>,
-}
-
 /// The stored overview, made from the close-up when it is missing or stale.
 pub fn overview(
     service: &LibraryService,
@@ -91,21 +82,28 @@ pub fn overview(
         .map_err(|error| error.to_string())
 }
 
+/// The close-up as bytes for the page: slices a second (two bytes, little-endian), then low,
+/// mid and high per slice. Empty when the track has no reachable file. Bytes, not a list of
+/// numbers, because a long track has hundreds of thousands of them.
 pub fn detail(
     service: &LibraryService,
     cache: &DetailCache,
     track_id: i64,
-) -> Result<Option<DetailDto>, String> {
+) -> Result<Vec<u8>, String> {
     let Some(path) = service
         .track_file(track_id)
         .map_err(|error| error.to_string())?
     else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
-    Ok(cache.get(&path).map(|bands| DetailDto {
-        per_second: bands.per_second,
-        values: bands.slices.iter().flatten().copied().collect(),
-    }))
+    let Some(bands) = cache.get(&path) else {
+        return Ok(Vec::new());
+    };
+    let rate = u16::try_from(bands.per_second).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::with_capacity(2 + bands.slices.len() * 3);
+    bytes.extend_from_slice(&rate.to_le_bytes());
+    bytes.extend(bands.slices.iter().flatten());
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -193,19 +191,11 @@ mod tests {
         let cache = DetailCache::default();
         let stored = overview(&service, &cache, track).unwrap().unwrap();
         assert_eq!(stored.len(), OVERVIEW * 3);
-        let close = detail(&service, &cache, track).unwrap().unwrap();
-        assert_eq!(close.per_second, 100);
-        assert_eq!(close.values.len() % 3, 0);
-        assert!(
-            (597..=603).contains(&close.values.len()),
-            "two seconds: {}",
-            close.values.len()
-        );
-        assert_eq!(
-            detail(&service, &cache, 999_999)
-                .unwrap()
-                .map(|d| d.per_second),
-            None
-        );
+        let close = detail(&service, &cache, track).unwrap();
+        assert_eq!(u16::from_le_bytes([close[0], close[1]]), 300);
+        let values = close.len() - 2;
+        assert_eq!(values % 3, 0);
+        assert!((1797..=1803).contains(&values), "two seconds: {values}");
+        assert_eq!(detail(&service, &cache, 999_999).unwrap(), Vec::<u8>::new());
     }
 }
