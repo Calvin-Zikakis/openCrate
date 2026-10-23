@@ -1,6 +1,16 @@
 # Handoff for coding agents
 
-## Latest change: overnight run, library core built (provisional)
+## Latest change: rekordbox database read (branch `rekordbox-db-read`)
+
+Built from the plan `docs/superpowers/plans/2026-10-23-rekordbox-database-read.md` on the branch `rekordbox-db-read`
+(not merged or pushed; `main` holds everything before it). openCrate can read rekordbox's own library, opt-in from
+Settings behind a warning, always through a backup copy taken while rekordbox and its agent are closed; backups can be
+pinned and restored. Nothing writes to rekordbox except an explicit restore. Vendored `rbl-db` (decision 0015) brought
+SQLCipher's SQLite into every build; read decision 0015 before adding a paged query with a correlated `EXISTS`.
+Checked on the laptop's rekordbox 7.2.19 (research 010). Workspace: 403 Rust tests (7 ignored), 54 unit, 57 browser
+runs. Next: a field-by-field comparison with an XML export, then the "Imported" playlist send (XML route).
+
+## Earlier: overnight run, library core built (provisional)
 
 The owner asked for code over documentation and for continuous work overnight. After the lock fix
 (decision 0012, research 006) the following is built and tested locally on macOS, all provisional and
@@ -47,7 +57,7 @@ NOT verified (no screen capture here); it is liveness only. Windows: `oc-paths`,
 
 Cues and beat grids from the export are shown read only ("Cues and grid" on a selected track; `read_track_analysis`).
 Not built yet: the default app-data location (owner chose the normal app-data folder, set up by a future installer; A86),
-file-system watching, cue and beat-grid editing (read only by design), master.db read. Decision 0013 was approved by the
+file-system watching, cue and beat-grid editing (read only by design). Decision 0013 was approved by the
 owner on 2026-10-23. The agreed rekordbox sync design is docs/design/rekordbox-sync.md (not built).
 
 State as of 2026-10-22: the reduced Rust foundation and synthetic React/Tauri

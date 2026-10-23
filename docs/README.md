@@ -21,7 +21,8 @@ imports the shared agent instructions. The repository remains private.
 | [../DJ Library Manager — Game Plan.md](<../DJ Library Manager — Game Plan.md>) | The source of truth for decisions, architecture, speed budgets and identification rules |
 | [BUILD-PLAN.md](BUILD-PLAN.md) | Milestones 0 to 9, acceptance checks, test strategy, risks, what is out of version 1, and the questions for the review |
 | [review-findings.md](review-findings.md) | What is still open from the two 2026-10-22 plan reviews (the full reviews are in git history) |
-| [design/rekordbox-sync.md](design/rekordbox-sync.md) | Agreed design for two-way rekordbox sync; not built |
+| [design/rekordbox-sync.md](design/rekordbox-sync.md) | Agreed design for two-way rekordbox sync; the database read, backups and restore are built, the rest is not |
+| [superpowers/plans/2026-10-23-rekordbox-database-read.md](superpowers/plans/2026-10-23-rekordbox-database-read.md) | Plan for that first slice |
 | [../crates/oc-core-db/README.md](../crates/oc-core-db/README.md) | Implemented lifecycle/recovery API, caller contracts and tests |
 | [../crates/oc-rekordbox/README.md](../crates/oc-rekordbox/README.md) | Implemented byte decoder API and limits; no matching |
 | [../src-tauri/README.md](../src-tauri/README.md) | Minimal synthetic desktop host, capability/CSP limits, build and preview commands |
@@ -45,6 +46,7 @@ imports the shared agent instructions. The repository remains private.
 | [decisions/0012-explicit-owner-lock-release.md](decisions/0012-explicit-owner-lock-release.md) | The database owner lock is released by explicit unlock, not descriptor close; serial tests and retries rejected |
 | [decisions/0013-filesystem-identity-and-availability.md](decisions/0013-filesystem-identity-and-availability.md) | How folders and files keep their identity, and what "unavailable" means (provisional, awaiting owner approval) |
 | [decisions/0014-musicbrainz-lookup-on-request.md](decisions/0014-musicbrainz-lookup-on-request.md) | MusicBrainz lookups only on request from the Import all review; candidate choice, track matching, polite client |
+| [decisions/0015-vendored-rbl-db.md](decisions/0015-vendored-rbl-db.md) | rbxport's rbl-db vendored for reading rekordbox's library; SQLCipher's SQLite and the EXISTS/OFFSET workaround |
 | [research/001-tag-lookup-options.md](research/001-tag-lookup-options.md) | Rate limits and how beets, MiniMediaScanner, Lexicon and MusicBee get tags |
 | [research/002-owner-data-shapes.md](research/002-owner-data-shapes.md) | Aggregate facts about the owner's rekordbox export, and about the old playlist files (historical) |
 | [research/003-reduced-foundation-validation.md](research/003-reduced-foundation-validation.md) | Local commands, synthetic fixtures, final 25-test result, failure correction and validation limits |
@@ -54,6 +56,7 @@ imports the shared agent instructions. The repository remains private.
 | [research/007-volume-name-equivalence-probe.md](research/007-volume-name-equivalence-probe.md) | How the volume compares names (case, Unicode form), probed read-only |
 | [research/008-library-query-benchmark.md](research/008-library-query-benchmark.md) | Windowed library queries on 100,000 synthetic tracks |
 | [research/009-fake-lossless-edges.md](research/009-fake-lossless-edges.md) | Where MP3 and AAC encoders cut the spectrum, and the thresholds the fake-lossless check uses |
+| [research/010-rekordbox-database-read.md](research/010-rekordbox-database-read.md) | Reading the laptop's rekordbox 7.2.19 library through a backup copy: counts match, timings |
 
 The XML parser is implemented under [decision 0011](decisions/0011-read-only-xml-parser.md).
 [Research 005](research/005-read-only-xml-validation.md) records its synthetic

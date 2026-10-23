@@ -2,6 +2,27 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (rekordbox database read, backups and restore; branch rekordbox-db-read)
+
+- Plan: `docs/superpowers/plans/2026-10-23-rekordbox-database-read.md`, the first slice of the rekordbox sync design.
+  Built on the branch `rekordbox-db-read` (not merged, not pushed).
+- rbxport's `rbl-db`, `rbl-core`, `rbl-anlz` vendored unchanged at `1a0a8246` (decision 0015). SQLCipher's SQLite
+  3.51.3 now serves the whole app; it returned wrong rows for a correlated `EXISTS` filter with `OFFSET`, so the paged
+  library filters use `IN`, guarded by `every_page_is_a_slice_of_the_whole_list`. Cold first windows of Releases and
+  Artists went from about 1 to 7 and 5 ms (research 008 addendum).
+- `oc-rekordbox::db`: snapshot (copy `master.db` and its log while rekordbox and its agent are closed, fold, check),
+  read a copy into the XML collection shape (tracks, ratings, colours, My Tags, cues, playlist tree), backups (keep 20
+  plus pinned), restore (checks the backup, saves the current library pinned first, removes the old log before the
+  restored file goes in). 20 tests on rbl-db fixtures, the log copy mutation-checked.
+- Host and interface: Settings switch "Let openCrate read rekordbox's library directly" behind a warning, recorded with
+  the rekordbox version (a new version asks again); "Read from rekordbox" on the rekordbox screen; backups list with
+  pin and restore. One rekordbox source at a time (A106).
+- Laptop check (research 010): rekordbox 7.2.19, 503 of 503 tracks and 96 of 96 playlist nodes read through a backup
+  copy in 0.2 s; the live `master.db` unchanged afterwards.
+- Checks: fmt, clippy, 403 Rust tests (7 ignored), 54 unit, 57 browser runs.
+- Next: compare a database read with an XML export of the same library field by field; then the next plan (send new
+  imports to rekordbox's "Imported" playlist through XML).
+
 ## 2026-10-23 (edits filed under the editor; rekordbox sync design)
 
 - Owner answers: remixes go under the remixer, and credited edits now do too ("Song (X Edit)" files under X); a VIP

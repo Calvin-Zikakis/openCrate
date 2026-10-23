@@ -497,3 +497,77 @@ fn restore_refuses_a_broken_backup() {
         .collect();
     assert_eq!(leftovers, Vec::<String>::new());
 }
+
+fn nodes(tree: &[crate::xml::PlaylistNode]) -> (usize, usize, usize) {
+    tree.iter()
+        .fold((0, 0, 0), |(folders, lists, items), node| match node {
+            crate::xml::PlaylistNode::Folder { children, .. } => {
+                let (f, l, i) = nodes(children);
+                (folders + 1 + f, lists + l, items + i)
+            }
+            crate::xml::PlaylistNode::Playlist { track_ids, .. } => {
+                (folders, lists + 1, items + track_ids.len())
+            }
+        })
+}
+
+/// Reads the rekordbox library installed on this computer through a backup copy. Prints counts
+/// only, never names. Run by hand with rekordbox closed:
+/// `cargo test -p oc-rekordbox --release -- --ignored --nocapture live_installed_read`
+#[test]
+#[ignore = "reads the installed rekordbox library; run by hand"]
+fn live_installed_read() {
+    assert!(!rekordbox_running(), "quit rekordbox and its agent first");
+    let location = installed_library().unwrap();
+    let backups = tempfile::tempdir().unwrap();
+    let started = std::time::Instant::now();
+    let snapshot = take_snapshot(&location, backups.path(), "read", false, 0).unwrap();
+    let copied = started.elapsed();
+    let collection = read_snapshot(&snapshot.master_db, &location.passphrase).unwrap();
+    let total = started.elapsed();
+    let [root] = collection.playlists.as_slice() else {
+        panic!("one ROOT folder")
+    };
+    let crate::xml::PlaylistNode::Folder { children, .. } = root else {
+        panic!("ROOT is a folder")
+    };
+    let (folders, lists, items) = nodes(children);
+    let tagged = collection
+        .tracks
+        .iter()
+        .filter(|track| track.attributes.contains_key("MyTags"))
+        .count();
+    let rated = collection
+        .tracks
+        .iter()
+        .filter(|track| track.attributes.get("Rating").is_some_and(|r| r != "0"))
+        .count();
+    let cues: usize = collection.tracks.iter().map(|track| track.cues.len()).sum();
+    let analysed = collection
+        .tracks
+        .iter()
+        .filter(|track| {
+            track
+                .attributes
+                .get("AverageBpm")
+                .is_some_and(|b| b != "0.00")
+        })
+        .count();
+    eprintln!(
+        "rekordbox {:?}, DBVersion {:?}\n\
+         tracks: rbl-db {} / read {}; playlist nodes: rbl-db {} / read {} ({folders} folders, {lists} playlists, {items} entries)\n\
+         unresolved references {}; with My Tags {tagged}; rated {rated}; analysed {analysed}; cues {cues}\n\
+         copy and check {copied:?}; total {total:?}",
+        snapshot.app_version,
+        snapshot.db_version,
+        snapshot.tracks,
+        collection.tracks.len(),
+        snapshot.playlists,
+        folders + lists,
+        collection.unresolved_track_ids.len(),
+    );
+    assert_eq!(
+        u32::try_from(collection.tracks.len()).unwrap(),
+        snapshot.tracks
+    );
+}
