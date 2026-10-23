@@ -2,6 +2,14 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (library in the app-data folder by default; branch next)
+
+- Started without `OPENCRATE_DATA` or `OPENCRATE_DEMO`, the desktop app now opens a persistent library in the local
+  app-data folder instead of the in-memory demo (A86, as the owner chose). Run with `OPENCRATE_DEMO=5000` for the
+  synthetic demo. 71 host tests; the native start itself was not run here.
+- Not done from the list, on purpose: filing a whole release as one unit (each track is filed safely on its own and
+  failures are reported; making a release all-or-nothing means removing tracks already filed, which needs the owner).
+
 ## 2026-10-23 (keep tracks out of rekordbox; branch next)
 
 - "New in your library" gains Hide per track and "Show N hidden tracks" with Bring back (schema v15

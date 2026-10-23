@@ -89,14 +89,25 @@ impl AppState {
     }
 
     /// `OPENCRATE_DATA=<folder>` opens a persistent library there; `OPENCRATE_DEMO=<tracks>`
-    /// opens a synthetic one in a temporary folder. The first wins.
-    fn from_environment() -> Self {
+    /// opens a synthetic one in a temporary folder; otherwise the library lives in `default`, the
+    /// app's local data folder (A86). The first that is set wins.
+    fn from_environment(default: Option<&Path>) -> Self {
         let data = std::env::var("OPENCRATE_DATA").ok();
         let demo = std::env::var("OPENCRATE_DEMO").ok();
-        Self::from_settings(data.as_deref(), demo.as_deref(), &std::env::temp_dir())
+        Self::from_settings(
+            data.as_deref(),
+            demo.as_deref(),
+            &std::env::temp_dir(),
+            default,
+        )
     }
 
-    fn from_settings(data: Option<&str>, demo: Option<&str>, temp: &Path) -> Self {
+    fn from_settings(
+        data: Option<&str>,
+        demo: Option<&str>,
+        temp: &Path,
+        default: Option<&Path>,
+    ) -> Self {
         if let Some(setting) = data {
             match Self::open_persistent(Path::new(setting.trim())) {
                 Ok(state) => return state,
@@ -108,7 +119,12 @@ impl AppState {
             }
         }
         let Some(setting) = demo else {
-            return Self::none();
+            let Some(folder) = default else {
+                return Self::none();
+            };
+            return Self::open_persistent(folder).unwrap_or_else(|message| {
+                Self::failed(format!("The library folder could not be opened: {message}"))
+            });
         };
         match Self::open_demo(setting.trim(), temp) {
             Ok(state) => state,
@@ -912,7 +928,12 @@ fn library_scan_cancel(state: State<'_, AppState>) {
 fn main() -> Result<(), tauri::Error> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState::from_environment())
+        .setup(|app| {
+            // The local (not roaming) folder: the library must never sit in a synced place.
+            let default = app.path().app_local_data_dir().ok();
+            app.manage(AppState::from_environment(default.as_deref()));
+            Ok(())
+        })
         .register_asynchronous_uri_scheme_protocol("artwork", |context, request, responder| {
             let state = context.app_handle().state::<AppState>();
             let (service, art) = (state.service.clone(), Arc::clone(&state.art));
@@ -1790,10 +1811,10 @@ mod tests {
     #[test]
     fn a_setting_that_cannot_be_used_is_reported_to_the_window_not_just_stderr() {
         let temp = tempfile::tempdir().unwrap();
-        let none = AppState::from_settings(None, None, temp.path());
+        let none = AppState::from_settings(None, None, temp.path(), None);
         assert!(none.service.is_none() && none.startup_error.is_none());
 
-        let relative = AppState::from_settings(Some("relative/dir"), None, temp.path());
+        let relative = AppState::from_settings(Some("relative/dir"), None, temp.path(), None);
         assert!(relative.service.is_none());
         assert!(
             relative
@@ -1813,7 +1834,7 @@ mod tests {
         // A library another window already holds cannot be opened twice.
         let data = tempfile::tempdir().unwrap();
         let first = AppState::open_persistent(data.path()).unwrap();
-        let second = AppState::from_settings(data.path().to_str(), None, temp.path());
+        let second = AppState::from_settings(data.path().to_str(), None, temp.path(), None);
         assert!(second.service.is_none());
         assert!(
             second
@@ -1825,13 +1846,32 @@ mod tests {
         );
         drop(first);
 
-        let bad_demo = AppState::from_settings(None, Some("0"), temp.path());
+        let bad_demo = AppState::from_settings(None, Some("0"), temp.path(), None);
         assert!(bad_demo
             .startup_error
             .as_deref()
             .is_some_and(|m| m.contains("demo library")));
-        let data_wins = AppState::from_settings(data.path().to_str(), Some("500"), temp.path());
+        let data_wins =
+            AppState::from_settings(data.path().to_str(), Some("500"), temp.path(), None);
         assert!(data_wins.persistent && data_wins.startup_error.is_none());
+    }
+
+    #[test]
+    fn without_settings_the_library_lives_in_the_app_data_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let folder = home.path().join("com.opencrate.desktop");
+        let state = AppState::from_settings(None, None, temp.path(), Some(&folder));
+        assert!(state.persistent && state.startup_error.is_none());
+        assert!(folder.is_dir(), "made on first start");
+        drop(state);
+        let again = AppState::from_settings(None, None, temp.path(), Some(&folder));
+        assert!(again.persistent, "the same library opens next time");
+        let demo = AppState::from_settings(None, Some("50"), temp.path(), Some(&folder));
+        assert!(
+            !demo.persistent && demo.service.is_some(),
+            "a demo asked for still wins"
+        );
     }
 
     #[test]
