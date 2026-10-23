@@ -1,6 +1,17 @@
 # Handoff for coding agents
 
-## Latest change: send new tracks to rekordbox (branch `rekordbox-send`, on top of `rekordbox-db-read`)
+## Latest change: branch `next` holds all unmerged work
+
+`main` is unchanged since "File credited edits under the editor". Everything after it is on `next` (which merges
+`rekordbox-db-read`, `rekordbox-send` and `waveform-bands`): the rekordbox database read with backups and restore, new
+tracks and crates sent to rekordbox through openCrate's XML file (tracks rekordbox has are echoed exactly), hiding
+tracks from rekordbox, the waveform coloured by sound with a scrolling close-up, a light theme, the library in the
+local app-data folder by default, a first-start welcome, the changed-export notice, installers (NSIS per user, dmg) and
+CI ready for SQLCipher, an accessibility test, and `docs/user-guide.md`. Nothing is pushed. Checks on `next`: 427 Rust
+tests (8 ignored), 64 unit, 67 browser runs. See the LOG for each step and the owner checks still open (rekordbox XML
+steps, the Windows `FolderPath` question before any database write).
+
+## Earlier: send new tracks to rekordbox (branch `rekordbox-send`, on top of `rekordbox-db-read`)
 
 The rekordbox screen lists tracks openCrate filed that rekordbox does not have and writes the chosen ones into one stable
 XML file (`<app data>/rekordbox/opencrate.xml`, playlist "openCrate new tracks"); the owner drags them onto Imported in
