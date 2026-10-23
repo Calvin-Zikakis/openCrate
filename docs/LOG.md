@@ -2,6 +2,15 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (installers and CI for SQLCipher; branch next)
+
+- `tauri.conf.json`: bundles `nsis` (per-user install, no admin), `app` and `dmg`. New workflow `installers.yml`, started
+  by hand only, builds an unsigned Windows setup and a macOS disk image as 7-day artifacts. `rust.yml`: 45-minute
+  timeout and a short build folder on Windows for the OpenSSL build SQLCipher needs. Neither workflow has run (no push).
+- Local check: `npm run tauri -- build --debug --bundles app` built `openCrate.app` (50 MiB) in 58 s; started with a
+  scratch `OPENCRATE_DATA` it stayed up 8 s with no errors and created its library there. Signing and notarization are
+  not set up (owner's call: certificates cost money).
+
 ## 2026-10-23 (library in the app-data folder by default; branch next)
 
 - Started without `OPENCRATE_DATA` or `OPENCRATE_DEMO`, the desktop app now opens a persistent library in the local

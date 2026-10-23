@@ -1,0 +1,47 @@
+name: Installers
+
+# Started by hand only: builds unsigned installers for a test install. Not a release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis
+            artifact: src-tauri/target/release/bundle/nsis/*.exe
+          - os: macos-latest
+            bundles: app,dmg
+            artifact: src-tauri/target/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    env:
+      CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && 'C:/t' || 'src-tauri/target' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Install packages
+        run: npm ci
+      - name: Build the installer
+        run: npm run tauri -- build --bundles ${{ matrix.bundles }}
+      - name: Collect it (Windows builds outside the repository)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: mkdir -p out && cp C:/t/release/bundle/nsis/*.exe out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openCrate-${{ matrix.os }}
+          path: ${{ matrix.os == 'windows-latest' && 'out/*.exe' || matrix.artifact }}
+          retention-days: 7

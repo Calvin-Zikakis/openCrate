@@ -19,7 +19,11 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # SQLCipher and its OpenSSL are compiled from source (decision 0015).
+    timeout-minutes: 45
+    env:
+      # A short build folder keeps OpenSSL's build under Windows path limits (as rbxport does).
+      CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && 'C:/t' || 'target' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
