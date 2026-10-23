@@ -2,6 +2,16 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (light theme; branch next)
+
+- `next` now holds everything not on `main`: `rekordbox-db-read`, `rekordbox-send` and `waveform-bands`, merged and
+  checked together (418 Rust, 61 unit, 60 browser).
+- Light theme (owner asked for one): Settings, Appearance, Theme: Match this computer, Dark (the default, so nothing
+  changes for existing settings) or Light. Every hard-coded colour in the stylesheet became a token (overlays from one
+  `--ink` colour, warning, danger, success, cue, scroll and play colours); the light theme redefines them. Artwork
+  overlays and the scrolling waveform close-up keep their dark colours in both themes. A112.
+- Checks: 62 unit, 61 browser runs; screenshots of the library, rekordbox, import and settings screens in light reviewed.
+
 ## 2026-10-23 (waveform coloured by sound; branch waveform-bands)
 
 - Owner asked for a MiniMeters-style waveform, then for higher resolution. `oc_player::bands` decodes a track once at

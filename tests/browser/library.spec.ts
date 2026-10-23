@@ -138,3 +138,27 @@ test("body text tokens meet contrast and system reduced motion is respected", as
   expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5);
   await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveCSS("transition-duration", "0s");
 });
+
+test("appearance: dark by default, light when chosen and remembered, or following the computer", async ({ page }) => {
+  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor === "rgba(0, 0, 0, 0)"
+    ? getComputedStyle(document.documentElement).backgroundColor : getComputedStyle(document.body).backgroundColor);
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/");
+  await expect(page.getByRole("status")).toContainText("100,000 tracks");
+  expect(await background()).toBe("rgb(10, 10, 12)");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const themes = page.getByRole("group", { name: "Theme" });
+  await expect(themes.getByRole("radio", { name: "Dark" })).toBeChecked();
+  await themes.getByRole("radio", { name: "Light" }).check();
+  await expect.poll(background).toBe("rgb(244, 244, 247)");
+  await page.screenshot({ path: "test-results/theme-light-settings.png" });
+  await page.keyboard.press("Escape");
+  await page.screenshot({ path: "test-results/theme-light.png" });
+  await page.reload();
+  await expect.poll(background).toBe("rgb(244, 244, 247)");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("group", { name: "Theme" }).getByRole("radio", { name: "Match this computer" }).check();
+  await expect.poll(background).toBe("rgb(244, 244, 247)");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect.poll(background).toBe("rgb(10, 10, 12)");
+});

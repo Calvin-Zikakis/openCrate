@@ -111,7 +111,7 @@ export function Scope({ detail, cues, positionMs, playing }: ScopeProps) {
       const at = now.positionMs + (now.playing ? performance.now() - now.at : 0);
       const style = getComputedStyle(element);
       const colour = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-      const fills = { low: colour("--wave-low", "#3d7cff"), mid: colour("--wave-mid", "#ff7a3d"), high: colour("--wave-high", "#f4f4f6") };
+      const fills = { low: colour("--wave-low", "#3d7cff"), mid: colour("--wave-mid", "#ff7a3d"), high: colour("--scope-high", "#f4f4f6") };
       context.clearRect(0, 0, width, height);
       const shown = columns(detail, at, width, WINDOW_SECONDS);
       const middle = height / 2;
