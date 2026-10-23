@@ -590,3 +590,32 @@ fn benchmark_100k() {
         });
     }
 }
+
+/// SQLCipher's SQLite (3.51.3) returned the wrong rows for a correlated `EXISTS` filter with an
+/// `OFFSET`; every page must be the matching slice of the whole ordered list.
+#[test]
+fn every_page_is_a_slice_of_the_whole_list() {
+    let (_directory, database) = seeded(TRACKS);
+    let connection = database.reader().unwrap();
+    for view in [View::Tracks, View::Releases, View::Artists] {
+        for format in [None, Some(Format::Mp3)] {
+            let mut query = LibraryQuery::new(view);
+            query.sort = Sort::Recent;
+            query.format = format;
+            // The first window is read at offset 0, which every SQLite version gets right.
+            let whole: Vec<i64> = read_page(&connection, &query, 0, MAX_WINDOW)
+                .unwrap()
+                .items
+                .iter()
+                .map(|item| item.id)
+                .collect();
+            assert!(whole.len() > 20, "{query:?}");
+            for start in [1, 13, whole.len() - 7] {
+                let page = read_page(&connection, &query, start, 7).unwrap();
+                let ids: Vec<i64> = page.items.iter().map(|item| item.id).collect();
+                let end = start + 7;
+                assert_eq!(ids, whole[start..end], "{query:?} at {start}");
+            }
+        }
+    }
+}

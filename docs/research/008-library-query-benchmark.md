@@ -48,3 +48,10 @@ reader" is `LibraryReader`: the first call of a query builds the ordered id list
   concurrent writes during reads, memory beyond the id lists (about 800 KB per
   cached query), or a real library's text and distribution. These are
   start-of-slice numbers on one machine and not guarantees.
+
+## Addendum, 2026-10-23: SQLCipher build
+
+Same command and dataset, on the SQLCipher build of SQLite 3.51.3 with the `EXISTS` filters rewritten as `IN`
+([decision 0015](../decisions/0015-vendored-rbl-db.md)). p95, ms: cached reader cold, Releases Title 7.0 (was 1.1),
+Releases search "nightfall" 5.3 (was 0.7), Artists Title 4.6 (was 0.7), Tracks Title AIFF only 22.6 (was 18.9); warm
+windows 0.2 to 0.8 as before. Direct query, Releases Title deep 17.0 (was 1.9).

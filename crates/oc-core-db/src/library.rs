@@ -258,15 +258,17 @@ fn track_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     }
     if let Some(format) = query.format {
         filter.add(
-            "EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id \
-             AND f.lifecycle = 'active' AND f.container = ?)",
+            "t.id IN (SELECT f.track_id FROM file f \
+             WHERE f.lifecycle = 'active' AND f.container = ?)",
             format.as_str().to_owned(),
         );
     }
 }
 
 fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
-    filter.always("EXISTS (SELECT 1 FROM track b WHERE b.release_id = r.id)");
+    // `IN`, not a correlated `EXISTS`: SQLCipher's SQLite 3.51.3 applies OFFSET wrongly to the
+    // latter (decision 0015).
+    filter.always("r.id IN (SELECT b.release_id FROM track b)");
     if let Search::Match(expression) = search {
         filter.add(
             "r.id IN (SELECT rowid FROM release_fts WHERE release_fts MATCH ?)",
@@ -281,15 +283,15 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     }
     if let Some(format) = query.format {
         filter.add(
-            "EXISTS (SELECT 1 FROM track t JOIN file f ON f.track_id = t.id \
-             WHERE t.release_id = r.id AND f.lifecycle = 'active' AND f.container = ?)",
+            "r.id IN (SELECT t.release_id FROM track t JOIN file f ON f.track_id = t.id \
+             WHERE f.lifecycle = 'active' AND f.container = ?)",
             format.as_str().to_owned(),
         );
     }
 }
 
 fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
-    filter.always("EXISTS (SELECT 1 FROM track b WHERE b.artist_id = a.id)");
+    filter.always("a.id IN (SELECT b.artist_id FROM track b)");
     if let Search::Match(expression) = search {
         filter.add(
             "a.id IN (SELECT rowid FROM artist_fts WHERE artist_fts MATCH ?)",
@@ -301,8 +303,8 @@ fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     }
     if let Some(format) = query.format {
         filter.add(
-            "EXISTS (SELECT 1 FROM track t JOIN file f ON f.track_id = t.id \
-             WHERE t.artist_id = a.id AND f.lifecycle = 'active' AND f.container = ?)",
+            "a.id IN (SELECT t.artist_id FROM track t JOIN file f ON f.track_id = t.id \
+             WHERE f.lifecycle = 'active' AND f.container = ?)",
             format.as_str().to_owned(),
         );
     }

@@ -1,0 +1,2 @@
+# Vendored upstream code is kept byte-for-byte as published; see VENDORED.md.
+disable_all_formatting = true

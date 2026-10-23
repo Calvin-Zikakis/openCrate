@@ -1,6 +1,8 @@
 [workspace]
 members = ["crates/*", "src-tauri"]
 default-members = ["crates/*"]
+# Third-party code built as it is upstream; see vendor/rbxport/VENDORED.md.
+exclude = ["vendor"]
 resolver = "2"
 
 [workspace.package]
@@ -19,6 +21,7 @@ oc-lookup = { path = "crates/oc-lookup" }
 oc-player = { path = "crates/oc-player" }
 oc-tag = { path = "crates/oc-tag" }
 oc-organize = { path = "crates/oc-organize" }
+rbl-db = { path = "vendor/rbxport/crates/rbl-db" }
 lofty = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
