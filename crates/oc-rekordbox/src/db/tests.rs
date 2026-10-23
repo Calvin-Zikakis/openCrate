@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rbl_db::fixture::{self, Shape};
 use rbl_db::{Library, LibraryLocation, OpenMode};
@@ -357,4 +357,143 @@ fn cues_are_read_in_seconds() {
         track.cues[0].attributes.get("Name").map(String::as_str),
         Some("Intro")
     );
+}
+
+fn fake_backup(backups: &Path, name: &str, taken_ms: i64, pinned: bool) -> PathBuf {
+    let dir = backups.join(name);
+    fs::create_dir_all(&dir).unwrap();
+    let snapshot = Snapshot {
+        master_db: dir.join("master.db"),
+        dir: dir.clone(),
+        taken_ms,
+        reason: "read".into(),
+        db_version: None,
+        app_version: None,
+        tracks: 0,
+        playlists: 0,
+        pinned,
+    };
+    fs::write(
+        dir.join("snapshot.json"),
+        serde_json::to_string(&snapshot).unwrap(),
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn list_is_newest_first() {
+    let backups = tempfile::tempdir().unwrap();
+    fake_backup(backups.path(), "a", 1, false);
+    fake_backup(backups.path(), "c", 3, true);
+    fake_backup(backups.path(), "b", 2, false);
+    fs::create_dir(backups.path().join("not-a-backup")).unwrap();
+    let times: Vec<i64> = list_backups(backups.path())
+        .iter()
+        .map(|b| b.taken_ms)
+        .collect();
+    assert_eq!(times, [3, 2, 1]);
+    assert_eq!(list_backups(&backups.path().join("missing")), Vec::new());
+}
+
+#[test]
+fn prune_keeps_twenty_and_every_pinned_backup() {
+    let backups = tempfile::tempdir().unwrap();
+    for i in 0..25 {
+        fake_backup(backups.path(), &format!("b{i:02}"), 100 + i, false);
+    }
+    fake_backup(backups.path(), "old-pinned-1", 1, true);
+    fake_backup(backups.path(), "old-pinned-2", 2, true);
+    fs::create_dir(backups.path().join("not-a-backup")).unwrap();
+    assert_eq!(prune(backups.path(), 20).unwrap(), 5);
+    let left = list_backups(backups.path());
+    assert_eq!(left.len(), 22);
+    assert!(left.iter().filter(|b| !b.pinned).all(|b| b.taken_ms >= 105));
+    assert!(
+        backups.path().join("not-a-backup").is_dir(),
+        "only backups are removed"
+    );
+}
+
+#[test]
+fn pinning_is_remembered() {
+    let backups = tempfile::tempdir().unwrap();
+    let dir = fake_backup(backups.path(), "a", 1, false);
+    set_pinned(&dir, true).unwrap();
+    assert!(list_backups(backups.path())[0].pinned);
+    set_pinned(&dir, false).unwrap();
+    assert!(!list_backups(backups.path())[0].pinned);
+}
+
+fn playlist_count(location: &LibraryLocation) -> u32 {
+    Library::open(location.clone(), OpenMode::ReadOnly)
+        .unwrap()
+        .live_playlist_count()
+        .unwrap()
+}
+
+#[test]
+fn restore_brings_back_the_old_library() {
+    let (live, backups) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let location = library(live.path());
+    let before = take_snapshot(&location, backups.path(), "read", false, NOW).unwrap();
+    {
+        let mut open = Library::open(location.clone(), OpenMode::ReadWrite).unwrap();
+        let connection = open.connection_mut();
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .unwrap();
+        connection
+            .execute(
+                "DELETE FROM djmdPlaylist WHERE ID = ?1",
+                [fixture::playlist_id(0)],
+            )
+            .unwrap();
+    }
+    assert_eq!(playlist_count(&location), 2);
+    let saved = restore(&before.dir, &location, backups.path(), false, NOW + 1000).unwrap();
+    assert_eq!(playlist_count(&location), 3);
+    assert!(saved.pinned);
+    assert_eq!(saved.reason, "before-restore");
+    assert_eq!(
+        saved.playlists, 2,
+        "the state replaced by the restore is kept"
+    );
+    assert!(list_backups(backups.path())
+        .iter()
+        .any(|b| b.dir == saved.dir && b.pinned));
+}
+
+#[test]
+fn restore_refuses_while_running() {
+    let (live, backups) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let location = library(live.path());
+    let before = take_snapshot(&location, backups.path(), "read", false, NOW).unwrap();
+    let original = fs::read(&location.master_db).unwrap();
+    assert!(restore(&before.dir, &location, backups.path(), true, NOW).is_err());
+    assert_eq!(fs::read(&location.master_db).unwrap(), original);
+    assert_eq!(
+        list_backups(backups.path()).len(),
+        1,
+        "no extra backup either"
+    );
+}
+
+#[test]
+fn restore_refuses_a_broken_backup() {
+    let (live, backups) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let location = library(live.path());
+    let before = take_snapshot(&location, backups.path(), "read", false, NOW).unwrap();
+    let bytes = fs::read(&before.master_db).unwrap();
+    fs::write(&before.master_db, &bytes[..bytes.len() / 3]).unwrap();
+    let original = fs::read(&location.master_db).unwrap();
+    assert!(restore(&before.dir, &location, backups.path(), false, NOW).is_err());
+    assert_eq!(fs::read(&location.master_db).unwrap(), original);
+    let leftovers: Vec<_> = fs::read_dir(live.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains("opencrate"))
+        .collect();
+    assert_eq!(leftovers, Vec::<String>::new());
 }
