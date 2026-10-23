@@ -187,6 +187,11 @@ cue transfer needs its own measurement before it is offered. Its own design late
   full before use. A vendored copy pinned to a recorded commit keeps builds offline and reproducible.
 - The spike that proves reads and writes on a synthetic database, then on the laptop's rekordbox 7; the version gate
   starts with the 7.2 versions it passes on.
+- Before any database write on Windows: `rbl-db`'s `import_file`/`import_files` store `FolderPath` with the platform's
+  own separators (`to_string_lossy` of a `PathBuf`), so on Windows they would write `C:\\...` where rekordbox appears to
+  store `C:/...`. Check a real Windows `djmdContent.FolderPath` (aggregate only) and convert if needed; until then the
+  write version gate lists no Windows version. Found 2026-10-23 while reading the write paths; the database read is
+  unaffected.
 - Verifying, on a test rekordbox, exactly which XML imports update existing tracks and playlists, and the step-by-step
   instructions shown to the owner for an XML import.
 - The schema for the base snapshot, change records, backups and undo records in openCrate's database.

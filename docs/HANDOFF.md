@@ -4,7 +4,8 @@
 
 The rekordbox screen lists tracks openCrate filed that rekordbox does not have and writes the chosen ones into one stable
 XML file (`<app data>/rekordbox/opencrate.xml`, playlist "openCrate new tracks"); the owner drags them onto Imported in
-rekordbox. Offered tracks stay marked until a read matches them. The rekordbox steps are unverified (A108, A109; owner
+rekordbox. Offered tracks stay marked until a read matches them. The database write route was not started: `rbl-db` writes Windows paths
+with backslashes (see the design's "Left to the builder"), which needs a check on the owner's Windows library first. The rekordbox steps are unverified (A108, A109; owner
 check in the LOG). Plan: `docs/superpowers/plans/2026-10-23-rekordbox-send-new-tracks.md`. Workspace: 413 Rust tests
 (7 ignored), 56 unit, 60 browser runs.
 
