@@ -129,6 +129,8 @@ type Found = { trackId: number; fixes: ProposedFix[] };
 
 function TitlesCard({ admin, onChanged }: Props) {
   const [found, setFound] = useState<Found[] | null>(null);
+  /** The list folded away, its ticks kept. */
+  const [folded, setFolded] = useState(false);
   const [unticked, setUnticked] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
@@ -142,6 +144,7 @@ function TitlesCard({ admin, onChanged }: Props) {
       const names = await admin.trackNames();
       const next = names.map((track) => ({ trackId: track.trackId, fixes: proposeFixes(track) })).filter((track) => track.fixes.length > 0);
       setFound(next);
+      setFolded(false);
       // A change of capitals alone waits for a tick: those are often how an artist writes a name.
       setUnticked(new Set(next.filter((track) => track.fixes.every(onlyCasing)).map((track) => track.trackId)));
     } catch (reason) {
@@ -189,11 +192,14 @@ function TitlesCard({ admin, onChanged }: Props) {
   return <section className="sync-card" role="region" aria-label="Titles and artists">
     <h2>Titles and artists</h2>
     <p className="settings-copy">Finds titles with a track number in front ("01 - Title"), links or promo text, titles and artists in all capitals or all lower case, stray separators in artists, and "Artist - Title" titles on tracks with no artist.</p>
-    <button className="secondary-button" disabled={busy} onClick={() => void check()}>{found ? "Check again" : "Check titles and artists"}</button>
+    <div className="merge-actions">
+      <button className="secondary-button" disabled={busy} onClick={() => void check()}>{found ? "Check again" : "Check titles and artists"}</button>
+      {found && found.length > 0 && <button className="link-button" aria-expanded={!folded} onClick={() => setFolded(!folded)}>{folded ? `Show the list (${groups.length})` : "Hide the list"}</button>}
+    </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {note && <p role="status" className="settings-copy">{note}</p>}
     {found && found.length === 0 && <p className="settings-copy">Every title and artist looks tidy.</p>}
-    {found && found.length > 0 && <>
+    {found && found.length > 0 && !folded && <>
       <div className="merge-actions">
         <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set())}>Tick all</button>
         <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(found.map((track) => track.trackId)))}>Untick all</button>
@@ -213,6 +219,7 @@ function TitlesCard({ admin, onChanged }: Props) {
 
 function ArtCard({ admin, onChanged }: Props) {
   const [missing, setMissing] = useState<MissingArt[] | null>(null);
+  const [folded, setFolded] = useState(false);
   const [busy, setBusy] = useState<number | "all" | null>(null);
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
@@ -222,6 +229,7 @@ function ArtCard({ admin, onChanged }: Props) {
     setError("");
     try {
       setMissing(await admin.releasesWithoutArt());
+      setFolded(false);
       setNotes({});
     } catch (reason) {
       setError(message(reason));
@@ -254,10 +262,13 @@ function ArtCard({ admin, onChanged }: Props) {
   return <section className="sync-card" role="region" aria-label="Album art">
     <h2>Album art</h2>
     <p className="settings-copy">Finds releases whose files carry no picture. A cover can come from an image beside the files (cover.jpg and the like), from the Cover Art Archive (needs no key; one request a second), or from an image you choose. It goes into every file of the release.</p>
-    <button className="secondary-button" disabled={busy !== null} onClick={() => void check()}>{missing ? "Check again" : "Check album art"}</button>
+    <div className="merge-actions">
+      <button className="secondary-button" disabled={busy !== null} onClick={() => void check()}>{missing ? "Check again" : "Check album art"}</button>
+      {missing && missing.length > 0 && <button className="link-button" aria-expanded={!folded} onClick={() => setFolded(!folded)}>{folded ? `Show the list (${missing.length})` : "Hide the list"}</button>}
+    </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {missing && missing.length === 0 && <p className="settings-copy">Every release has a cover.</p>}
-    {missing && missing.length > 0 && <>
+    {missing && missing.length > 0 && !folded && <>
       <p className="settings-copy">{`${plural(missing.length, "release has", "releases have")} no cover${withFolder > 0 ? `; ${withFolder} ${withFolder === 1 ? "has" : "have"} an image beside the files` : ""}.`}</p>
       {withFolder > 1 && <button className="import-button" disabled={busy !== null} onClick={() => void fillAllFromFolders()}>{`Use the folder image for all ${withFolder}`}</button>}
       <ul className="folder-list" aria-label="Releases without art">{missing.slice(0, DRAWN).map((release) => <li key={release.releaseId} className="folder-row">

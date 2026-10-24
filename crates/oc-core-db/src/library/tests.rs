@@ -348,6 +348,25 @@ fn release_and_artist_views_report_counts_and_obey_sort_search_and_format() {
     let found = all_items(&reader, &artists);
     assert_eq!(found.len(), 25);
     assert!(found.iter().all(|item| item.title.starts_with("Ensemble")));
+    // A track's own title finds its artist and its release too.
+    let rows = expected(TRACKS);
+    let track = rows
+        .iter()
+        .find(|row| row.title.ends_with("000100"))
+        .unwrap();
+    artists.search = "000100".into();
+    let found = all_items(&reader, &artists);
+    assert_eq!(
+        found.iter().map(|item| &item.title).collect::<Vec<_>>(),
+        [&track.artist]
+    );
+    let mut releases = LibraryQuery::new(View::Releases);
+    releases.search = "000100".into();
+    let found = all_items(&reader, &releases);
+    assert_eq!(
+        found.iter().map(|item| &item.title).collect::<Vec<_>>(),
+        [&track.release]
+    );
     artists.search = String::new();
     artists.format = Some(Format::Flac);
     assert_eq!(all_items(&reader, &artists).len(), 100);

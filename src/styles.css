@@ -461,7 +461,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 /* The merge review: one group per direction, each change a row with its tick box. */
 .merge-group { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 4px; margin: 14px 0; }
 .merge-group legend { padding: 0 6px; font-size: 12px; font-weight: 600; }
-.merge-actions { display: flex; gap: 14px; margin: 4px 0; }
+.merge-actions { display: flex; align-items: center; gap: 14px; margin: 4px 0; }
 .merge-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .merge-row:last-child { border-bottom: 0; }
 .merge-sides { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: var(--secondary); }
@@ -523,7 +523,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-tool { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; align-content: start; }
 .crate-tool h3 { margin: 0; font-size: 12px; }
 .crate-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--secondary); }
-.crate-pick select { max-width: 150px; color: var(--text); background: var(--raised); border: 1px solid var(--line); font-size: 12px; }
+.crate-pick select { width: 150px; color: var(--text); background: var(--raised); border: 1px solid var(--line); font-size: 12px; }
 .comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 .comparison h4 { margin: 6px 0; font-size: 12px; }
 

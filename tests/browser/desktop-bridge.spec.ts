@@ -1736,6 +1736,13 @@ test("clean up: genres spelled alike are merged, and titles and artists are fixe
   await expect(found).toContainText("Title: 01 - Night Drive -> Night Drive");
   await expect(found).toContainText("Artist: Unknown Artist -> Studio 001");
   await expect(found.getByRole("listitem")).toHaveCount(2);
+  // The list folds away and comes back with its ticks.
+  await found.getByRole("checkbox").first().uncheck();
+  await titles.getByRole("button", { name: "Hide the list" }).click();
+  await expect(found).toHaveCount(0);
+  await titles.getByRole("button", { name: "Show the list (2)" }).click();
+  await expect(found.getByRole("checkbox").first()).not.toBeChecked();
+  await found.getByRole("checkbox").first().check();
   await titles.getByRole("button", { name: "Clean up 2 tracks" }).click();
   await expect(titles.getByRole("status")).toContainText("2 tracks were cleaned up.");
   expect(await page.evaluate(() => (window as any).__editEach)).toEqual([
@@ -1953,6 +1960,9 @@ test("clean up: releases without a cover are listed and filled from beside their
   await expect(art).toContainText("2 releases have no cover; 1 has an image beside the files.");
   const list = art.getByRole("list", { name: "Releases without art" });
   await expect(list.getByRole("listitem")).toHaveCount(2);
+  await art.getByRole("button", { name: "Hide the list" }).click();
+  await expect(list).toHaveCount(0);
+  await art.getByRole("button", { name: "Show the list (2)" }).click();
   await art.getByRole("button", { name: "Use the folder image for Between Spaces" }).click();
   await expect(list.getByRole("listitem")).toHaveCount(1);
   await art.getByRole("button", { name: "Find a cover online for No Light" }).click();

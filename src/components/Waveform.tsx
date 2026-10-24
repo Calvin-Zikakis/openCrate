@@ -53,6 +53,15 @@ export function columns(detail: WaveDetail, positionMs: number, width: number, s
   });
 }
 
+/** `ms` moved to the nearest whole pixel of a close-up `width` pixels across showing `seconds`.
+ * Drawn from there, each pixel column covers the same stretch of the track from frame to frame
+ * and only moves sideways; from an in-between position a column would cover one slice in one
+ * frame and two in the next, and its height would flicker as the picture scrolls. */
+export function snapped(ms: number, width: number, seconds: number): number {
+  const msPerPixel = (seconds * 1000) / Math.max(1, width);
+  return Math.round(ms / msPerPixel) * msPerPixel;
+}
+
 interface Props {
   bands: WaveBands | null;
   cues: TrackCue[];
@@ -168,7 +177,7 @@ export function Scope({ detail, cues, positionMs, playing }: ScopeProps) {
         fills = { low: colour("--wave-low", "#3d7cff"), mid: colour("--wave-mid", "#ff7a3d"), high: colour("--scope-high", "#f4f4f6") };
       }
       frames += 1;
-      const at = shown;
+      const at = snapped(shown, width, WINDOW_SECONDS);
       context.clearRect(0, 0, width, height);
       const middle = height / 2;
       columns(detail, at, width, WINDOW_SECONDS).forEach((column, x) => {

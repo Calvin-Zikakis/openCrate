@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byLevel, columns, fold, foldBands } from "./Waveform";
+import { byLevel, columns, fold, foldBands, snapped } from "./Waveform";
 import { clock } from "./PlayerBar";
 
 describe("the player's waveform and clock", () => {
@@ -31,6 +31,22 @@ describe("the player's waveform and clock", () => {
       const peak = Math.max(...columns(detail, at, 50, 1).map((column) => column?.low ?? 0));
       expect(peak, `at ${at} ms`).toBe(255);
     }
+  });
+  it("moves the close-up in whole pixels, so each column keeps its height as it scrolls", () => {
+    // 150 slices a second under 1600 pixels for 10 s: a column covers one slice or two depending
+    // on where it starts, so drawing from in-between positions makes heights flicker.
+    const low = Array.from({ length: 3000 }, (_, i) => (i * 37) % 251);
+    const detail = { perSecond: 150, low, mid: low.map(() => 0), high: low.map(() => 0) };
+    const width = 1600;
+    const msPerPixel = 10_000 / width;
+    const first = columns(detail, snapped(5000, width, 10), width, 10);
+    for (let step = 1; step < 40; step += 1) {
+      const at = 5000 + step * 2.7;
+      const shift = Math.round(snapped(at, width, 10) / msPerPixel) - Math.round(snapped(5000, width, 10) / msPerPixel);
+      const now = columns(detail, snapped(at, width, 10), width, 10);
+      for (let x = 100; x < 200; x += 1) expect(now[x]?.low, `step ${step}, column ${x}`).toBe(first[x + shift]?.low);
+    }
+    expect(snapped(1000.2, 1000, 10)).toBe(1000);
   });
   it("draws the loudest band first so none is hidden", () => {
     expect(byLevel({ low: 40, mid: 200, high: 90 })).toEqual([["mid", 200], ["high", 90], ["low", 40]]);

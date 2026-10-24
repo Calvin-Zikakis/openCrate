@@ -169,6 +169,14 @@ impl Filter {
         self.params.push(value.into());
     }
 
+    /// A clause with the same value in each of its places.
+    fn add_each(&mut self, clause: &'static str, value: &str) {
+        self.clauses.push(clause);
+        for _ in 0..clause.matches('?').count() {
+            self.params.push(value.to_owned().into());
+        }
+    }
+
     fn where_sql(&self) -> String {
         if self.clauses.is_empty() {
             String::new()
@@ -276,9 +284,12 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     // latter (decision 0015).
     filter.always("r.id IN (SELECT b.release_id FROM track b)");
     if let Search::Match(expression) = search {
-        filter.add(
-            "r.id IN (SELECT rowid FROM release_fts WHERE release_fts MATCH ?)",
-            expression.clone(),
+        // A release shows for a track of its that matches, as well as for its own name.
+        filter.add_each(
+            "(r.id IN (SELECT rowid FROM release_fts WHERE release_fts MATCH ?) \
+             OR r.id IN (SELECT m.release_id FROM track m \
+             WHERE m.id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)))",
+            expression,
         );
     }
     if let Some(id) = query.artist_id {
@@ -299,9 +310,12 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
 fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     filter.always("a.id IN (SELECT b.artist_id FROM track b)");
     if let Search::Match(expression) = search {
-        filter.add(
-            "a.id IN (SELECT rowid FROM artist_fts WHERE artist_fts MATCH ?)",
-            expression.clone(),
+        // An artist shows for a track or release of theirs that matches, as well as for the name.
+        filter.add_each(
+            "(a.id IN (SELECT rowid FROM artist_fts WHERE artist_fts MATCH ?) \
+             OR a.id IN (SELECT m.artist_id FROM track m \
+             WHERE m.id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)))",
+            expression,
         );
     }
     if let Some(id) = query.artist_id {
