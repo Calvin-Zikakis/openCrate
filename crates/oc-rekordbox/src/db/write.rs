@@ -346,13 +346,7 @@ pub fn relocate(
     })();
     if let Err(error) = written {
         // Put rekordbox back exactly as it was before this write.
-        if let Err(undo) = super::restore(&backup.dir, location, backups, false, now_ms + 1) {
-            return Err(DbError::WriteRefused(format!(
-                "{error} Putting rekordbox back from the backup also failed ({undo}); restore it \
-                 from Settings."
-            )));
-        }
-        return Err(error);
+        return Err(put_back(error, &backup, location, backups, now_ms));
     }
     Ok(backup)
 }
@@ -518,13 +512,7 @@ pub fn merge_duplicates(
         Ok(())
     })();
     if let Err(error) = written {
-        if let Err(undo) = super::restore(&backup.dir, location, backups, false, now_ms + 1) {
-            return Err(DbError::WriteRefused(format!(
-                "{error} Putting rekordbox back from the backup also failed ({undo}); restore it \
-                 from Settings."
-            )));
-        }
-        return Err(error);
+        return Err(put_back(error, &backup, location, backups, now_ms));
     }
     Ok(backup)
 }
@@ -651,6 +639,32 @@ fn verify(location: &LibraryLocation, playlist: &str, ids: &[String]) -> Result<
              just before from Settings."
         ))),
         None => Ok(()),
+    }
+}
+
+/// A write failed after it began: put rekordbox back from the backup just taken. Not while
+/// rekordbox runs (it may have been started meanwhile): replacing its database under it could
+/// damage the library, so the owner restores from Settings once it is closed.
+fn put_back(
+    error: DbError,
+    backup: &Snapshot,
+    location: &LibraryLocation,
+    backups: &Path,
+    now_ms: i64,
+) -> DbError {
+    if location.is_real_install && super::rekordbox_running() {
+        return DbError::WriteRefused(format!(
+            "{error} rekordbox was started while openCrate was writing, so it was not put back \
+             automatically. Quit rekordbox, then restore the backup taken just before from \
+             Settings."
+        ));
+    }
+    match super::restore(&backup.dir, location, backups, false, now_ms + 1) {
+        Ok(_) => error,
+        Err(undo) => DbError::WriteRefused(format!(
+            "{error} Putting rekordbox back from the backup also failed ({undo}); restore it \
+             from Settings."
+        )),
     }
 }
 

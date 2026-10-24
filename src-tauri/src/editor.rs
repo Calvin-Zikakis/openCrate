@@ -239,8 +239,8 @@ pub fn edit_history(service: &LibraryService) -> Result<Vec<EditBatchDto>, Strin
 
 /// Put back what the files held before the newest save, and forget that save.
 pub fn undo_last(service: &LibraryService) -> Result<EditedDto, String> {
-    let items = service
-        .take_last_edits()
+    let (id, items) = service
+        .last_edits()
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "There is nothing to undo.".to_owned())?;
     let mut edits: Vec<TrackEdit> = Vec::new();
@@ -257,7 +257,15 @@ pub fn undo_last(service: &LibraryService) -> Result<EditedDto, String> {
             }),
         }
     }
-    write_each(service, &edits, false)
+    let done = write_each(service, &edits, false)?;
+    // A file that could not be put back (unreachable, locked) keeps the save in the history, so
+    // the undo can be tried again; putting back the files that did change once more is harmless.
+    if done.left.is_empty() {
+        service
+            .forget_edits(id)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(done)
 }
 
 /// Write the same `changes` into every file of every track in `track_ids`.

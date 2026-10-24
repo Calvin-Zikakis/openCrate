@@ -34,8 +34,78 @@ struct Move {
     file_id: i64,
     from: PathBuf,
     to: PathBuf,
-    /// rekordbox's id for the file, when it uses it.
-    key: Option<String>,
+    /// rekordbox's ids for the file: none when it does not use it, more than one when it holds
+    /// the file twice.
+    keys: Vec<String>,
+}
+
+/// Moving files in a folder where rekordbox has entries matching more than one file could leave
+/// those entries pointing at nothing, so the move waits until they are sorted out.
+fn refuse_ambiguous(service: &LibraryService, root_id: i64) -> Result<(), String> {
+    let ambiguous = service
+        .rekordbox_ambiguous_in_root(root_id)
+        .map_err(|error| error.to_string())?;
+    if ambiguous > 0 {
+        return Err(format!(
+            "rekordbox has {ambiguous} {} in this music folder that could be more than one file \
+             here (the rekordbox screen counts them), so openCrate moves nothing in it: an \
+             entry might be left pointing at nothing.",
+            if ambiguous == 1 { "entry" } else { "entries" }
+        ));
+    }
+    Ok(())
+}
+
+/// Move each planned file to its tidy place, unless that place is taken on disk or still
+/// listed for a file gone missing there (noted in `left`). A failed move puts back what moved.
+fn move_tidied(
+    service: &LibraryService,
+    root_id: i64,
+    moves: Vec<Move>,
+    renamed: &std::collections::HashMap<i64, Vec<Vec<u8>>>,
+    left: &mut Vec<String>,
+) -> Result<Vec<Move>, String> {
+    let mut done: Vec<Move> = Vec::new();
+    for planned in moves {
+        if planned.to.exists() {
+            left.push(format!(
+                "{} stays: there is already a file at {}.",
+                planned.from.display(),
+                planned.to.display()
+            ));
+            continue;
+        }
+        // A file that has gone missing there is still listed, with its own track; moving onto
+        // it would mix the two up.
+        let listed = match renamed.get(&planned.file_id) {
+            Some(relative) => service
+                .file_at(root_id, relative)
+                .map_err(|error| error.to_string())?,
+            None => None,
+        };
+        if listed.is_some_and(|other| other != planned.file_id) {
+            left.push(format!(
+                "{} stays: openCrate still lists a missing file at {}, with its own track.",
+                planned.from.display(),
+                planned.to.display()
+            ));
+            continue;
+        }
+        let outcome = planned
+            .to
+            .parent()
+            .map_or(Ok(()), fs::create_dir_all)
+            .and_then(|()| fs::rename(&planned.from, &planned.to));
+        if let Err(error) = outcome {
+            return Err(format!(
+                "{} could not be moved ({error}); {}.",
+                planned.from.display(),
+                undo(&done)
+            ));
+        }
+        done.push(planned);
+    }
+    Ok(done)
 }
 
 pub fn tidy_folder(
@@ -100,16 +170,17 @@ pub fn tidy_folder(
             }
         }
         old_folder.get_or_insert(old);
-        let key = service.rekordbox_file_key(file_id).map_err(failed)?;
+        let keys = service.rekordbox_file_keys(file_id).map_err(failed)?;
         moves.push(Move {
             file_id,
             from,
             to,
-            key,
+            keys,
         });
     }
 
-    let location = if moves.iter().any(|planned| planned.key.is_some()) {
+    refuse_ambiguous(service, root_id)?;
+    let location = if moves.iter().any(|planned| !planned.keys.is_empty()) {
         Some(rekordbox_write::ready(service, probe).map_err(|error| {
             format!(
                 "rekordbox uses files in this folder, so it has to be told where they go. {error}"
@@ -119,34 +190,11 @@ pub fn tidy_folder(
         None
     };
 
-    let mut done: Vec<Move> = Vec::new();
-    for planned in moves {
-        if planned.to.exists() {
-            left.push(format!(
-                "{} stays: there is already a file at {}.",
-                planned.from.display(),
-                planned.to.display()
-            ));
-            continue;
-        }
-        let outcome = planned
-            .to
-            .parent()
-            .map_or(Ok(()), fs::create_dir_all)
-            .and_then(|()| fs::rename(&planned.from, &planned.to));
-        if let Err(error) = outcome {
-            undo(&done);
-            return Err(format!(
-                "{} could not be moved ({error}); everything moved so far was put back.",
-                planned.from.display()
-            ));
-        }
-        done.push(planned);
-    }
+    let done = move_tidied(service, root_id, moves, &renamed, &mut left)?;
 
     let relocations: Vec<(String, PathBuf)> = done
         .iter()
-        .filter_map(|moved| moved.key.clone().map(|key| (key, moved.to.clone())))
+        .flat_map(|moved| moved.keys.iter().map(|key| (key.clone(), moved.to.clone())))
         .collect();
     if let Some(location) = location.filter(|_| !relocations.is_empty()) {
         if let Err(error) = write::relocate(
@@ -156,9 +204,9 @@ pub fn tidy_folder(
             now_ms(),
             &relocations,
         ) {
-            undo(&done);
             return Err(format!(
-                "rekordbox could not follow the moved files ({error}); the files were put back."
+                "rekordbox could not follow the moved files ({error}); {}.",
+                undo(&done)
             ));
         }
     }
@@ -361,6 +409,9 @@ pub fn resolve_duplicate(
         })?)
     };
 
+    for root_id in dropped.iter().map(|copy| copy.root_id) {
+        refuse_ambiguous(service, root_id)?;
+    }
     // Plan every move first: nothing moves unless every one can.
     let mut moves = Vec::with_capacity(dropped.len());
     let mut archive_root = None;
@@ -375,7 +426,8 @@ pub fn resolve_duplicate(
             .ok_or_else(|| "The music folder could not be found.".to_owned())?;
         let archive = archive_for(music).ok_or_else(|| {
             format!(
-                "{} is a drive's root, so there is nowhere beside it to archive to. Nothing was moved.",
+                "{} is the top of a drive, so there is nowhere beside it on that drive to archive to. \
+                 Nothing was moved.",
                 music.display()
             )
         })?;
@@ -394,7 +446,9 @@ pub fn resolve_duplicate(
             file_id: copy.file_id,
             from,
             to,
-            key: copy.rb_key.clone(),
+            keys: service
+                .rekordbox_file_keys(copy.file_id)
+                .map_err(|error| error.to_string())?,
         });
     }
     let mut done: Vec<Move> = Vec::new();
@@ -405,10 +459,10 @@ pub fn resolve_duplicate(
             .map_or(Ok(()), fs::create_dir_all)
             .and_then(|()| fs::rename(&planned.from, &planned.to));
         if let Err(error) = outcome {
-            undo(&done);
             return Err(format!(
-                "{} could not be archived ({error}); everything moved so far was put back.",
-                planned.from.display()
+                "{} could not be archived ({error}); {}.",
+                planned.from.display(),
+                undo(&done)
             ));
         }
         done.push(planned);
@@ -417,7 +471,7 @@ pub fn resolve_duplicate(
     let merges: Vec<Duplicate> = match &kept.rb_key {
         Some(kept_key) => done
             .iter()
-            .filter_map(|moved| moved.key.clone())
+            .flat_map(|moved| moved.keys.iter().cloned())
             .filter(|key| key != kept_key)
             .map(|dropped| Duplicate {
                 kept: kept_key.clone(),
@@ -434,8 +488,7 @@ pub fn resolve_duplicate(
             now_ms(),
             &merges,
         ) {
-            undo(&done);
-            return Err(format!("{error} The archived files were put back."));
+            return Err(format!("{error} Archived files: {}.", undo(&done)));
         }
     }
     // The archived copies are out of the music folders now; the library forgets them rather
@@ -468,13 +521,49 @@ pub fn resolve_duplicate(
 pub(crate) fn archive_for(music: &Path) -> Option<PathBuf> {
     let parent = music.parent()?;
     let name = music.file_name()?;
+    if is_mount_root(music, parent) {
+        return None;
+    }
     Some(parent.join("openCrate archive").join(name))
 }
 
-/// Move files back, newest first.
-fn undo(done: &[Move]) {
-    for moved in done.iter().rev() {
-        let _ = fs::rename(&moved.to, &moved.from);
+/// A music folder that is the top of a mounted drive (`/Volumes/Music`): beside it is another
+/// volume (or the folder of mount points), where an archive cannot be made by a rename.
+#[cfg(unix)]
+fn is_mount_root(music: &Path, parent: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (fs::metadata(music), fs::metadata(parent)) {
+        (Ok(inside), Ok(beside)) => inside.dev() != beside.dev(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn is_mount_root(_music: &Path, _parent: &Path) -> bool {
+    false
+}
+
+/// Move files back, newest first, and say how that went: "everything moved so far was put back",
+/// or which files could not be and where they are now.
+fn undo(done: &[Move]) -> String {
+    let stuck: Vec<String> = done
+        .iter()
+        .rev()
+        .filter(|moved| fs::rename(&moved.to, &moved.from).is_err())
+        .map(|moved| format!("{} is at {}", moved.from.display(), moved.to.display()))
+        .collect();
+    if stuck.is_empty() {
+        "everything moved so far was put back".to_owned()
+    } else {
+        format!(
+            "{} could not be put back: {}",
+            if stuck.len() == 1 {
+                "one file"
+            } else {
+                "some files"
+            },
+            stuck.join("; ")
+        )
     }
 }
 

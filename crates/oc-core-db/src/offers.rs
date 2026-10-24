@@ -394,6 +394,31 @@ pub fn rekordbox_key(connection: &Connection, track_id: i64) -> Result<Option<St
         .map(|key| key.to_string()))
 }
 
+/// Every rekordbox id a direct read matched to a library file; rekordbox can hold one file twice.
+pub fn rekordbox_file_keys(connection: &Connection, file_id: i64) -> Result<Vec<String>> {
+    let mut statement = connection.prepare(
+        "SELECT t.rb_key FROM rb_track t JOIN rb_source s ON s.id = t.rb_source_id
+         WHERE t.file_id = ?1 AND s.kind = 'master_db' AND t.match_status = 'matched'
+         ORDER BY t.rb_key",
+    )?;
+    let keys = statement
+        .query_map([file_id], |row| row.get::<_, i64>(0))?
+        .map(|key| key.map(|key| key.to_string()))
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(keys)
+}
+
+/// rekordbox entries in a music folder that match more than one file there. Moving files in
+/// that folder could leave such an entry pointing at nothing, unseen.
+pub fn rekordbox_ambiguous_in_root(connection: &Connection, root_id: i64) -> Result<i64> {
+    Ok(connection.query_row(
+        "SELECT COUNT(*) FROM rb_track t JOIN rb_source s ON s.id = t.rb_source_id
+         WHERE t.root_id = ?1 AND s.kind = 'master_db' AND t.match_status = 'ambiguous'",
+        [root_id],
+        |row| row.get(0),
+    )?)
+}
+
 /// rekordbox's id for a library file, when a direct read matched it.
 pub fn rekordbox_file_key(connection: &Connection, file_id: i64) -> Result<Option<String>> {
     Ok(connection

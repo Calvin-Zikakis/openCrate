@@ -184,6 +184,46 @@ fn a_file_whose_tidy_place_is_taken_stays_where_it_is() {
         .is_file());
 }
 
+#[test]
+fn a_file_whose_tidy_place_is_still_listed_as_missing_stays_where_it_is() {
+    let taken = "Studio 001, Guest/Between Spaces/02 - Soft Focus.aif";
+    let setup = setup(
+        &[
+            "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif",
+            taken,
+            "Studio 001;Guest/Between Spaces/03 - Late Train.aif",
+            "Other/Elsewhere/01 - One.aif",
+            "Other/Elsewhere/02 - Two.aif",
+            "Other/Elsewhere/03 - Three.aif",
+        ],
+        false,
+    );
+    // The file at the tidy place goes; the library still lists it, as missing, with its track.
+    fs::remove_file(setup.music.join(taken)).unwrap();
+    setup
+        .service
+        .scan_root(setup.root, &ScanOptions::default())
+        .unwrap();
+    assert_eq!(setup.service.roots().unwrap()[0].missing, 1);
+
+    let done = tidy_folder(&setup.service, &setup.probe, setup.root, "Studio 001;Guest").unwrap();
+    assert_eq!(done.moved, 1);
+    assert_eq!(done.left.len(), 1);
+    assert!(
+        done.left[0].contains("still lists a missing file"),
+        "{:?}",
+        done.left
+    );
+    assert!(setup
+        .music
+        .join("Studio 001;Guest/Between Spaces/02 - Soft Focus.aif")
+        .is_file());
+    assert!(setup
+        .music
+        .join("Studio 001, Guest/Between Spaces/03 - Late Train.aif")
+        .is_file());
+}
+
 const FIRST: &str = "Studio 001/Between Spaces/01 - Soft Focus.aif";
 const SECOND: &str = "Studio 001;Guest/Between Spaces/01 - Soft Focus.aif";
 
@@ -350,6 +390,16 @@ fn a_copy_rekordbox_does_not_have_is_archived_without_writing_to_it() {
         .service
         .add_to_crate(crate_id, vec![dropped_track])
         .unwrap();
+    // A save that changed only the copy that goes.
+    setup
+        .service
+        .record_edits(vec![oc_core_db::edits::EditItem {
+            track_id: dropped_track,
+            field: "title".into(),
+            before: "Soft Focus".into(),
+            after: "Soft Focus (Edit)".into(),
+        }])
+        .unwrap();
 
     let done = resolve_duplicate(&setup.service, &setup.probe, first, &[second]).unwrap();
     assert_eq!((done.archived, done.merged), (1, 0));
@@ -363,6 +413,8 @@ fn a_copy_rekordbox_does_not_have_is_archived_without_writing_to_it() {
         setup.service.crate_track_ids(crate_id).unwrap(),
         vec![kept_track]
     );
+    // Its undo history went with it: the track id may be given to a later track.
+    assert_eq!(setup.service.edit_history().unwrap(), vec![]);
 }
 
 #[test]

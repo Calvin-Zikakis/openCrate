@@ -83,8 +83,9 @@ impl Database {
         Ok(id)
     }
 
-    /// Take the newest save out of the history, returning its items; `None` when it is empty.
-    pub fn take_last_edits(&mut self) -> Result<Option<Vec<EditItem>>> {
+    /// The newest save and its items; `None` when the history is empty. It stays in the history
+    /// until [`Database::forget_edits`], so an undo that fails can be tried again.
+    pub fn last_edits(&mut self) -> Result<Option<(i64, Vec<EditItem>)>> {
         let transaction = self.connection.transaction()?;
         let Some(id) = transaction.query_row("SELECT MAX(id) FROM edit_history", [], |row| {
             row.get::<_, Option<i64>>(0)
@@ -109,9 +110,31 @@ impl Database {
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             found
         };
+        transaction.commit()?;
+        Ok(Some((id, items)))
+    }
+
+    /// Drop a save from the history, once it has been undone.
+    pub fn forget_edits(&mut self, id: i64) -> Result<()> {
+        let transaction = self.connection.transaction()?;
         transaction.execute("DELETE FROM edit_history_item WHERE history_id = ?1", [id])?;
         transaction.execute("DELETE FROM edit_history WHERE id = ?1", [id])?;
         transaction.commit()?;
-        Ok(Some(items))
+        Ok(())
     }
+}
+
+/// A track that is gone takes its part of the undo history with it: track ids are reused, so an
+/// undo would otherwise write its old values into another track's files. Saves left empty go too.
+pub(crate) fn forget_track(connection: &rusqlite::Connection, track_id: i64) -> Result<()> {
+    connection.execute(
+        "DELETE FROM edit_history_item WHERE track_id = ?1",
+        [track_id],
+    )?;
+    connection.execute(
+        "DELETE FROM edit_history WHERE NOT EXISTS \
+         (SELECT 1 FROM edit_history_item i WHERE i.history_id = edit_history.id)",
+        [],
+    )?;
+    Ok(())
 }

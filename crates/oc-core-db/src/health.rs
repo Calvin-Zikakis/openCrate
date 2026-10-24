@@ -316,10 +316,14 @@ impl crate::Database {
                 [track],
                 |row| row.get(0),
             )?;
+            // With no track for the kept copy to take them, the track stays, crate places and all.
+            let Some(kept_track) = kept_track else {
+                continue;
+            };
             if still_filed {
                 continue;
             }
-            if let Some(kept_track) = kept_track.filter(|kept_track| *kept_track != track) {
+            if kept_track != track {
                 transaction.execute(
                     "UPDATE crate_item SET track_id = ?2 WHERE track_id = ?1 AND NOT EXISTS \
                      (SELECT 1 FROM crate_item other WHERE other.crate_id = crate_item.crate_id \
@@ -335,6 +339,8 @@ impl crate::Database {
             }
             transaction.execute("DELETE FROM track_fts WHERE rowid = ?1", [track])?;
             transaction.execute("DELETE FROM track WHERE id = ?1", [track])?;
+            // Its undo history names a track id that a later track may be given.
+            crate::edits::forget_track(&transaction, track)?;
         }
         transaction.commit()?;
         Ok(())

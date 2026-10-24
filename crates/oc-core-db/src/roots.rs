@@ -308,6 +308,17 @@ impl Database {
             [root_id],
         )?;
         let removed = transaction.execute("DELETE FROM file WHERE root_id = ?1", [root_id])?;
+        // Tracks left with no file go below; their undo history must not reach a later track.
+        transaction.execute(
+            "DELETE FROM edit_history_item WHERE track_id IN (SELECT id FROM track WHERE NOT EXISTS \
+             (SELECT 1 FROM file WHERE file.track_id = track.id))",
+            [],
+        )?;
+        transaction.execute(
+            "DELETE FROM edit_history WHERE NOT EXISTS \
+             (SELECT 1 FROM edit_history_item i WHERE i.history_id = edit_history.id)",
+            [],
+        )?;
         transaction.execute(
             "DELETE FROM track_fts WHERE rowid IN (SELECT id FROM track WHERE NOT EXISTS \
              (SELECT 1 FROM file WHERE file.track_id = track.id))",

@@ -170,6 +170,30 @@ fn load_existing(connection: &Connection, root_id: i64) -> Result<HashMap<Vec<u8
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// The library file already listed at this path inside a music folder, present or missing.
+pub fn file_at(
+    connection: &Connection,
+    root_id: i64,
+    components: &[Vec<u8>],
+) -> Result<Option<i64>> {
+    use rusqlite::OptionalExtension;
+    let profile = connection.query_row(
+        "SELECT name_profile FROM library_root WHERE id = ?1",
+        [root_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    let profile = NameProfile::parse(&profile).ok_or(Error::InvalidStoredValue("name profile"))?;
+    let path = RelPath::from_components(components, Flavor::Posix)
+        .map_err(|_| Error::InvalidStoredValue("path"))?;
+    Ok(connection
+        .query_row(
+            "SELECT id FROM file WHERE root_id = ?1 AND path_key = ?2",
+            params![root_id, profile.key(&path).as_bytes()],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
 impl Database {
     /// Files openCrate itself moved inside their music folder (tidying a folder's name): each
     /// row takes its new path, so the next scan finds the same file there, with its track, crate

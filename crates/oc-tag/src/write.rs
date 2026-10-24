@@ -47,6 +47,17 @@ fn describe_pictures(tag: &mut Tag) {
     }
 }
 
+/// [`describe_pictures`] in every tag the file holds, not only the one openCrate edits: all of
+/// them are written back.
+fn describe_every_picture(tagged: &mut TaggedFile) {
+    let kinds: Vec<TagType> = tagged.tags().iter().map(Tag::tag_type).collect();
+    for kind in kinds {
+        if let Some(tag) = tagged.tag_mut(kind) {
+            describe_pictures(tag);
+        }
+    }
+}
+
 /// Set every field that `values` holds, replacing what the file had for those fields only;
 /// other fields and other tags stay. `cover` is embedded only if the file has no picture yet.
 /// `ID3v2` tags are written as version 2.3, which rekordbox reads most reliably (owner question 2).
@@ -59,10 +70,10 @@ pub fn write_tags(
     if tagged.primary_tag().is_none() {
         tagged.insert_tag(Tag::new(tagged.primary_tag_type()));
     }
+    describe_every_picture(&mut tagged);
     let Some(tag) = tagged.primary_tag_mut() else {
         return Err(ReadError::Parse("this file cannot hold tags".into()));
     };
-    describe_pictures(tag);
     if let Some(value) = &values.title {
         tag.set_title(value.clone());
     }
@@ -186,6 +197,10 @@ pub fn rewrite_cover(path: &Path, cover: Option<&Cover>) -> Result<(), ReadError
     })
 }
 
+/// Numbers each rewrite's copy: two rewrites of one file at once (new art while an edit saves)
+/// must not share, and so half-write, one copy.
+static REWRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// `edit` fills a copy beside the file; the copy is flushed and takes the file's place in one
 /// rename. On any failure the copy is removed and the file is exactly as it was.
 fn rewrite_through_copy(
@@ -195,7 +210,12 @@ fn rewrite_through_copy(
     let name = path
         .file_name()
         .ok_or_else(|| ReadError::Parse("not a file".into()))?;
-    let copy = path.with_file_name(format!(".opencrate-retag-{}", name.to_string_lossy()));
+    let copy = path.with_file_name(format!(
+        ".opencrate-retag-{}-{}-{}",
+        std::process::id(),
+        REWRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        name.to_string_lossy()
+    ));
     let result = edit(&copy).and_then(|()| {
         // Flushing needs write access on Windows.
         std::fs::OpenOptions::new()
@@ -254,10 +274,10 @@ fn retag_copy(path: &Path, copy: &Path, changes: &[(TextTag, String)]) -> Result
 
 fn clear(path: &Path, cleared: &[TextTag]) -> Result<(), ReadError> {
     let mut tagged = read_whole(path)?;
+    describe_every_picture(&mut tagged);
     let Some(tag) = tagged.primary_tag_mut() else {
         return Ok(());
     };
-    describe_pictures(tag);
     for field in cleared {
         match field {
             TextTag::Title => tag.remove_title(),

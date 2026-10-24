@@ -208,6 +208,16 @@ fn state_digest(collection: &Collection, matches: &[LocationMatch]) -> i64 {
 struct PlaylistIds {
     kept: HashMap<String, i64>,
     next: i64,
+    /// How many siblings so far had each key: two playlists of one name in one folder (an export
+    /// can hold that) are told apart by their order.
+    seen: HashMap<String, usize>,
+}
+
+/// `key` with how many earlier siblings had it: "key#0", then "key#1".
+fn numbered(seen: &mut HashMap<String, usize>, key: &str) -> String {
+    let count = seen.entry(key.to_owned()).or_insert(0);
+    *count += 1;
+    format!("{key}#{}", *count - 1)
 }
 
 fn playlist_key(path: &str, attributes: &Attributes) -> String {
@@ -226,7 +236,8 @@ impl PlaylistIds {
     /// Read before the source's rows are cleared.
     fn before_clearing(connection: &Connection, source_id: i64) -> Result<Self> {
         let mut statement = connection.prepare(
-            "SELECT id, parent_id, name, attributes FROM playlist WHERE rb_source_id = ?1",
+            "SELECT id, parent_id, name, attributes FROM playlist WHERE rb_source_id = ?1 \
+             ORDER BY parent_id, position",
         )?;
         let rows = statement
             .query_map([source_id], |row| {
@@ -261,20 +272,28 @@ impl PlaylistIds {
                 .fold(String::new(), |path, name| child_path(&path, name))
         };
         let mut kept = HashMap::new();
+        let mut seen = HashMap::new();
         for (id, _, _, attributes) in &rows {
             let attributes: Attributes = serde_json::from_str(attributes).unwrap_or_default();
-            kept.entry(playlist_key(&path(*id), &attributes))
-                .or_insert(*id);
+            kept.insert(
+                numbered(&mut seen, &playlist_key(&path(*id), &attributes)),
+                *id,
+            );
         }
         let next =
             connection.query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM playlist", [], |row| {
                 row.get(0)
             })?;
-        Ok(Self { kept, next })
+        Ok(Self {
+            kept,
+            next,
+            seen: HashMap::new(),
+        })
     }
 
     fn id_for(&mut self, key: &str) -> i64 {
-        self.kept.remove(key).unwrap_or_else(|| {
+        let key = numbered(&mut self.seen, key);
+        self.kept.remove(&key).unwrap_or_else(|| {
             self.next += 1;
             self.next - 1
         })

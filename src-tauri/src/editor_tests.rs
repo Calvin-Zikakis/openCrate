@@ -220,6 +220,49 @@ fn genres_spelled_alike_are_grouped_and_merged_into_one() {
     );
 }
 
+/// An undo that cannot put a file back keeps the save, so it can be tried again.
+#[cfg(unix)]
+#[test]
+fn an_undo_that_fails_keeps_the_save() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::editor::{edit_history, undo_last};
+    let setup = setup(&["Night Drive"]);
+    let ids = ids(&setup.service);
+    edit_tracks(
+        &setup.service,
+        &[ids["Night Drive"]],
+        &[FieldChange {
+            field: "title".into(),
+            value: "Night Drive (Extended)".into(),
+        }],
+    )
+    .unwrap();
+    // A file is rewritten through a copy beside it; a locked folder refuses the copy.
+    let folder = setup.files[0].parent().unwrap().to_path_buf();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let undone = undo_last(&setup.service).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!((undone.files, undone.left.len()), (0, 1));
+    assert_eq!(
+        edit_history(&setup.service).unwrap().len(),
+        1,
+        "still there"
+    );
+
+    let undone = undo_last(&setup.service).unwrap();
+    assert_eq!((undone.files, undone.left.len()), (1, 0));
+    assert_eq!(edit_history(&setup.service).unwrap().len(), 0);
+    assert_eq!(
+        oc_tag::read_file(&setup.files[0])
+            .unwrap()
+            .tags
+            .title
+            .as_deref(),
+        Some("Night Drive")
+    );
+}
+
 #[test]
 fn every_edit_is_remembered_and_the_last_one_can_be_undone() {
     use crate::editor::{edit_history, undo_last};

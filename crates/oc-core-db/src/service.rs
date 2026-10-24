@@ -517,6 +517,11 @@ impl LibraryService {
             .run(move |database| database.files_moved(root_id, &moved))?
     }
 
+    /// The library file already listed at a path inside a music folder, present or missing.
+    pub fn file_at(&self, root_id: i64, components: &[Vec<u8>]) -> Result<Option<i64>> {
+        crate::scan::file_at(self.pool.lease().connection(), root_id, components)
+    }
+
     /// The track a library file belongs to, if any.
     pub fn track_of_file(&self, file_id: i64) -> Result<Option<i64>> {
         Ok(self
@@ -537,6 +542,16 @@ impl LibraryService {
     pub fn forget_archived(&self, kept: i64, archived: Vec<i64>) -> Result<()> {
         self.writer
             .run(move |database| database.forget_archived(kept, &archived))?
+    }
+
+    /// Every rekordbox id the last direct read matched to a library file.
+    pub fn rekordbox_file_keys(&self, file_id: i64) -> Result<Vec<String>> {
+        crate::offers::rekordbox_file_keys(self.pool.lease().connection(), file_id)
+    }
+
+    /// rekordbox entries in a music folder that match more than one of its files.
+    pub fn rekordbox_ambiguous_in_root(&self, root_id: i64) -> Result<i64> {
+        crate::offers::rekordbox_ambiguous_in_root(self.pool.lease().connection(), root_id)
     }
 
     /// rekordbox's id for a library file, when the last direct read matched it.
@@ -590,9 +605,14 @@ impl LibraryService {
         crate::edits::history(self.pool.lease().connection())
     }
 
-    /// Take the newest save out of the history; `None` when there is none.
-    pub fn take_last_edits(&self) -> Result<Option<Vec<crate::edits::EditItem>>> {
-        self.writer.run(Database::take_last_edits)?
+    /// The newest save and its items; `None` when there is none. It stays until forgotten.
+    pub fn last_edits(&self) -> Result<Option<(i64, Vec<crate::edits::EditItem>)>> {
+        self.writer.run(Database::last_edits)?
+    }
+
+    /// Drop an undone save from the history.
+    pub fn forget_edits(&self, id: i64) -> Result<()> {
+        self.writer.run(move |database| database.forget_edits(id))?
     }
 
     /// Every track with a present file: its id, title and artist, for library-wide cleanup.

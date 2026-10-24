@@ -857,9 +857,10 @@ fn a_playlist_keeps_its_id_when_a_read_brings_one_before_it() {
         let text = format!(
             "<DJ_PLAYLISTS Version=\"1.0.0\"><PRODUCT Name=\"Synthetic\" Version=\"1\"/>\
              <COLLECTION Entries=\"0\"></COLLECTION>\
-             <PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\" Count=\"2\">\
+             <PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\" Count=\"3\">\
              <NODE Type=\"0\" Name=\"Sets\" Count=\"{count}\">{extra}\
              <NODE Type=\"1\" Name=\"Warm-up\" KeyType=\"0\" Entries=\"0\"/></NODE>\
+             <NODE Type=\"1\" Name=\"Closers\" KeyType=\"0\" Entries=\"0\"/>\
              <NODE Type=\"1\" Name=\"Closers\" KeyType=\"0\" Entries=\"0\"/>\
              </NODE></PLAYLISTS></DJ_PLAYLISTS>"
         );
@@ -896,4 +897,22 @@ fn a_playlist_keeps_its_id_when_a_read_brings_one_before_it() {
         .collect();
     assert_eq!(after, before);
     assert!(id_of(&library, "Opener") > *before.iter().max().unwrap());
+    // Two playlists of one name side by side keep theirs too.
+    let closers = |library: &Library| -> Vec<i64> {
+        library
+            .database
+            .connection
+            .prepare("SELECT id FROM playlist WHERE name = 'Closers' ORDER BY position")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    };
+    let both = closers(&library);
+    library
+        .database
+        .replace_mirror(&source(Some(3)), &tree(""), 300)
+        .unwrap();
+    assert_eq!(closers(&library), both);
 }
