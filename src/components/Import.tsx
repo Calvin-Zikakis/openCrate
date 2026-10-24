@@ -7,6 +7,8 @@ import { ImportChoices, loadOptions } from "./ImportChoices";
 import type { DownloadFolderState, DownloadRelease, DownloadsSnapshot, FolderInfo, ImportOptions, ImportPlan, LibraryAdmin, ReleaseImport } from "../library/types";
 
 const POLL_MS = 3000;
+/** Imported releases listed before "Show all". */
+const IMPORTED_SHOWN = 5;
 /** How long to wait for the scan that brings imported files into the lists. */
 const SCAN_WAIT_MS = 10 * 60_000;
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -90,6 +92,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   const [options, setOptions] = useState<ImportOptions>(loadOptions);
   const [canConvert, setCanConvert] = useState(false);
   const [view, setView] = useState<View>(loadView);
+  const [allImported, setAllImported] = useState(false);
   const changeView = (next: View) => { setView(next); saveView(next); };
 
   useEffect(() => {
@@ -176,6 +179,11 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   const fresh = releases.filter((release) => !release.imported && !release.alreadyThere && release.state !== "nothing");
   const older = releases.filter((release) => !release.imported && release.alreadyThere && release.state !== "nothing");
   const imported = releases.filter((release) => release.imported);
+  // A long history would push what is still waiting out of sight: what was imported just now comes
+  // first, and the rest waits behind "Show all".
+  const justNow = imported.filter((release) => results.has(keyOf(release)));
+  const earlier = imported.filter((release) => !results.has(keyOf(release)));
+  const shownImported = allImported ? [...justNow, ...earlier] : [...justNow, ...earlier.slice(0, Math.max(0, IMPORTED_SHOWN - justNow.length))];
   const notes = (snapshot?.folders ?? []).map(folderNote).filter((note): note is string => note !== null);
   const ready = fresh.filter((release) => release.state === "ready").length;
 
@@ -251,7 +259,6 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
       };
     });
     return <div className="plan-panel import-table">
-      {rootChoice}
       {rootId === null && <p role="alert" className="inline-error">Add a music folder in Settings first, so there is somewhere to put it.</p>}
       <p className="settings-copy">Importing copies the files; the originals stay in the download folder. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
       <PlanTable groups={groups} />
@@ -278,7 +285,6 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
       <span className={`folder-badge ${tone}`}>{text}</span>
       <button className="secondary-button" aria-expanded={open} aria-label={`Preview ${release.name}`} onClick={() => choose(key, !open)}>{open ? "Hide preview" : "Preview..."}</button>
       {open && <div className="plan-panel">
-        {rootChoice}
         {rootId === null && <p role="alert" className="inline-error">Add a music folder in Settings first, so there is somewhere to put it.</p>}
         {waiting && <p className="settings-copy" role="status">Reading the tags...</p>}
         {step && <p className="settings-copy" role="status">{step === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</p>}
@@ -327,6 +333,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
         ? <p className="settings-copy">Nothing new yet. Releases that arrive from now on appear here.</p>
         : <>
           <p className="settings-copy">{ready} of {fresh.length} {fresh.length === 1 ? "release has" : "releases have"} finished downloading.</p>
+          {rootChoice}
           <ImportAll admin={admin} releases={fresh.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} />
           {view === "table" ? table(fresh) : <ul className="folder-list">{fresh.map(row)}</ul>}
         </>}
@@ -334,11 +341,13 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     {imported.length > 0 && <div className="sync-card">
       <h2>Imported</h2>
       <p className="settings-copy">Already copied into your music folder. The originals are still in the download folder.</p>
-      <ul className="folder-list">{imported.map(row)}</ul>
+      <ul className="folder-list">{shownImported.map(row)}</ul>
+      {imported.length > IMPORTED_SHOWN && <button className="link-button" aria-expanded={allImported} onClick={() => setAllImported((current) => !current)}>{allImported ? "Show fewer" : `Show all ${imported.length}`}</button>}
     </div>}
     {older.length > 0 && <div className="sync-card">
       <h2>Already there when you added the folder</h2>
       <p className="settings-copy">These are not picked up on their own. They stay out of the way until you choose to bring them in, one at a time or all together.</p>
+      {rootChoice}
       <ImportAll admin={admin} releases={older.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan}
         label={(count) => `Import all ${count} ${count === 1 ? "release" : "releases"} already there...`} />
       {view === "table" ? table(older) : <ul className="folder-list">{older.map(row)}</ul>}

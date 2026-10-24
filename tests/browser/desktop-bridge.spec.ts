@@ -176,6 +176,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                   rel("Old Favourites", "ready", { alreadyThere: true, audioFiles: 12 }),
                   ...((window as any).__twoReady ? [rel("Second Light", "ready", { audioFiles: 2 })] : []),
                   ...((window as any).__cleanReady ? [rel("Clean Single", "ready", { audioFiles: 1 })] : []),
+                  ...Array.from({ length: (window as any).__manyImported ?? 0 }, (_, n) => rel(`Earlier ${n + 1}`, "ready", { imported: true, audioFiles: 1 })),
                 ],
               };
             }
@@ -1156,6 +1157,18 @@ test("import: in one table a release's heading stays in view sideways, says when
   await expect.poll(async () => (await reads()).length).toBe(6);
   await page.waitForTimeout(3500);
   expect((await reads()).sort()).toEqual(["Between Spaces", "Between Spaces", "Clean Single", "Clean Single", "Old Favourites", "Old Favourites"]);
+});
+
+test("import: a long list of imported releases waits behind Show all", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__manyImported = 8; });
+  await openImportWithFolders(page, "One table");
+  const done = page.locator(".sync-card").filter({ hasText: "Already copied into your music folder" });
+  await expect(done.locator("li.folder-row")).toHaveCount(5);
+  await done.getByRole("button", { name: "Show all 8" }).click();
+  await expect(done.locator("li.folder-row")).toHaveCount(8);
+  await done.getByRole("button", { name: "Show fewer" }).click();
+  await expect(done.locator("li.folder-row")).toHaveCount(5);
 });
 
 test("import all: a review lists doubtful tags, then every finished release is imported and scanned once", async ({ page }) => {
