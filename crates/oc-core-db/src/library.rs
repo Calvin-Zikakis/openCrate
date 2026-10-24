@@ -98,13 +98,19 @@ pub struct LibraryItem {
     pub artist_id: i64,
     pub release: String,
     pub release_id: i64,
+    /// rekordbox's BPM once it has analysed the track, else the file's tag, if any.
     pub bpm: Option<f64>,
+    /// rekordbox's key once it has one, else the file's tag.
     pub musical_key: String,
     pub duration_ms: i64,
     pub format: Option<String>,
     pub track_count: i64,
     /// A track none of whose active files is currently present on disk.
     pub missing: bool,
+    /// rekordbox has analysed the track: `bpm` is its own, not the tag's.
+    pub analysed: bool,
+    /// `musical_key` is rekordbox's, not the tag's.
+    pub rekordbox_key: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -351,12 +357,14 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             joined:
                 "track t JOIN artist a ON a.id = t.artist_id JOIN release r ON r.id = t.release_id",
             columns:
-                "t.id, t.title, a.name, t.artist_id, r.title, t.release_id, t.bpm, t.musical_key, \
+                "t.id, t.title, a.name, t.artist_id, r.title, t.release_id, COALESCE(t.bpm, t.tag_bpm), \
+                      CASE WHEN t.musical_key <> '' THEN t.musical_key ELSE t.tag_key END, \
                       t.duration_ms, (SELECT f.container FROM file f WHERE f.track_id = t.id \
                       AND f.lifecycle = 'active' ORDER BY f.id LIMIT 1), 1, \
                       (EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id AND f.lifecycle = 'active') \
                        AND NOT EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id \
-                                       AND f.lifecycle = 'active' AND f.presence = 'present'))",
+                                       AND f.lifecycle = 'active' AND f.presence = 'present')), \
+                      t.bpm IS NOT NULL, t.musical_key <> ''",
             order: match (query.sort, query.playlist_id) {
                 (Sort::Playlist, Some(_)) => {
                     "(SELECT MIN(i.position) FROM playlist_item i \
@@ -373,7 +381,9 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                 (Sort::Recent | Sort::Playlist | Sort::Crate, _) => "t.added_ms DESC, t.id DESC",
                 (Sort::Title, _) => "t.title_key, t.id",
                 (Sort::Artist, _) => "t.artist_key, t.release_id, t.disc_no, t.track_no, t.id",
-                (Sort::Bpm, _) => "t.bpm IS NULL, t.bpm, t.id",
+                (Sort::Bpm, _) => {
+                    "COALESCE(t.bpm, t.tag_bpm) IS NULL, COALESCE(t.bpm, t.tag_bpm), t.id"
+                }
             },
             order_playlist: match query.sort {
                 Sort::Playlist => query.playlist_id,
@@ -386,7 +396,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             table: "release r",
             joined: "release r JOIN artist a ON a.id = r.artist_id",
             columns: "r.id, r.title, a.name, r.artist_id, r.title, r.id, NULL, '', 0, NULL, \
-                      (SELECT COUNT(*) FROM track t WHERE t.release_id = r.id), 0",
+                      (SELECT COUNT(*) FROM track t WHERE t.release_id = r.id), 0, 0, 0",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => {
                     "r.added_ms DESC, r.id DESC"
@@ -401,7 +411,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             table: "artist a",
             joined: "artist a",
             columns: "a.id, a.name, a.name, a.id, '', 0, NULL, '', 0, NULL, \
-                      (SELECT COUNT(*) FROM track t WHERE t.artist_id = a.id), 0",
+                      (SELECT COUNT(*) FROM track t WHERE t.artist_id = a.id), 0, 0, 0",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => "a.id DESC",
                 Sort::Title | Sort::Artist | Sort::Bpm => "a.sort_key, a.id",
@@ -437,6 +447,8 @@ fn item_from_row(kind: View, row: &rusqlite::Row<'_>) -> rusqlite::Result<Librar
         format: row.get(9)?,
         track_count: row.get(10)?,
         missing: row.get::<_, i64>(11)? != 0,
+        analysed: row.get::<_, i64>(12)? != 0,
+        rekordbox_key: row.get::<_, i64>(13)? != 0,
     })
 }
 

@@ -761,6 +761,11 @@ impl LibraryService {
         crate::crates::list_crates(self.pool.lease().connection())
     }
 
+    /// A crate's track ids in its order.
+    pub fn crate_track_ids(&self, crate_id: i64) -> Result<Vec<i64>> {
+        crate::crates::crate_tracks(self.pool.lease().connection(), crate_id)
+    }
+
     pub fn create_crate(&self, name: &str) -> Result<i64> {
         let name = name.to_owned();
         self.writer

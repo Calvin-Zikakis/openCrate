@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { carriesTracks, draggedTracks } from "../library/drag";
+import { carriesTracks, draggedTracks, setDraggedCrate } from "../library/drag";
 import type { CrateInfo, LibraryAdmin } from "../library/types";
 
 /** How long "Added 1 to ..." stays up. */
@@ -124,6 +124,9 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
           className={`tree-playlist crate-item${over === crate.id ? " is-drop-target" : ""}`}
           aria-current={activeId === crate.id ? "true" : undefined}
           onClick={() => onOpen(crate)}
+          draggable
+          onDragStart={(event) => setDraggedCrate(event.dataTransfer, crate)}
+          title="Drag onto a rekordbox folder to make a playlist from it"
           onContextMenu={(event) => { event.preventDefault(); setMenu({ crate, x: event.clientX, y: event.clientY }); }}
           onKeyDown={(event) => {
             if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {

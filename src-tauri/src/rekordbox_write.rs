@@ -171,7 +171,11 @@ fn write(
     // So the sidebar and the new-tracks list show what rekordbox now holds.
     let read_error = rekordbox_db::read(service, probe).err();
     Ok(WriteDto {
-        playlist: name,
+        playlist: if done.name.is_empty() {
+            name
+        } else {
+            done.name
+        },
         added: done.added,
         imported: done.imported,
         left_out,
@@ -202,6 +206,23 @@ pub fn add_to_playlist(
         .find(|row| row.id == playlist_id)
         .map(|row| row.name)
         .unwrap_or_default();
+    let (members, left_out) = members_of(service, track_ids)?;
+    write(
+        service,
+        probe,
+        location,
+        &Playlist::Id(key),
+        name,
+        &members,
+        left_out,
+    )
+}
+
+/// Each track as rekordbox can take it, and the ones it cannot, with why.
+fn members_of(
+    service: &LibraryService,
+    track_ids: &[i64],
+) -> Result<(Vec<Member>, Vec<String>), String> {
     let mut members = Vec::with_capacity(track_ids.len());
     let mut left_out = Vec::new();
     let found = service
@@ -216,11 +237,58 @@ pub fn add_to_playlist(
             }
         }
     }
+    Ok((members, left_out))
+}
+
+/// A crate dropped on a rekordbox folder (or on the top of the tree, `folder_id` none): a new
+/// rekordbox playlist named after it, holding its tracks in its order. The crate stays as it is.
+pub fn crate_to_playlist(
+    service: &LibraryService,
+    probe: &Probe,
+    crate_id: i64,
+    folder_id: Option<i64>,
+) -> Result<WriteDto, String> {
+    let location = ready(service, probe)?;
+    let parent = match folder_id {
+        None => write::ROOT.to_owned(),
+        Some(folder_id) => service
+            .rekordbox_playlist_key(folder_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| {
+                "This folder came from an xml export. Read rekordbox's library directly on the \
+                 rekordbox screen first, so openCrate knows rekordbox's own folders."
+                    .to_owned()
+            })?,
+    };
+    let name = service
+        .crates()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|row| row.id == crate_id)
+        .map(|row| row.name)
+        .ok_or("That crate is no longer there.")?;
+    let track_ids = service
+        .crate_track_ids(crate_id)
+        .map_err(|error| error.to_string())?;
+    if track_ids.is_empty() {
+        return Err(format!(
+            "{name} has no tracks yet, so there is nothing to put in a playlist."
+        ));
+    }
+    let (members, left_out) = members_of(service, &track_ids)?;
+    if members.is_empty() {
+        return Err(format!(
+            "None of the tracks in {name} has a file that can be reached, so no playlist was made."
+        ));
+    }
     write(
         service,
         probe,
         location,
-        &Playlist::Id(key),
+        &Playlist::New {
+            name: name.clone(),
+            parent,
+        },
         name,
         &members,
         left_out,

@@ -476,6 +476,13 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               const names: Record<number, string> = { 3: "Friday warm-up", 4: "Closers" };
               return { playlist: names[args?.playlistId] ?? "?", added: (args?.trackIds ?? []).length, imported: 0, leftOut: [], readError: null };
             }
+            case "rekordbox_crate_to_playlist": {
+              if (rbWrite() === null) throw "Writing to rekordbox is off. Turn it on in Settings.";
+              const made = crateById(args?.crateId);
+              if (made.order.length === 0) throw `${made.name} has no tracks yet, so there is nothing to put in a playlist.`;
+              (window as any).__rbCratePlaylists = [...((window as any).__rbCratePlaylists ?? []), { crateId: args?.crateId, folderId: args?.folderId }];
+              return { playlist: made.name, added: made.order.length, imported: 0, leftOut: [], readError: null };
+            }
             case "rekordbox_merge_review": {
               if (!rb().enabled) throw "The merge works from a direct read of rekordbox's library. Turn reading on in Settings first.";
               const change = (rbKey: number, title: string, field: string, ours: string, theirs: string, direction: string, base: string | null) =>
@@ -570,7 +577,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 id: i + 1, kind: query.view, title: `Rust Track ${String(i + 1).padStart(4, "0")}`,
                 artist: "Backend Artist", artistId: 1, release: "Backend Release", releaseId: 2,
                 bpm: i % 5 === 0 ? null : 120, musicalKey: "8A", durationMs: 200_000,
-                format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0,
+                format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 > 1, rekordboxKey: i % 5 !== 1,
               });
               if ((query as { sort?: string }).sort === "custom" && libraryOrder) {
                 return { items: libraryOrder.slice(start, start + count).map((id) => row(id - 1)), total: libraryOrder.length, start };
@@ -586,7 +593,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                   id: i + 1, kind: query.view, title: `Rust Track ${String(i + 1).padStart(4, "0")}`,
                   artist: "Backend Artist", artistId: 1, release: "Backend Release", releaseId: 2,
                   bpm: i % 5 === 0 ? null : 120, musicalKey: "8A", durationMs: 200_000,
-                  format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0,
+                  format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 > 1, rekordboxKey: i % 5 !== 1,
                 });
               }
               return { items, total, start };
@@ -2152,6 +2159,69 @@ test("a track dropped on a rekordbox playlist goes into rekordbox once writing i
   await row.dragTo(closers);
   await expect(sidebar.getByRole("status")).toContainText("Added 1 to Closers in rekordbox.");
   expect(await page.evaluate(() => (window as any).__rbAdded)).toEqual([{ playlistId: 4, trackIds: [4] }]);
+});
+
+test("BPM and key say whether rekordbox analysed them or they come from the file's tags", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const bpm = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` }).locator(".track-bpm");
+  await expect(bpm("0003")).toHaveText("120");
+  await expect(bpm("0003")).toHaveAttribute("title", "Analysed by rekordbox");
+  await expect(bpm("0003")).toHaveClass(/is-analysed/);
+  await expect(bpm("0002")).toHaveText("120");
+  await expect(bpm("0002")).toHaveAttribute("title", "From the file's tags. rekordbox has not analysed this track yet.");
+  await expect(bpm("0002")).toHaveClass(/from-tags/);
+  await expect(bpm("0001")).toHaveText("--");
+  await expect(bpm("0001")).not.toHaveClass(/is-analysed|from-tags/);
+  // rekordbox can have a key without a BPM; the key says where it came from on its own.
+  const key = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` }).locator(".track-key");
+  await expect(key("0001")).toHaveAttribute("title", "From rekordbox");
+  await expect(key("0001")).not.toHaveClass(/from-tags/);
+  await expect(key("0002")).toHaveAttribute("title", "From the file's tags. rekordbox has no key for this track yet.");
+  await expect(key("0002")).toHaveClass(/from-tags/);
+});
+
+test("crates: a crate dropped on a rekordbox folder becomes a playlist there once the owner says yes", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbEnabled = true; (window as any).__rbWriting = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await page.getByRole("button", { name: "Choose export..." }).click();
+  await page.getByRole("button", { name: "Tracks", exact: true }).click();
+  const sidebar = page.getByRole("complementary");
+  const crates = sidebar.getByRole("navigation", { name: "Crates" });
+  await crates.getByRole("button", { name: "New crate" }).click();
+  await crates.getByRole("textbox", { name: "New crate name" }).fill("Warm-up");
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Back to tracks" }).click();
+  const crate = crates.getByRole("button", { name: /Warm-up/ });
+  await page.getByTestId("track-row").filter({ hasText: "Rust Track 0004" }).dragTo(crate);
+  await expect(crate).toContainText("1");
+  const playlists = sidebar.getByRole("navigation", { name: "Playlists" });
+
+  // A crate is not tracks: a playlist does not take it.
+  await crate.dragTo(playlists.getByRole("button", { name: "Closers" }));
+  await expect(playlists.getByRole("alertdialog")).toHaveCount(0);
+
+  // On a folder it asks first; Cancel writes nothing.
+  await crate.dragTo(playlists.getByRole("button", { name: "Sets" }));
+  const ask = playlists.getByRole("alertdialog", { name: "Make a rekordbox playlist from Warm-up?" });
+  await expect(ask).toContainText("in Sets? The crate stays as it is.");
+  await ask.getByRole("button", { name: "Cancel" }).click();
+  await expect(ask).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__rbCratePlaylists)).toBeUndefined();
+
+  await crate.dragTo(playlists.getByRole("button", { name: "Sets" }));
+  await ask.getByRole("button", { name: "Make playlist" }).click();
+  await expect(playlists.getByRole("status")).toContainText("Made Warm-up in Sets in rekordbox with 1 track.");
+  // On the heading, it goes at the top of the tree.
+  await crate.dragTo(playlists.getByText("PLAYLISTS", { exact: true }));
+  await expect(ask).toContainText("at the top of rekordbox's playlists?");
+  await ask.getByRole("button", { name: "Make playlist" }).click();
+  await expect(playlists.getByRole("status")).toContainText("Made Warm-up at the top of the playlists in rekordbox with 1 track.");
+  await expect.poll(() => page.evaluate(() => (window as any).__rbCratePlaylists)).toEqual([{ crateId: 1, folderId: 2 }, { crateId: 1, folderId: null }]);
+  // The crate is left as it was.
+  await expect(crate).toContainText("1");
 });
 
 test("rekordbox sync: changes on either side are reviewed and only ticked ones are applied", async ({ page }) => {

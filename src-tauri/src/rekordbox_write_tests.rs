@@ -8,7 +8,7 @@ use rbl_db::fixture::{self, Shape};
 
 use crate::rekordbox_db::{self, Probe};
 use crate::rekordbox_merge::{self, ChoiceDto, Keep};
-use crate::rekordbox_write::{add_to_playlist, send_new, set_enabled, IMPORTED};
+use crate::rekordbox_write::{add_to_playlist, crate_to_playlist, send_new, set_enabled, IMPORTED};
 
 /// A path as rekordbox stores it: forward slashes, on Windows too.
 fn rekordbox_form(path: &std::path::Path) -> String {
@@ -165,6 +165,63 @@ fn a_track_dropped_on_a_rekordbox_playlist_goes_into_it_after_a_backup() {
         .map(|backup| backup.reason)
         .collect();
     assert!(reasons.contains(&"before-write".to_owned()), "{reasons:?}");
+}
+
+#[test]
+fn a_crate_dropped_on_a_rekordbox_folder_becomes_a_playlist_there_and_stays_a_crate() {
+    let setup = setup(&["Night Drive", "Soft Focus", "Late Train"], "7.2.19");
+    let location = setup.probe.location.clone().unwrap();
+    let backups = tempfile::tempdir().unwrap();
+    let mut writer = rbl_db::write::Writer::open(location, backups.path()).unwrap();
+    writer.disable_automatic_backups();
+    writer.create_folder("Sets", rbl_db::write::ROOT).unwrap();
+    writer
+        .create_playlist("After", rbl_db::write::ROOT)
+        .unwrap();
+    drop(writer);
+    writing_on(&setup);
+    let ids = track_ids(&setup.service);
+    let crate_id = setup.service.create_crate("Warm-up").unwrap();
+    setup
+        .service
+        .add_to_crate(crate_id, vec![ids["Late Train"], ids["Night Drive"]])
+        .unwrap();
+    let empty = setup.service.create_crate("Empty").unwrap();
+    let folder = playlist(&setup.service, "Sets").unwrap();
+    assert!(folder.is_folder);
+    let after = playlist(&setup.service, "After").unwrap();
+
+    let done = crate_to_playlist(&setup.service, &setup.probe, crate_id, Some(folder.id)).unwrap();
+    assert_eq!(done.playlist, "Warm-up");
+    // Night Drive is rekordbox's track 0 already; Late Train is new to rekordbox.
+    assert_eq!((done.added, done.imported), (2, 1));
+    let made = playlist(&setup.service, "Warm-up").unwrap();
+    assert_eq!(made.parent_id, Some(folder.id));
+    assert_eq!((made.entries, made.in_library), (2, 2));
+    // Reading rekordbox again keeps every playlist's id, so one open in the app stays the same
+    // playlist though the new one came before it in the tree.
+    assert_eq!(playlist(&setup.service, "Sets").unwrap().id, folder.id);
+    assert_eq!(playlist(&setup.service, "After").unwrap().id, after.id);
+    // The crate is left as it was.
+    assert_eq!(
+        setup.service.crate_track_ids(crate_id).unwrap(),
+        vec![ids["Late Train"], ids["Night Drive"]]
+    );
+
+    // Dropped on the top of the tree, a second one is made beside the first's folder.
+    let done = crate_to_playlist(&setup.service, &setup.probe, crate_id, None).unwrap();
+    assert_eq!(done.playlist, "Warm-up");
+    let top: Vec<_> = setup
+        .service
+        .playlists()
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.name == "Warm-up")
+        .collect();
+    assert_eq!(top.len(), 2);
+
+    let error = crate_to_playlist(&setup.service, &setup.probe, empty, None).unwrap_err();
+    assert!(error.contains("no tracks"), "{error}");
 }
 
 #[test]

@@ -102,6 +102,8 @@ pub struct ItemDto {
     pub format: Option<String>,
     pub track_count: i64,
     pub missing: bool,
+    pub analysed: bool,
+    pub rekordbox_key: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +134,8 @@ impl From<LibraryItem> for ItemDto {
             format: item.format,
             track_count: item.track_count,
             missing: item.missing,
+            analysed: item.analysed,
+            rekordbox_key: item.rekordbox_key,
         }
     }
 }
@@ -258,11 +262,13 @@ mod tests {
             "format",
             "trackCount",
             "missing",
+            "analysed",
+            "rekordboxKey",
         ] {
             assert!(first.get(key).is_some(), "missing {key}");
         }
         assert_eq!(first["kind"], "tracks");
-        assert_eq!(first.as_object().unwrap().len(), 13, "no stray fields");
+        assert_eq!(first.as_object().unwrap().len(), 15, "no stray fields");
         assert!(first["format"].is_string());
         assert_eq!(value["items"].as_array().unwrap().len(), 3);
         service.shutdown().unwrap();

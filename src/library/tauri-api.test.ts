@@ -28,7 +28,7 @@ describe("reading through the Rust backend", () => {
       items: [{
         id: 7, kind: "tracks", title: "After Hours 000007", artist: "Studio 001", artistId: 1,
         release: "Between Spaces 0001", releaseId: 10, bpm: 128, musicalKey: "8A",
-        duration: 211, format: "AIFF", trackCount: 1, missing: false, color: 2,
+        duration: 211, format: "AIFF", trackCount: 1, missing: false, analysed: false, rekordboxKey: false, color: 2,
       }],
     });
     await api.read({ ...DEFAULT_QUERY, format: "FLAC" }, 0, 1, live());
@@ -478,7 +478,7 @@ describe("rekordbox database", () => {
   it("uses the matching commands and argument names", async () => {
     const invoke = vi.fn(async (command: string) => {
       if (command === "rekordbox_db_status" || command === "rekordbox_db_enable" || command === "rekordbox_db_enable_write") return status;
-      if (command === "rekordbox_add_to_playlist" || command === "rekordbox_send_new") return written;
+      if (command === "rekordbox_add_to_playlist" || command === "rekordbox_crate_to_playlist" || command === "rekordbox_send_new") return written;
       if (command === "rekordbox_merge_review") return { changes: [change], canWrite: true };
       if (command === "rekordbox_merge_apply") return applied;
       if (command === "rekordbox_db_read") return imported;
@@ -495,6 +495,8 @@ describe("rekordbox database", () => {
     expect((await db.restoreRekordboxBackup(backup.name)).reason).toBe("before-restore");
     expect(await db.setRekordboxWrite(true)).toEqual(status);
     expect(await db.addToRekordboxPlaylist(9, [3, 4])).toEqual(written);
+    expect(await db.crateToRekordboxPlaylist(2, 7)).toEqual(written);
+    expect(await db.crateToRekordboxPlaylist(2, null)).toEqual(written);
     expect(await db.sendNewToRekordbox()).toEqual(written);
     expect(await db.sendNewToRekordbox([5])).toEqual(written);
     expect(await db.reviewRekordboxMerge()).toEqual({ changes: [change], canWrite: true });
@@ -509,6 +511,8 @@ describe("rekordbox database", () => {
       ["rekordbox_restore", { name: backup.name }],
       ["rekordbox_db_enable_write", { enabled: true }],
       ["rekordbox_add_to_playlist", { playlistId: 9, trackIds: [3, 4] }],
+      ["rekordbox_crate_to_playlist", { crateId: 2, folderId: 7 }],
+      ["rekordbox_crate_to_playlist", { crateId: 2, folderId: null }],
       ["rekordbox_send_new", { fileIds: null }],
       ["rekordbox_send_new", { fileIds: [5] }],
       ["rekordbox_merge_review"],

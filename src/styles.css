@@ -118,6 +118,10 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .truncate { min-width: 0; }
 .track-release { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 10px; }
 .track-key { color: var(--key-text); }
+/* rekordbox's own analysis carries a small dot; values from the file's tags are quieter until then. */
+.track-bpm.is-analysed { position: relative; }
+.track-bpm.is-analysed::before { content: ""; position: absolute; left: -8px; top: 50%; width: 4px; height: 4px; margin-top: -2px; border-radius: 50%; background: var(--accent); }
+.track-bpm.from-tags, .track-key.from-tags { color: var(--faint); font-style: italic; }
 .track-format { font-size: 8px; letter-spacing: .6px; border: 1px solid rgb(var(--ink) / 0.086); padding: 3px 4px; border-radius: 3px; width: fit-content; }
 .artwork { width: 36px; height: 36px; border-radius: 4px; position: relative; overflow: hidden; background: linear-gradient(135deg,var(--art-a),var(--art-b)); flex-shrink: 0; }
 .art-0 { --art-a:#354652; --art-b:#b37557; }
@@ -398,7 +402,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-list ul { list-style: none; margin: 4px 0 0; padding: 0; }
 .crate-empty, .crate-note, .crate-error { font-size: 11px; line-height: 1.6; color: var(--secondary); margin: 6px 12px; }
 .crate-error { color: var(--danger); }
-.crate-item.is-drop-target, .tree-playlist.is-drop-target { background: #ff7a3d22; outline: 1px dashed var(--accent); }
+.crate-item.is-drop-target, .tree-playlist.is-drop-target, .tree-folder.is-drop-target, .nav-caption.is-drop-target { background: #ff7a3d22; outline: 1px dashed var(--accent); }
 .crate-name-input { width: calc(100% - 12px); margin: 2px 6px; padding: 6px 8px; font-size: 12px; color: var(--text); background: var(--raised); border: 1px solid var(--accent); border-radius: 6px; }
 .crate-confirm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; color: var(--warn); padding: 6px 12px; }
 .track-row[draggable="true"] { cursor: grab; }

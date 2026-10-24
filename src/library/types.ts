@@ -17,6 +17,10 @@ export interface LibraryItem {
   trackCount: number;
   /** A track none of whose files is on disk right now (not the same as an offline folder). */
   missing: boolean;
+  /** rekordbox has analysed it: bpm and key are rekordbox's, not the file's tags'. */
+  analysed: boolean;
+  /** The key is rekordbox's, not the file's tags'. */
+  rekordboxKey: boolean;
   color: number;
 }
 
@@ -681,6 +685,8 @@ export interface LibraryAdmin {
   setRekordboxWrite(enabled: boolean): Promise<RekordboxDatabase>;
   /** Put library tracks at the end of a rekordbox playlist from the sidebar. */
   addToRekordboxPlaylist(playlistId: number, trackIds: number[]): Promise<RekordboxWrite>;
+  /** A new rekordbox playlist in a folder (the top of the tree when null) with a crate's tracks; the crate stays. */
+  crateToRekordboxPlaylist(crateId: number, folderId: number | null): Promise<RekordboxWrite>;
   /** Read rekordbox again and list what differs since both sides last agreed. */
   reviewRekordboxMerge(): Promise<MergeReview>;
   /** Apply the ticked changes. */

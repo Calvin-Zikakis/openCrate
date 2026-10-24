@@ -848,3 +848,52 @@ fn a_database_read_cannot_be_reread_as_a_file() {
         Err(Error::NotAnExport(id)) if id == read.source_id
     ));
 }
+
+#[test]
+fn a_playlist_keeps_its_id_when_a_read_brings_one_before_it() {
+    let mut library = library();
+    let tree = |extra: &str| {
+        let count = if extra.is_empty() { 1 } else { 2 };
+        let text = format!(
+            "<DJ_PLAYLISTS Version=\"1.0.0\"><PRODUCT Name=\"Synthetic\" Version=\"1\"/>\
+             <COLLECTION Entries=\"0\"></COLLECTION>\
+             <PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\" Count=\"2\">\
+             <NODE Type=\"0\" Name=\"Sets\" Count=\"{count}\">{extra}\
+             <NODE Type=\"1\" Name=\"Warm-up\" KeyType=\"0\" Entries=\"0\"/></NODE>\
+             <NODE Type=\"1\" Name=\"Closers\" KeyType=\"0\" Entries=\"0\"/>\
+             </NODE></PLAYLISTS></DJ_PLAYLISTS>"
+        );
+        xml::read(Cursor::new(text.as_bytes())).unwrap()
+    };
+    let id_of = |library: &Library, name: &str| {
+        library
+            .database
+            .connection
+            .query_row("SELECT id FROM playlist WHERE name = ?1", [name], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    library
+        .database
+        .replace_mirror(&source(Some(1)), &tree(""), 100)
+        .unwrap();
+    let before: Vec<i64> = ["Sets", "Warm-up", "Closers"]
+        .iter()
+        .map(|name| id_of(&library, name))
+        .collect();
+    library
+        .database
+        .replace_mirror(
+            &source(Some(2)),
+            &tree("<NODE Type=\"1\" Name=\"Opener\" KeyType=\"0\" Entries=\"0\"/>"),
+            200,
+        )
+        .unwrap();
+    let after: Vec<i64> = ["Sets", "Warm-up", "Closers"]
+        .iter()
+        .map(|name| id_of(&library, name))
+        .collect();
+    assert_eq!(after, before);
+    assert!(id_of(&library, "Opener") > *before.iter().max().unwrap());
+}

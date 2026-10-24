@@ -26,7 +26,7 @@ export function createCatalog(count = 100_000) {
       musicalKey: KEYS[id % KEYS.length] ?? "8A",
       duration: 210 + id % 300,
       format: FORMATS[id % FORMATS.length] ?? "AIFF",
-      trackCount: 1, missing: false, color: releaseId % 8,
+      trackCount: 1, missing: false, analysed: id % 17 !== 0, rekordboxKey: true, color: releaseId % 8,
     };
     tracks.push(item);
     const album = releases.get(releaseId);

@@ -268,12 +268,16 @@ fn catalog_file(
     let number = i64::from(tags.track_number.unwrap_or(0));
     let genre = tags.genre.as_deref().map_or("", str::trim);
     let label = tags.label.as_deref().map_or("", str::trim);
+    let tag_bpm = tags.bpm.filter(|bpm| bpm.is_finite() && *bpm > 0.0);
+    let tag_key = tags.key.as_deref().map_or("", str::trim);
     let track_id = if let Some(track_id) = file.track_id {
         connection.execute(
             "UPDATE track SET release_id = ?2, artist_id = ?3, disc_no = ?4, track_no = ?5, \
              title = ?6, title_key = ?7, artist_key = ?8, duration_ms = ?9, genre = ?10, \
              year = CASE WHEN ?13 THEN ?11 ELSE year END, \
-             label = CASE WHEN ?13 THEN ?12 ELSE label END WHERE id = ?1",
+             label = CASE WHEN ?13 THEN ?12 ELSE label END, \
+             tag_bpm = CASE WHEN ?13 THEN ?14 ELSE tag_bpm END, \
+             tag_key = CASE WHEN ?13 THEN ?15 ELSE tag_key END WHERE id = ?1",
             params![
                 track_id,
                 release_id,
@@ -287,7 +291,9 @@ fn catalog_file(
                 genre,
                 tags.year,
                 label,
-                read
+                read,
+                tag_bpm,
+                tag_key
             ],
         )?;
         connection.execute("DELETE FROM track_fts WHERE rowid = ?1", [track_id])?;
@@ -296,8 +302,8 @@ fn catalog_file(
     } else {
         connection.execute(
             "INSERT INTO track (release_id, artist_id, disc_no, track_no, title, title_key, \
-             artist_key, duration_ms, added_ms, genre, year, label) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             artist_key, duration_ms, added_ms, genre, year, label, tag_bpm, tag_key) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 release_id,
                 artist_id,
@@ -310,7 +316,9 @@ fn catalog_file(
                 now_ms,
                 genre,
                 tags.year,
-                label
+                label,
+                tag_bpm,
+                tag_key
             ],
         )?;
         let track_id = connection.last_insert_rowid();

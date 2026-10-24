@@ -61,6 +61,8 @@ interface ItemWire {
   format: Format | null;
   trackCount: number;
   missing: boolean;
+  analysed?: boolean;
+  rekordboxKey?: boolean;
 }
 
 interface PageWire {
@@ -158,6 +160,8 @@ function toItem(value: unknown): LibraryItem {
   }
   return {
     id, kind: row.kind as View, title, artist, artistId, release, releaseId, missing: row.missing === true,
+    analysed: row.analysed === true,
+    rekordboxKey: row.rekordboxKey === true,
     bpm: row.bpm ?? null, musicalKey,
     duration: Math.round(durationMs / 1000),
     format: row.format as Format | null,
@@ -928,6 +932,8 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       toRekordboxDatabase(await invoke("rekordbox_db_enable_write", { enabled }).catch((error: unknown) => { throw failure(error); })),
     addToRekordboxPlaylist: async (playlistId, trackIds) =>
       toRekordboxWrite(await invoke("rekordbox_add_to_playlist", { playlistId, trackIds }).catch((error: unknown) => { throw failure(error); })),
+    crateToRekordboxPlaylist: async (crateId, folderId) =>
+      toRekordboxWrite(await invoke("rekordbox_crate_to_playlist", { crateId, folderId }).catch((error: unknown) => { throw failure(error); })),
     reviewRekordboxMerge: async () => toMergeReview(await invoke("rekordbox_merge_review").catch((error: unknown) => { throw failure(error); })),
     applyRekordboxMerge: async (choices) =>
       toMergeApplied(await invoke("rekordbox_merge_apply", { choices }).catch((error: unknown) => { throw failure(error); })),

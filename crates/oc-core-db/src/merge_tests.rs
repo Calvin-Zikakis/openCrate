@@ -240,6 +240,7 @@ fn a_file_that_can_no_longer_be_read_keeps_its_year_and_label() {
             album: Some("Between Spaces".into()),
             year: Some(2019),
             label: Some("Test Label".into()),
+            bpm: Some(124.0),
             ..TagInfo::default()
         },
     );
@@ -250,6 +251,12 @@ fn a_file_that_can_no_longer_be_read_keeps_its_year_and_label() {
         .unwrap();
     rekordbox_has(&library, "Night Drive", "2019", "Test Label");
     assert_eq!(found(&library), []);
+    let tempo = || {
+        let mut query = crate::library::LibraryQuery::new(crate::library::View::Tracks);
+        query.search = "night".into();
+        library.service.read_page(&query, 0, 5).unwrap().items[0].bpm
+    };
+    assert_eq!(tempo(), Some(124.0));
     // The file is damaged: the scan falls back to what its path says, which has no year or
     // label. That must not read as openCrate clearing them.
     fs::write(&library.night, b"not audio any more").unwrap();
@@ -258,6 +265,8 @@ fn a_file_that_can_no_longer_be_read_keeps_its_year_and_label() {
         .scan_root(root, &ScanOptions::default())
         .unwrap();
     assert_eq!(found(&library), []);
+    // Nor its tags' BPM as gone.
+    assert_eq!(tempo(), Some(124.0));
 }
 
 #[test]

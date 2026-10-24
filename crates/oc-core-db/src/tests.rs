@@ -562,6 +562,10 @@ fn a_library_at_v21_forgets_year_and_label_agreed_on_release_values() {
             .execute_batch(
                 "INSERT INTO merge_base (rb_key, field, value, agreed_ms) VALUES
                      (1, 'year', '2019', 1), (1, 'label', 'Old', 1), (1, 'title', 'Kept', 1);
+                 DROP INDEX track_bpm;
+                 ALTER TABLE track DROP COLUMN tag_bpm;
+                 ALTER TABLE track DROP COLUMN tag_key;
+                 CREATE INDEX track_bpm ON track(bpm IS NULL, bpm, id);
                  PRAGMA user_version = 21;",
             )
             .unwrap();
@@ -577,4 +581,15 @@ fn a_library_at_v21_forgets_year_and_label_agreed_on_release_values() {
         .collect::<rusqlite::Result<_>>()
         .unwrap();
     assert_eq!(left, ["title"]);
+    // And on to 023: the tags' BPM and key have columns again.
+    let columns: Vec<String> = reader
+        .prepare(
+            "SELECT name FROM pragma_table_info('track') WHERE name LIKE 'tag_%' ORDER BY name",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(columns, ["tag_bpm", "tag_key"]);
 }

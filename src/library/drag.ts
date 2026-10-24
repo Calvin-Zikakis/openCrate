@@ -34,3 +34,26 @@ export function draggedItems(data: DataTransfer): LibraryItem[] | null {
   } catch { /* not ours */ }
   return null;
 }
+
+/** The drag format for a crate from the sidebar. */
+const CRATE_MIME = "application/x-opencrate-crate";
+
+export function setDraggedCrate(data: DataTransfer, crate: { id: number; name: string }) {
+  data.setData(CRATE_MIME, JSON.stringify({ id: crate.id, name: crate.name }));
+  data.setData("text/plain", crate.name);
+  data.effectAllowed = "copy";
+}
+
+export const carriesCrate = (data: DataTransfer) => Array.from(data.types).includes(CRATE_MIME);
+
+/** The dragged crate, or null when the drag is not a crate from this app. */
+export function draggedCrate(data: DataTransfer): { id: number; name: string } | null {
+  try {
+    const parsed: unknown = JSON.parse(data.getData(CRATE_MIME));
+    if (typeof parsed === "object" && parsed !== null) {
+      const { id, name } = parsed as { id: unknown; name: unknown };
+      if (Number.isInteger(id) && (id as number) > 0 && typeof name === "string") return { id: id as number, name };
+    }
+  } catch { /* not ours */ }
+  return null;
+}

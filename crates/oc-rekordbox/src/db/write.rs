@@ -4,7 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-use rbl_db::write::{ImportOutcome, TrackField, Writer, ATTRIBUTE_FOLDER, ATTRIBUTE_SMART, ROOT};
+/// The parent id of a playlist or folder at the top of rekordbox's tree.
+pub use rbl_db::write::ROOT;
+use rbl_db::write::{ImportOutcome, TrackField, Writer, ATTRIBUTE_FOLDER, ATTRIBUTE_SMART};
 use rbl_db::{DbError, Library, LibraryLocation, OpenMode};
 use rusqlite::{params, OptionalExtension};
 
@@ -17,18 +19,23 @@ pub enum Member {
     File(PathBuf),
 }
 
-/// Which playlist: one rekordbox has, by its id, or the one with this name at the top of the
-/// tree, made if it is missing (the rolling "Imported" playlist).
+/// Which playlist: one rekordbox has, by its id; the one with this name at the top of the
+/// tree, made if it is missing (the rolling "Imported" playlist); or a new one in the folder
+/// `parent` (rekordbox's id, or [`ROOT`]), named `name` or, when that is taken there,
+/// `name (2)` and so on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Playlist {
     Id(String),
     TopLevel(String),
+    New { name: String, parent: String },
 }
 
 /// What a write did.
 #[derive(Debug)]
 pub struct Added {
     pub playlist: String,
+    /// The playlist's name; for a new one, the name it was given.
+    pub name: String,
     /// Tracks put in the playlist; ones already in it are left as they are.
     pub added: usize,
     /// Files that were new to rekordbox.
@@ -92,12 +99,23 @@ pub fn add_to_playlist(
         }
     }
 
-    let playlist_id = match playlist {
-        Playlist::Id(id) => id.clone(),
+    if ids.is_empty() && matches!(playlist, Playlist::New { .. }) {
+        let reasons: Vec<&str> = refused_files.iter().map(|(_, why)| why.as_str()).collect();
+        return Err(refused(&format!(
+            "rekordbox took none of the files, so no playlist was made: {}",
+            reasons.join("; ")
+        )));
+    }
+    let (playlist_id, name) = match playlist {
+        Playlist::Id(id) => (id.clone(), name_of(&writer, id)?),
         Playlist::TopLevel(name) => match writer.child_named(ROOT, name)? {
-            Some(id) => id,
-            None => writer.create_playlist(name, ROOT)?,
+            Some(id) => (id, name.clone()),
+            None => (writer.create_playlist(name, ROOT)?, name.clone()),
         },
+        Playlist::New { name, parent } => {
+            let free = free_name(&writer, parent, name)?;
+            (writer.create_playlist(&free, parent)?, free)
+        }
     };
     let changed = writer.add_tracks(&playlist_id, &ids)?;
     drop(writer);
@@ -105,11 +123,35 @@ pub fn add_to_playlist(
     verify(location, &playlist_id, &ids)?;
     Ok(Added {
         playlist: playlist_id,
+        name,
         added: changed.rows,
         imported,
         refused: refused_files,
         backup,
     })
+}
+
+fn name_of(writer: &Writer, id: &str) -> Result<String, DbError> {
+    Ok(writer.library().connection().query_row(
+        "SELECT COALESCE(Name, '') FROM djmdPlaylist WHERE ID = ?1",
+        params![id],
+        |row| row.get(0),
+    )?)
+}
+
+/// `name`, or the first of `name (2)`, `name (3)`, ... no playlist or folder in `parent` has.
+fn free_name(writer: &Writer, parent: &str, name: &str) -> Result<String, DbError> {
+    if writer.child_named(parent, name)?.is_none() {
+        return Ok(name.to_owned());
+    }
+    let mut number = 2;
+    loop {
+        let candidate = format!("{name} ({number})");
+        if writer.child_named(parent, &candidate)?.is_none() {
+            return Ok(candidate);
+        }
+        number += 1;
+    }
 }
 
 /// A track field the merge with openCrate can change.
@@ -468,6 +510,22 @@ fn check_before(
                 ))
             }
             Some(_) => {}
+        }
+    }
+    if let Some(Playlist::New { parent, .. }) = playlist {
+        if parent != ROOT {
+            let attribute: Option<i64> = connection
+                .query_row(
+                    "SELECT COALESCE(Attribute, 0) FROM djmdPlaylist WHERE ID = ?1 AND rb_local_deleted = 0",
+                    params![parent],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            match attribute {
+                None => return Err(refused("That folder is no longer in rekordbox.")),
+                Some(ATTRIBUTE_FOLDER) => {}
+                Some(_) => return Err(refused("That is a playlist, not a folder.")),
+            }
         }
     }
     for member in members {

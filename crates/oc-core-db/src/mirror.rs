@@ -6,7 +6,7 @@
 //! breaks halfway, changes nothing. Reading an unchanged export again changes nothing.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::io::BufReader;
@@ -201,11 +201,92 @@ fn state_digest(collection: &Collection, matches: &[LocationMatch]) -> i64 {
     i64::from_ne_bytes(hasher.finish().to_ne_bytes())
 }
 
+/// The ids a source's playlists and folders had before it is read again. Each keeps its id, found
+/// by rekordbox's own id when the read gives one and else by its path of names, so the playlist
+/// open in the app and the folders open in the sidebar are still the same ones after a read that
+/// added a playlist above them. New ones take ids past every id in use.
+struct PlaylistIds {
+    kept: HashMap<String, i64>,
+    next: i64,
+}
+
+fn playlist_key(path: &str, attributes: &Attributes) -> String {
+    match attributes.get(oc_rekordbox::db::REKORDBOX_ID) {
+        Some(id) => format!("id:{id}"),
+        None => format!("path:{path}"),
+    }
+}
+
+/// `parent`'s path with `name` added; a unit separator cannot appear in a name rekordbox shows.
+fn child_path(parent: &str, name: &str) -> String {
+    format!("{parent}\u{1f}{name}")
+}
+
+impl PlaylistIds {
+    /// Read before the source's rows are cleared.
+    fn before_clearing(connection: &Connection, source_id: i64) -> Result<Self> {
+        let mut statement = connection.prepare(
+            "SELECT id, parent_id, name, attributes FROM playlist WHERE rb_source_id = ?1",
+        )?;
+        let rows = statement
+            .query_map([source_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let parents: HashMap<i64, (Option<i64>, &str)> = rows
+            .iter()
+            .map(|(id, parent, name, _)| (*id, (*parent, name.as_str())))
+            .collect();
+        let path = |mut id: i64| {
+            let mut names = Vec::new();
+            // Bounded, in case a stored tree ever loops.
+            for _ in 0..=parents.len() {
+                let Some((parent, name)) = parents.get(&id) else {
+                    break;
+                };
+                names.push(*name);
+                match parent {
+                    Some(parent) => id = *parent,
+                    None => break,
+                }
+            }
+            names
+                .iter()
+                .rev()
+                .fold(String::new(), |path, name| child_path(&path, name))
+        };
+        let mut kept = HashMap::new();
+        for (id, _, _, attributes) in &rows {
+            let attributes: Attributes = serde_json::from_str(attributes).unwrap_or_default();
+            kept.entry(playlist_key(&path(*id), &attributes))
+                .or_insert(*id);
+        }
+        let next =
+            connection.query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM playlist", [], |row| {
+                row.get(0)
+            })?;
+        Ok(Self { kept, next })
+    }
+
+    fn id_for(&mut self, key: &str) -> i64 {
+        self.kept.remove(key).unwrap_or_else(|| {
+            self.next += 1;
+            self.next - 1
+        })
+    }
+}
+
 fn insert_nodes(
     connection: &Connection,
     source_id: i64,
-    parent: Option<i64>,
+    parent: Option<(i64, &str)>,
     nodes: &[PlaylistNode],
+    ids: &mut PlaylistIds,
     outcome: &mut MirrorOutcome,
 ) -> Result<()> {
     for (position, node) in nodes.iter().enumerate() {
@@ -213,23 +294,33 @@ fn insert_nodes(
             PlaylistNode::Folder { attributes, .. } => ("folder", attributes),
             PlaylistNode::Playlist { attributes, .. } => ("playlist", attributes),
         };
+        let name = name_of(attributes);
+        let path = child_path(parent.map_or("", |(_, path)| path), &name);
+        let id = ids.id_for(&playlist_key(&path, attributes));
         connection.execute(
-            "INSERT INTO playlist (rb_source_id, parent_id, kind, name, position, attributes) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO playlist (id, rb_source_id, parent_id, kind, name, position, attributes) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
+                id,
                 source_id,
-                parent,
+                parent.map(|(id, _)| id),
                 kind,
-                name_of(attributes),
+                name,
                 i64::try_from(position).map_err(|_| Error::InvalidStoredValue("position"))?,
                 json(attributes)?
             ],
         )?;
-        let id = connection.last_insert_rowid();
         outcome.playlists += 1;
         match node {
             PlaylistNode::Folder { children, .. } => {
-                insert_nodes(connection, source_id, Some(id), children, outcome)?;
+                insert_nodes(
+                    connection,
+                    source_id,
+                    Some((id, &path)),
+                    children,
+                    ids,
+                    outcome,
+                )?;
             }
             PlaylistNode::Playlist { track_ids, .. } => {
                 let mut item = connection.prepare_cached(
@@ -418,6 +509,7 @@ impl Database {
             return Ok(outcome);
         }
 
+        let mut playlist_ids = PlaylistIds::before_clearing(&transaction, source_id)?;
         for statement in CLEAR_SOURCE {
             transaction.execute(statement, [source_id])?;
         }
@@ -435,6 +527,7 @@ impl Database {
             source_id,
             None,
             &collection.playlists,
+            &mut playlist_ids,
             &mut outcome,
         )?;
         transaction.execute(

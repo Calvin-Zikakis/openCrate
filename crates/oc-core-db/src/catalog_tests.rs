@@ -637,6 +637,17 @@ fn windows_export(folder: &Path) -> PathBuf {
 #[test]
 fn an_export_from_another_machine_is_explained_with_evidence_then_tempo_and_key_appear() {
     let fixture = fixture();
+    // Night Drive's tags carry a BPM and key of their own.
+    let mut night = tags("Night Drive", "Studio 001", "Between Spaces", 1);
+    night.bpm = Some(126.0);
+    night.key = Some("Am".into());
+    write_tags(
+        &fixture
+            .folder
+            .path()
+            .join("Studio 001/Between Spaces/01 - Studio 001 - Night Drive.aif"),
+        &night,
+    );
     let root = fixture
         .service
         .add_root(fixture.folder.path(), "Library")
@@ -665,7 +676,19 @@ fn an_export_from_another_machine_is_explained_with_evidence_then_tempo_and_key_
         ),
         (4, 1, 1)
     );
-    assert_eq!(read(&fixture, &query(View::Tracks, "night")).1[0].bpm, None);
+    // Until rekordbox has analysed it, the tags' BPM and key are shown, marked as not analysed.
+    let night = &read(&fixture, &query(View::Tracks, "night")).1[0];
+    assert_eq!(
+        (
+            night.bpm,
+            night.musical_key.as_str(),
+            night.analysed,
+            night.rekordbox_key
+        ),
+        (Some(126.0), "Am", false, false)
+    );
+    let water = &read(&fixture, &query(View::Tracks, "water")).1[0];
+    assert_eq!((water.bpm, water.analysed), (None, false));
 
     // The index itself shows which prefix makes entries match, and how many.
     let suggestions = fixture
@@ -704,7 +727,15 @@ fn an_export_from_another_machine_is_explained_with_evidence_then_tempo_and_key_
 
     // The library now shows rekordbox's tempo and key for the matched tracks.
     let night = &read(&fixture, &query(View::Tracks, "night")).1[0];
-    assert_eq!((night.bpm, night.musical_key.as_str()), (Some(128.0), "8A"));
+    assert_eq!(
+        (
+            night.bpm,
+            night.musical_key.as_str(),
+            night.analysed,
+            night.rekordbox_key
+        ),
+        (Some(128.0), "8A", true, true)
+    );
     let water = &read(&fixture, &query(View::Tracks, "water")).1[0];
     assert_eq!((water.bpm, water.musical_key.as_str()), (Some(122.5), "5A"));
     let mut by_tempo = query(View::Tracks, "");

@@ -178,6 +178,82 @@ fn new_files_are_added_to_rekordbox_and_to_imported_which_is_made_once() {
     assert_eq!(members_of(&world.location, &made[0]).len(), 2);
 }
 
+fn parent_and_name(location: &LibraryLocation, playlist: &str) -> (String, String) {
+    let library = Library::open(location.clone(), OpenMode::ReadOnly).unwrap();
+    library
+        .connection()
+        .query_row(
+            "SELECT ParentID, Name FROM djmdPlaylist WHERE ID = ?1",
+            [playlist],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+}
+
+#[test]
+fn a_new_playlist_is_made_in_a_folder_and_a_taken_name_gets_a_number() {
+    let world = world();
+    let mut folder = String::new();
+    prepare_tracks(&world.location, |writer| {
+        folder = writer.create_folder("Sets", rbl_db::write::ROOT).unwrap();
+    });
+    let new = Playlist::New {
+        name: "Warm-up".into(),
+        parent: folder.clone(),
+    };
+    let members = [
+        Member::Known(fixture::track_id(2)),
+        Member::Known(fixture::track_id(1)),
+    ];
+    let done = add_to_playlist(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW,
+        &new,
+        &members,
+    )
+    .unwrap();
+    assert_eq!((done.added, done.name.as_str()), (2, "Warm-up"));
+    assert_eq!(
+        parent_and_name(&world.location, &done.playlist),
+        (folder.clone(), "Warm-up".to_owned())
+    );
+    assert_eq!(
+        members_of(&world.location, &done.playlist),
+        vec![fixture::track_id(2), fixture::track_id(1)]
+    );
+
+    // The same again: a second playlist, beside the first, not added to it.
+    let again = add_to_playlist(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW + 1_000,
+        &new,
+        &members,
+    )
+    .unwrap();
+    assert_ne!(again.playlist, done.playlist);
+    assert_eq!(again.name, "Warm-up (2)");
+    assert_eq!(members_of(&world.location, &done.playlist).len(), 2);
+
+    // A playlist is not a folder to make one in.
+    let error = add_to_playlist(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW + 2_000,
+        &Playlist::New {
+            name: "Warm-up".into(),
+            parent: done.playlist.clone(),
+        },
+        &members,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("not a folder"), "{error}");
+}
+
 #[test]
 fn a_running_rekordbox_is_refused_before_anything_is_copied_or_written() {
     let world = world();
@@ -245,6 +321,30 @@ fn a_file_rekordbox_cannot_read_is_reported_and_the_rest_still_go_in() {
     assert_eq!((done.added, done.imported), (1, 1));
     assert_eq!(done.refused.len(), 1);
     assert_eq!(done.refused[0].0, bad);
+}
+
+#[test]
+fn no_new_playlist_is_made_when_rekordbox_takes_none_of_the_files() {
+    let world = world();
+    let bad = world.music.path().join("not-audio.wav");
+    fs::write(&bad, b"not audio at all").unwrap();
+    let error = add_to_playlist(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW,
+        &Playlist::New {
+            name: "Warm-up".into(),
+            parent: super::write::ROOT.into(),
+        },
+        &[Member::File(bad)],
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("no playlist was made"),
+        "{error}"
+    );
+    assert_eq!(top_level_named(&world.location, "Warm-up").len(), 0);
 }
 
 #[test]
