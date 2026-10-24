@@ -10,16 +10,18 @@ permissions:
 
 concurrency:
   group: rust-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Runs on main finish, so their build cache is saved; other branches keep only the newest run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   validate:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        # Windows is the slow runner: on pushes to main and by hand only. macOS gives quick feedback everywhere.
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '["windows-latest", "macos-latest"]' || '["macos-latest"]') }}
     runs-on: ${{ matrix.os }}
-    # SQLCipher and its OpenSSL are compiled from source (decision 0015).
+    # SQLCipher and its OpenSSL are compiled from source (decision 0015); a warm cache takes far less.
     timeout-minutes: 45
     env:
       # A short build folder keeps OpenSSL's build under Windows path limits (as rbxport does).
@@ -35,11 +37,17 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Cache the folder the build actually uses.
+          workspaces: ${{ matrix.os == 'windows-latest' && '. -> C:/t' || '. -> target' }}
       - name: Format
         run: cargo fmt --all --check
+      # The project optimises dependencies even in debug builds so audio decodes at full speed
+      # locally; tests do not need that, and compiling them unoptimised is much faster.
       - name: Lint
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked --config 'profile.dev.package."*".opt-level=0' -- -D warnings
+      # Compiling the tests builds every crate, so there is no separate build step.
       - name: Test
-        run: cargo test --workspace --locked
-      - name: Build
-        run: cargo build --workspace --locked
+        shell: bash
+        run: cargo test --workspace --locked --config 'profile.dev.package."*".opt-level=0'
