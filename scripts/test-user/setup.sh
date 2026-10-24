@@ -9,7 +9,9 @@ set -euo pipefail
 
 SETUP=/Users/Shared/openCrate-setup
 REPO=$HOME/repositories/openCrate
-TEST=$HOME/Desktop/ocTest
+# Outside Desktop and Documents on purpose: those folders are guarded by macOS, and every rebuilt debug app
+# would have to ask again for access to them.
+TEST=$HOME/ocTest
 
 step() { print -P "\n%B== $1%b"; }
 

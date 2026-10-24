@@ -395,6 +395,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 ],
               };
             case "library_import_release":
+              if ((window as any).__fileNothing) return { rootId: 7, rootLabel: "Music", filed: 0, skipped: [{ source: `${args?.name}/01.aif`, problem: "A file is already there." }] };
               imported.add(String(args?.name));
               if (args?.name === "Second Light") return { rootId: 7, rootLabel: "Music", filed: 2, skipped: [] };
               return { rootId: 7, rootLabel: "Music", filed: 1, skipped: [{ source: `${args?.name}/02.flac`, problem: "No track number in the tags or file name." }] };
@@ -1122,6 +1123,35 @@ test("import: one table shows every release's tags at once, with an Import butto
   await page.getByRole("group", { name: "Show releases as" }).getByRole("button", { name: "By release" }).click();
   await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("opencrate.importView"))).toBe("releases");
+});
+
+test("import: in one table a release's heading stays in view sideways, says when nothing was filed, and choices are read once each", async ({ page }) => {
+  await page.setViewportSize({ width: 864, height: 800 });
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__cleanReady = true; (window as any).__fileNothing = true; });
+  await openImportWithFolders(page, "One table");
+  const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
+  const clean = fresh.locator("tbody.plan-group").filter({ hasText: "Clean Single" });
+  const button = clean.getByRole("button", { name: "Import Clean Single" });
+  await expect(button).toBeVisible();
+  const wrap = fresh.locator(".plan-table-wrap");
+  await button.scrollIntoViewIfNeeded();
+  await wrap.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+  await expect(button).toBeInViewport();
+  const [buttonBox, wrapBox] = await Promise.all([button.boundingBox(), wrap.boundingBox()]);
+  expect(buttonBox && wrapBox && buttonBox.x >= wrapBox.x && buttonBox.x + buttonBox.width <= wrapBox.x + wrapBox.width).toBe(true);
+
+  await button.click();
+  await expect(clean.getByRole("status")).toContainText("Nothing was imported. Left where they are: Clean Single/01.aif (A file is already there.).");
+  await expect(button).toHaveCount(0);
+
+  // Changing a choice reads each release once more, never twice.
+  const reads = async () => (await calls(page)).filter((call) => call.command === "library_plan_release").map((call) => call.args.name);
+  await expect.poll(async () => (await reads()).length).toBe(3);
+  await page.getByRole("checkbox", { name: /Tidy names/ }).click();
+  await expect.poll(async () => (await reads()).length).toBe(6);
+  await page.waitForTimeout(3500);
+  expect((await reads()).sort()).toEqual(["Between Spaces", "Between Spaces", "Clean Single", "Clean Single", "Old Favourites", "Old Favourites"]);
 });
 
 test("import all: a review lists doubtful tags, then every finished release is imported and scanned once", async ({ page }) => {

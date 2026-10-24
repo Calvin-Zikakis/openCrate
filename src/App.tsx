@@ -199,6 +199,8 @@ export function App({ api }: { api: LibraryApi }) {
     playlistId: playlist?.id ?? null,
     crateId: crate?.id ?? null,
   }), [screen, search, sort, format, focus, playlist, crate]);
+  // A new list says how long it is once read; until then the last count does not apply.
+  useEffect(() => { setListTotal(null); }, [query, libraryVersion]);
   const openPlaylist = (next: PlaylistInfo) => {
     setScreen("tracks"); setFocus(null); setPlaylist(next); setCrate(null); setSearch(""); setFormat("all"); setSort("playlist");
   };

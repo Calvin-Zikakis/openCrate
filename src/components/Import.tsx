@@ -184,11 +184,23 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   const reading = useRef(new Set<string>());
   const todo = rootId === null ? [] : wanted.filter((release) => !planned(release) && !reading.current.has(`${keyOf(release)}|${stampOf(release)}`));
   const todoKey = todo.map((release) => `${keyOf(release)}|${stampOf(release)}`).join("\n");
+  // A run of reads belongs to one set of choices and one view: when either changes, or the screen
+  // closes, a run still going stops and hands back what it has not read yet.
+  const run = useRef(0);
+  useEffect(() => {
+    run.current += 1;
+    return () => { run.current += 1; };
+  }, [admin, against, view]);
   useEffect(() => {
     if (todo.length === 0 || rootId === null) return;
     for (const release of todo) reading.current.add(`${keyOf(release)}|${stampOf(release)}`);
+    const mine = run.current;
     void (async () => {
-      for (const release of todo) {
+      for (const [index, release] of todo.entries()) {
+        if (run.current !== mine) {
+          for (const left of todo.slice(index)) reading.current.delete(`${keyOf(left)}|${stampOf(left)}`);
+          return;
+        }
         const stamp = stampOf(release);
         let entry: Planned;
         try {
@@ -218,6 +230,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
       const entry = planned(release);
       const plan = entry?.plan ?? null;
       const step = importing?.key === key ? importing.step : null;
+      const result = results.get(key);
       const { text, tone } = status(release, plan);
       const waiting = !entry && wanted.includes(release) && rootId !== null;
       return {
@@ -226,7 +239,8 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
         header: <>
           <span className="plan-group-name"><strong>{release.name}</strong><small>{contents(release)} - in {release.folderLabel}</small></span>
           <span className={`folder-badge ${tone}`}>{text}</span>
-          {plan && plan.ready > 0 && <button className="secondary-button" disabled={importing !== null || release.state !== "ready"} aria-label={`Import ${release.name}`} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
+          {result && !step && <small role="status">{result.filed === 0 ? "Nothing was imported." : `${result.filed} ${result.filed === 1 ? "file is" : "files are"} now in ${result.rootLabel}.`}{result.skipped.length > 0 ? ` Left where they are: ${result.skipped.map((item) => `${item.source} (${item.problem})`).join("; ")}.` : ""}</small>}
+          {plan && plan.ready > 0 && !result && <button className="secondary-button" disabled={importing !== null || release.state !== "ready"} aria-label={`Import ${release.name}`} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
           {waiting && <small role="status">Reading the tags...</small>}
           {step && <small role="status">{step === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</small>}
           {entry?.error && <small role="alert" className="inline-error">{entry.error}</small>}

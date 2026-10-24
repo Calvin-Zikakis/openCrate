@@ -355,10 +355,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .plan-table-frame { position: relative; }
 .plan-table-frame[data-more-right="true"]::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 36px; pointer-events: none; background: linear-gradient(to right, transparent, var(--panel)); }
 .import-view { margin: -4px 0 0; }
-.plan-group-row th { overflow: visible; text-overflow: clip; user-select: text; padding: 14px 0 6px; border-top: 1px solid var(--line); text-align: left; font-weight: 400; color: var(--text); white-space: normal; }
-.plan-group:first-of-type .plan-group-row th { border-top: none; }
+.plan-table .plan-group-row td { overflow: visible; text-overflow: clip; white-space: normal; padding: 14px 0 6px; border-top: 1px solid var(--line); text-align: left; font-weight: 400; color: var(--text); }
+.plan-table .plan-group:first-of-type .plan-group-row td { border-top: none; }
 /* Kept in view while the table scrolls sideways. */
-.plan-group-head { position: sticky; left: 0; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 10px; max-width: min(100%, 720px); }
+.plan-group-head { position: sticky; left: 0; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 10px; max-width: var(--plan-visible, 720px); box-sizing: border-box; padding-right: 8px; }
 .plan-group-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .plan-group-name strong { font-size: 13px; font-weight: 500; }
 .plan-group-name small { font-size: 11px; color: var(--secondary); }

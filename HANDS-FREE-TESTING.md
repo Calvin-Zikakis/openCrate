@@ -88,9 +88,11 @@ account once setup is done.
 
 ## What Claude does there
 
-- Starts openCrate with its own library: `OPENCRATE_DATA=~/Desktop/ocTest/data`, opened with
+- Keeps its test folders in `~/ocTest`, not on the Desktop: macOS guards the Desktop, and each rebuilt
+  debug app would ask for access again.
+- Starts openCrate with its own library: `OPENCRATE_DATA=~/ocTest/data`, opened with
   `open -n --env OPENCRATE_DATA=... openCrate.app`.
-- Imports from `~/Desktop/ocTest/Downloads` into `~/Desktop/ocTest/Music`, checks the editor,
+- Imports from `~/ocTest/Downloads` into `~/ocTest/Music`, checks the editor,
   Clean up, duplicates and the rekordbox sync, and confirms each one in rekordbox by eye.
 - Clicks with `cliclick` (the first click on a window that is not in front only brings it forward), sends keys through System Events (`osascript`), takes window screenshots
   with `screencapture -l`, and scrolls with a small CoreGraphics helper.

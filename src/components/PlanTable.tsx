@@ -215,18 +215,23 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
   const tableStyle: CSSProperties = { width: total };
   const measure = () => {
     const element = wrap.current;
-    if (element) setMoreRight(element.scrollWidth - element.clientWidth - element.scrollLeft > 1);
+    if (!element) return;
+    setMoreRight(element.scrollWidth - element.clientWidth - element.scrollLeft > 1);
+    // Release headings stay inside the visible part of the table, wrapping if they must.
+    element.style.setProperty("--plan-visible", `${element.clientWidth}px`);
   };
+  // The box and the table both change size: with the window, and as columns change or rows arrive.
   useLayoutEffect(() => {
     const element = wrap.current;
     if (!element) return;
-    measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
     return () => observer.disconnect();
-  });
-  return <div className="plan-table-frame" data-more-right={moreRight}>
+  }, []);
+  return <>
     {moreRight && <p className="plan-scroll-hint" role="note">More columns are off to the right: scroll sideways, drag a heading's edge to make a column narrower, or right-click a heading to hide some.</p>}
+    <div className="plan-table-frame" data-more-right={moreRight}>
     <div className="plan-table-wrap" ref={wrap} onScroll={measure}>
     <table className="analysis-table plan-table" style={tableStyle}>
       <colgroup>{visible.map((column) => <col key={column.id} style={{ width: widthOf(column.id) }} />)}</colgroup>
@@ -253,7 +258,7 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
       </thead>
       {groups
         ? groups.map((group) => <tbody key={group.key} className="plan-group">
-          <tr className="plan-group-row"><th scope="rowgroup" colSpan={visible.length}><div className="plan-group-head">{group.header}</div></th></tr>
+          <tr className="plan-group-row"><td colSpan={visible.length}><div className="plan-group-head">{group.header}</div></td></tr>
           {group.files.map(fileRows)}
         </tbody>)
         : <tbody>{files.map(fileRows)}</tbody>}
@@ -270,5 +275,6 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
       <div className="column-menu-divider" />
       <button type="button" role="menuitem" onClick={() => { setWidths({}); save(WIDTHS_KEY, {}); setMenu(null); }}>Reset column widths</button>
     </div>}
-  </div>;
+    </div>
+  </>;
 }
