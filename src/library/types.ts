@@ -448,6 +448,9 @@ export interface MissingArt {
 export type ArtSource = "folder" | "online" | "choose";
 export interface ArtChanged { files: number; left: string[] }
 
+export type ExportFormat = "m3u8" | "csv";
+export interface Exported { path: string; tracks: number; withoutFile: number }
+
 /** What tidying a folder did. */
 export interface TidiedFolder {
   folder: string;
@@ -595,6 +598,8 @@ export interface LibraryAdmin {
   genres(): Promise<Genres>;
   /** Give every track with one of the genres `from` the genre `to`. */
   renameGenres(from: string[], to: string): Promise<EditedTracks>;
+  /** Export the tracks a query lists to a file the owner picks (null when cancelled). */
+  exportTracks(query: LibraryQuery, format: ExportFormat, name: string): Promise<Exported | null>;
   /** Releases whose files carry no picture. */
   releasesWithoutArt(): Promise<MissingArt[]>;
   /** Give a release a cover from beside its files, the Cover Art Archive, or the system picker (null when cancelled). */

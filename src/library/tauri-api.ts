@@ -710,6 +710,13 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       });
     },
     editTracks: async (trackIds, changes) => toEdited(await invoke("library_edit_tracks", { trackIds, changes }).catch((error: unknown) => { throw failure(error); })),
+    exportTracks: async (query, format, name) => {
+      const value: unknown = await invoke("library_export", { query, format, name }).catch((error: unknown) => { throw failure(error); });
+      if (value === null) return null;
+      const what = "export";
+      if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+      return { path: text(value.path, what), tracks: whole(value.tracks, what), withoutFile: whole(value.withoutFile, what) };
+    },
     releasesWithoutArt: async () => {
       const value: unknown = await invoke("library_releases_without_art").catch((error: unknown) => { throw failure(error); });
       const what = "releases without art";

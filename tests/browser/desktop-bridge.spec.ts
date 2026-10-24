@@ -272,6 +272,9 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_edit_each":
               (window as any).__editEach = args?.edits;
               return { files: (args?.edits ?? []).length, left: [] };
+            case "library_export":
+              (window as any).__exports = [...((window as any).__exports ?? []), { query: args?.query, format: args?.format, name: args?.name }];
+              return args?.format === "csv" ? null : { path: "/Users/dj/Desktop/Warm-up.m3u8", tracks: 3, withoutFile: 1 };
             case "library_releases_without_art":
               return ((window as any).__artDone ?? []).includes(2) ? [
                 { releaseId: 3, artist: "Studio 001", title: "No Light", files: 2, folderImage: false },
@@ -1382,6 +1385,26 @@ test("clean up: genres spelled alike are merged, and titles and artists are fixe
     { trackId: 1, changes: [{ field: "title", value: "Night Drive" }] },
     { trackId: 3, changes: [{ field: "title", value: "Late Train" }, { field: "artist", value: "Studio 001" }] },
   ]);
+});
+
+test("a crate is exported as an M3U8 or CSV to a file the owner picks", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const crates = page.getByRole("navigation", { name: "Crates" });
+  await crates.getByRole("button", { name: "New crate" }).click();
+  await crates.getByRole("textbox", { name: "New crate name" }).fill("Warm-up");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Warm-up" })).toBeVisible();
+  const exportGroup = page.getByRole("group", { name: "Export" });
+  await exportGroup.getByRole("button", { name: "Export M3U8 playlist..." }).click();
+  await expect(exportGroup.getByRole("status")).toContainText("3 tracks exported to /Users/dj/Desktop/Warm-up.m3u8. 1 has no file that can be reached.");
+  await exportGroup.getByRole("button", { name: "Export CSV..." }).click();
+  const sent = await page.evaluate(() => (window as any).__exports);
+  expect(sent).toHaveLength(2);
+  expect(sent[0].format).toBe("m3u8");
+  expect(sent[0].name).toBe("Warm-up");
+  expect(sent[0].query.crateId).toBeTruthy();
+  expect(sent[1].format).toBe("csv");
 });
 
 test("keys are shown in the chosen notation", async ({ page }) => {

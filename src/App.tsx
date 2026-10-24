@@ -93,6 +93,18 @@ export function App({ api }: { api: LibraryApi }) {
   /** Tracks chosen together in the list, and the ones open in the editor. */
   const [selection, setSelection] = useState<number[]>([]);
   const [editing, setEditing] = useState<number[] | null>(null);
+  /** What the last export did. */
+  const [exportNote, setExportNote] = useState("");
+  const exportList = async (format: "m3u8" | "csv") => {
+    if (!api.admin) return;
+    setExportNote("");
+    try {
+      const done = await api.admin.exportTracks(query, format, heading);
+      if (done) setExportNote(`${done.tracks} ${done.tracks === 1 ? "track" : "tracks"} exported to ${done.path}.${done.withoutFile > 0 ? ` ${done.withoutFile} ${done.withoutFile === 1 ? "has" : "have"} no file that can be reached.` : ""}`);
+    } catch (reason) {
+      setExportNote(reason instanceof Error ? reason.message : "Something went wrong.");
+    }
+  };
   /** What the last cover change on a release page did. */
   const [coverNote, setCoverNote] = useState("");
   const [coverBusy, setCoverBusy] = useState(false);
@@ -225,7 +237,7 @@ export function App({ api }: { api: LibraryApi }) {
     setFocus(item); setScreen("tracks"); setSearch(""); setFormat("all");
   };
   const isLibrary = screen !== "import" && screen !== "sync" && screen !== "cleanup";
-  useEffect(() => { setCoverNote(""); }, [focus]);
+  useEffect(() => { setCoverNote(""); setExportNote(""); }, [focus, crate, playlist, screen]);
   const selectionSet = useMemo(() => new Set(selection), [selection]);
   // A new list starts with nothing chosen.
   useEffect(() => { setSelection([]); }, [query]);
@@ -277,7 +289,11 @@ export function App({ api }: { api: LibraryApi }) {
         {isLibrary ? <>
           {api.admin && <Welcome admin={api.admin} onOpenRekordbox={() => navigate("sync")} onLibraryChanged={refreshLibrary} />}
           <div className="library-hero">
-            <div>{focus && <button className="back-link" onClick={() => { setScreen(focus.kind); setFocus(null); setSort("recent"); }}><Icon name="back" size={14} />Back to {focus.kind}</button>}{crate && <button className="back-link" onClick={() => { setCrate(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{playlist && <button className="back-link" onClick={() => { setPlaylist(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{(playlist || crate || focus) && <div className="eyebrow">{playlist ? "REKORDBOX PLAYLIST" : crate ? "CRATE" : focus?.kind === "artists" ? "ARTIST" : "RELEASE"}</div>}<h1>{heading}</h1>{playlist ? <p>{`${playlist.inLibrary} of ${playlist.entries} tracks are in your library. The rest are not in your folders.`}</p> : focus ? <p>{`${focus.trackCount} ${focus.trackCount === 1 ? "track" : "tracks"}`}{focus.kind === "releases" ? ` by ${focus.artist}` : ""}</p> : crate ? <p>Kept in openCrate only. rekordbox is not changed.</p> : <p className="page-note">{PAGE_NOTES[screen === "releases" || screen === "artists" ? screen : "tracks"]}</p>}{api.admin && (playlist || crate || focus) && <button className="play-all" onClick={() => void playAll()}><Icon name="play" size={16} />Play all</button>}{api.admin && focus?.kind === "releases" && <div className="cover-actions" role="group" aria-label="Cover">
+            <div>{focus && <button className="back-link" onClick={() => { setScreen(focus.kind); setFocus(null); setSort("recent"); }}><Icon name="back" size={14} />Back to {focus.kind}</button>}{crate && <button className="back-link" onClick={() => { setCrate(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{playlist && <button className="back-link" onClick={() => { setPlaylist(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{(playlist || crate || focus) && <div className="eyebrow">{playlist ? "REKORDBOX PLAYLIST" : crate ? "CRATE" : focus?.kind === "artists" ? "ARTIST" : "RELEASE"}</div>}<h1>{heading}</h1>{playlist ? <p>{`${playlist.inLibrary} of ${playlist.entries} tracks are in your library. The rest are not in your folders.`}</p> : focus ? <p>{`${focus.trackCount} ${focus.trackCount === 1 ? "track" : "tracks"}`}{focus.kind === "releases" ? ` by ${focus.artist}` : ""}</p> : crate ? <p>Kept in openCrate only. rekordbox is not changed.</p> : <p className="page-note">{PAGE_NOTES[screen === "releases" || screen === "artists" ? screen : "tracks"]}</p>}{api.admin && (playlist || crate || focus) && <button className="play-all" onClick={() => void playAll()}><Icon name="play" size={16} />Play all</button>}{api.admin && screen === "tracks" && <div className="cover-actions" role="group" aria-label="Export">
+              <button className="link-button" onClick={() => void exportList("m3u8")}>Export M3U8 playlist...</button>
+              <button className="link-button" onClick={() => void exportList("csv")}>Export CSV...</button>
+              {exportNote && <small role="status">{exportNote}</small>}
+            </div>}{api.admin && focus?.kind === "releases" && <div className="cover-actions" role="group" aria-label="Cover">
               <button className="link-button" disabled={coverBusy} onClick={() => void changeCover(focus.id, "choose")}>Choose cover...</button>
               <button className="link-button" disabled={coverBusy} onClick={() => void changeCover(focus.id, "online")}>Find cover online</button>
               <button className="link-button" disabled={coverBusy} onClick={() => void changeCover(focus.id, "remove")}>Remove cover</button>

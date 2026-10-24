@@ -65,7 +65,7 @@ impl SortDto {
 }
 
 impl QueryDto {
-    fn to_query(&self) -> LibraryQuery {
+    pub(crate) fn to_query(&self) -> LibraryQuery {
         let mut query = LibraryQuery::new(match self.view {
             ViewDto::Tracks => View::Tracks,
             ViewDto::Releases => View::Releases,

@@ -9,6 +9,9 @@ mod downloads;
 mod editor;
 #[cfg(test)]
 mod editor_tests;
+mod export;
+#[cfg(test)]
+mod export_tests;
 mod folders;
 mod import;
 mod ipc;
@@ -620,6 +623,44 @@ async fn library_remove_release_art(
     let art = Arc::clone(&state.art);
     tauri::async_runtime::spawn_blocking(move || {
         art_fix::remove_release_art(&service, &art, release_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Export the tracks a query lists to an M3U8 or CSV file the owner picks with the system dialog.
+/// `name` is the suggested file name. `None` means the dialog was cancelled.
+#[tauri::command]
+async fn library_export(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    query: ipc::QueryDto,
+    format: export::ExportFormat,
+    name: String,
+) -> Result<Option<export::ExportedDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let safe: String = name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || " -_,.()".contains(c) {
+                    c
+                } else {
+                    ' '
+                }
+            })
+            .collect();
+        let Some(picked) = app
+            .dialog()
+            .file()
+            .set_title("Export to")
+            .set_file_name(format!("{}.{}", safe.trim(), format.extension()))
+            .blocking_save_file()
+        else {
+            return Ok(None);
+        };
+        let target = picked.into_path().map_err(|error| error.to_string())?;
+        export::export_query(&service, &query.to_query(), format, &target).map(Some)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -1301,6 +1342,7 @@ fn main() -> Result<(), tauri::Error> {
             library_track_tags,
             library_edit_tracks,
             library_edit_each,
+            library_export,
             library_releases_without_art,
             library_set_release_art,
             library_remove_release_art,
