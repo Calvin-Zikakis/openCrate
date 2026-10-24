@@ -344,14 +344,28 @@ export interface Accepted {
   album?: string;
   albumArtist?: string;
   label?: string;
+  genre?: string;
   year?: number;
   track?: number;
   disc?: number;
 }
 
-/** What MusicBrainz suggests for a release's files. */
+export interface LookupKey {
+  saved: boolean;
+  /** The last four characters, to recognise it by. */
+  ending: string | null;
+}
+
+export interface LookupKeys {
+  discogs: LookupKey;
+  acoustid: LookupKey;
+  /** What saving found, in plain words. */
+  note: string | null;
+}
+
+/** What a lookup (MusicBrainz, or Discogs with a token) suggests for a release's files. */
 export interface ReleaseLookup {
-  found: { title: string; artist: string; year: number | null; label: string | null; tracks: number; url: string } | null;
+  found: { source: string; title: string; artist: string; year: number | null; label: string | null; genre: string | null; tracks: number; url: string } | null;
   files: { source: string; matchedBy: string | null; changes: { field: string; from: string | null; to: string }[] }[];
   /** Why nothing was found. */
   note: string | null;
@@ -370,6 +384,30 @@ export interface PlayerState {
 
 export type PlayerAction = "play" | "pause" | "stop" | "status" | "seek" | "volume";
 
+export interface DuplicateCopy {
+  fileId: number;
+  path: string;
+  format: string;
+  inRekordbox: boolean;
+  analysed: boolean;
+  cues: number;
+  playlists: number;
+}
+
+export interface DuplicateCopies {
+  copies: DuplicateCopy[];
+  /** The copy to keep by the rule, when the rule decides. */
+  suggested: number | null;
+  note: string | null;
+}
+
+export interface ResolvedDuplicate {
+  archived: number;
+  merged: number;
+  /** The archive folder, beside the music folder. */
+  archive: string;
+}
+
 /** What tidying a folder did. */
 export interface TidiedFolder {
   folder: string;
@@ -387,7 +425,7 @@ export interface LibraryHealth {
   /** Folders whose names carry stray separators from untidy tags. */
   untidy: { rootId: number; rootLabel: string; folder: string; suggested: string; files: number }[];
   /** The same recording (artist, title, length within 2 s) in more than one file. */
-  duplicates: { artist: string; title: string; files: string[] }[];
+  duplicates: { artist: string; title: string; files: string[]; fileIds: number[] }[];
 }
 
 /** How imported music is arranged inside a music folder. */
@@ -487,6 +525,10 @@ export interface LibraryAdmin {
   importRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseImport>;
   /** Asks MusicBrainz about a release; only when the owner presses the button. Writes nothing. */
   lookupRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseLookup>;
+  /** Which of the owner's lookup keys are saved, each shown by its last four characters only. */
+  lookupKeys(): Promise<LookupKeys>;
+  /** Save or clear a key; a Discogs token is checked with Discogs first. */
+  setLookupKey(service: "discogs" | "acoustid", value: string | null): Promise<LookupKeys>;
   /** A track's whole waveform by sound, 800 slices. Null when its file cannot be reached. */
   waveform(trackId: number): Promise<WaveBands | null>;
   /** The close-up for the scrolling view. Null when its file cannot be reached. */
@@ -497,6 +539,10 @@ export interface LibraryAdmin {
   player(action: PlayerAction, value?: number): Promise<PlayerState>;
   /** Looks for untidy folder names and recordings filed twice. Reads only. */
   checkLibrary(): Promise<LibraryHealth>;
+  /** The copies of a recording filed more than once, read against a fresh read of rekordbox. */
+  duplicateCopies(fileIds: number[]): Promise<DuplicateCopies>;
+  /** Keep one copy; archive the others and merge their rekordbox entries into the kept one's. */
+  resolveDuplicate(keep: number, drop: number[]): Promise<ResolvedDuplicate>;
   /** Move a folder the check names to its tidy name; rekordbox follows the files it uses. */
   tidyFolder(rootId: number, folder: string): Promise<TidiedFolder>;
   folderLayout(): Promise<FolderLayout>;

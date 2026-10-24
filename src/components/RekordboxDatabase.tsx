@@ -105,7 +105,7 @@ export function RekordboxDatabase({ admin, open }: { admin: LibraryAdmin; open: 
     {writeWarning && <div className="warning-panel" role="region" aria-label="Before openCrate writes to rekordbox">
       <h4>Before openCrate writes to rekordbox</h4>
       <p className="settings-copy">This changes rekordbox's own library. A rekordbox update can change how that library is stored, and a write in a form rekordbox does not expect could lose playlists, cues or analysis.</p>
-      <p className="settings-copy">To protect your library: openCrate writes only while rekordbox and its agent are closed, only to rekordbox versions it has been tested with, takes a backup just before every write (listed below, and any one can be put back), and reads the library back afterwards to check the change is there. It only adds: it never deletes a track or a playlist. If rekordbox changes version, this switch asks you again.</p>
+      <p className="settings-copy">To protect your library: openCrate writes only while rekordbox and its agent are closed, only to rekordbox versions it has been tested with, takes a backup just before every write (listed below, and any one can be put back), and reads the library back afterwards to check the change is there. It never deletes a playlist. A track's entry is removed only when you merge duplicates, after its playlist places, My Tags and rating move to the copy you keep. If rekordbox changes version, this switch asks you again.</p>
       <div className="warning-actions">
         <button className="import-button" disabled={busy} onClick={() => void enableWrite(true)}>I understand, let openCrate write</button>
         <button className="secondary-button" disabled={busy} onClick={() => setWriteWarning(false)}>Cancel</button>

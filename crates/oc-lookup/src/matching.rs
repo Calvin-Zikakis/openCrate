@@ -115,6 +115,7 @@ pub fn suggest(release: &Release, files: &[FileFacts]) -> Vec<Suggestion> {
                 album: Some(release.title.clone()),
                 album_artist: Some(release.artist.clone()),
                 label: release.label.clone(),
+                genre: release.genre.clone(),
                 year: release.year,
                 track_number: Some(track.position),
                 disc_number: several_discs.then_some(disc),
@@ -142,6 +143,7 @@ fn changes(wanted: &TagInfo, current: &TagInfo) -> TagInfo {
         album,
         album_artist,
         label,
+        genre,
         year,
         track_number,
         disc_number

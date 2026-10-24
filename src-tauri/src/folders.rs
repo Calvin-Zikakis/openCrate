@@ -563,6 +563,7 @@ pub struct DuplicateDto {
     pub artist: String,
     pub title: String,
     pub files: Vec<String>,
+    pub file_ids: Vec<i64>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -600,6 +601,7 @@ pub fn check_health(service: &LibraryService) -> Result<HealthDto, String> {
             .into_iter()
             .map(|duplicate| DuplicateDto {
                 artist: duplicate.artist,
+                file_ids: duplicate.file_ids,
                 title: duplicate.title,
                 files: duplicate.files,
             })

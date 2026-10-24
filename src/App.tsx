@@ -7,6 +7,7 @@ import { FolderLayout } from "./components/FolderLayout";
 import { RekordboxDatabase } from "./components/RekordboxDatabase";
 import { Welcome } from "./components/Welcome";
 import { LibraryCheck } from "./components/LibraryCheck";
+import { LookupKeys } from "./components/LookupKeys";
 import { Folders } from "./components/Folders";
 import { Import } from "./components/Import";
 import { Library } from "./components/Library";
@@ -256,7 +257,7 @@ export function App({ api }: { api: LibraryApi }) {
       <div className="dialog-body">
       <h3>Appearance</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label>
       {settingsError && <p role="alert" className="inline-error">{settingsError}</p>}
-      {api.admin ? <><Folders admin={api.admin} open={settingsOpen} onChanged={refreshLibrary} /><Downloads admin={api.admin} open={settingsOpen} /><FolderLayout admin={api.admin} open={settingsOpen} /><LibraryCheck admin={api.admin} onChanged={refreshLibrary} /><RekordboxDatabase admin={api.admin} open={settingsOpen} /></> : <><h3>Music folders</h3><p className="settings-copy">Download and library folders will be chosen with the system folder picker. Folder selection is not connected in this demo.</p><h3>rekordbox</h3><p className="settings-copy">XML export will be the default read-back. Reading rekordbox's own library will be off by default and read a backup copy only. Neither is enabled here.</p></>}
+      {api.admin ? <><Folders admin={api.admin} open={settingsOpen} onChanged={refreshLibrary} /><Downloads admin={api.admin} open={settingsOpen} /><FolderLayout admin={api.admin} open={settingsOpen} /><LibraryCheck admin={api.admin} onChanged={refreshLibrary} /><LookupKeys admin={api.admin} open={settingsOpen} /><RekordboxDatabase admin={api.admin} open={settingsOpen} /></> : <><h3>Music folders</h3><p className="settings-copy">Download and library folders will be chosen with the system folder picker. Folder selection is not connected in this demo.</p><h3>rekordbox</h3><p className="settings-copy">XML export will be the default read-back. Reading rekordbox's own library will be off by default and read a backup copy only. Neither is enabled here.</p></>}
       <div className="settings-footnote">{api.admin ? "Your folders are only read. Nothing is uploaded." : "100,000 synthetic tracks. No music, credentials or personal data."}</div>
       </div>
     </dialog>

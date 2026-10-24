@@ -6,7 +6,7 @@ use oc_tag::fixtures::{aiff, write_tags};
 use oc_tag::TagInfo;
 use rbl_db::fixture::{self, Shape};
 
-use crate::library_fix::tidy_folder;
+use crate::library_fix::{duplicate_copies, resolve_duplicate, tidy_folder};
 use crate::rekordbox_db::{self, Probe};
 
 struct Setup {
@@ -155,4 +155,118 @@ fn a_file_whose_tidy_place_is_taken_stays_where_it_is() {
         .music
         .join("Studio 001, Guest/Between Spaces/03 - Late Train.aif")
         .is_file());
+}
+
+const FIRST: &str = "Studio 001/Between Spaces/01 - Soft Focus.aif";
+const SECOND: &str = "Studio 001;Guest/Between Spaces/01 - Soft Focus.aif";
+
+/// Two copies of one recording; rekordbox has the first as track 0, and the second as track 1
+/// when `both` is set.
+fn duplicates(both: bool) -> (Setup, Vec<i64>) {
+    let setup = setup(&[FIRST, SECOND], true);
+    let location = setup.probe.location.clone().unwrap();
+    if both {
+        fixture::point_at_audio(&location, 1, &setup.music.join(SECOND).to_string_lossy(), 2)
+            .unwrap();
+    }
+    // Same artist and title: the scan files both under one track title, as a duplicate.
+    for path in [FIRST, SECOND] {
+        oc_tag::rewrite_tags(
+            &setup.music.join(path),
+            &[(oc_tag::TextTag::Title, "Soft Focus".into())],
+        )
+        .unwrap();
+    }
+    setup
+        .service
+        .scan_root(setup.root, &ScanOptions::default())
+        .unwrap();
+    let health = setup.service.check_health().unwrap();
+    assert_eq!(health.duplicates.len(), 1, "{:?}", health.duplicates);
+    let ids = health.duplicates[0].file_ids.clone();
+    (setup, ids)
+}
+
+fn id_of(setup: &Setup, ids: &[i64], relative: &str) -> i64 {
+    *ids.iter()
+        .find(|id| {
+            setup.service.file_location(**id).unwrap().unwrap().1 == setup.music.join(relative)
+        })
+        .unwrap()
+}
+
+fn rekordbox_has(setup: &Setup, content: &str) -> bool {
+    let location = setup.probe.location.clone().unwrap();
+    rbl_db::Library::open(location, rbl_db::OpenMode::ReadOnly)
+        .unwrap()
+        .connection()
+        .query_row(
+            "SELECT rb_local_deleted = 0 FROM djmdContent WHERE ID = ?1",
+            [content],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+#[test]
+fn copies_say_what_rekordbox_has_and_one_to_keep_is_suggested() {
+    let (setup, ids) = duplicates(false);
+    let found = duplicate_copies(&setup.service, &setup.probe, &ids).unwrap();
+    let first = id_of(&setup, &ids, FIRST);
+    let copy = found
+        .copies
+        .iter()
+        .find(|copy| copy.file_id == first)
+        .unwrap();
+    assert!(copy.in_rekordbox && copy.analysed);
+    assert_eq!(found.suggested, Some(first), "the copy rekordbox analysed");
+}
+
+#[test]
+fn a_duplicate_both_sides_have_is_merged_in_rekordbox_and_the_extra_file_archived() {
+    let (setup, ids) = duplicates(true);
+    crate::rekordbox_write::set_enabled(&setup.service, &setup.probe, true).unwrap();
+    let (first, second) = (id_of(&setup, &ids, FIRST), id_of(&setup, &ids, SECOND));
+    let done = resolve_duplicate(&setup.service, &setup.probe, first, &[second]).unwrap();
+    assert_eq!((done.archived, done.merged), (1, 1));
+    assert!(!setup.music.join(SECOND).exists());
+    let archived = setup
+        .music
+        .parent()
+        .unwrap()
+        .join("openCrate archive/Music")
+        .join(SECOND);
+    assert!(
+        archived.is_file(),
+        "the extra copy is kept outside the library, not deleted"
+    );
+    assert!(rekordbox_has(&setup, &fixture::track_id(0)));
+    assert!(!rekordbox_has(&setup, &fixture::track_id(1)));
+    assert_eq!(setup.service.check_health().unwrap().duplicates.len(), 0);
+}
+
+#[test]
+fn a_copy_rekordbox_uses_is_not_dropped_without_writing_or_for_one_it_lacks() {
+    let (setup, ids) = duplicates(false);
+    let (first, second) = (id_of(&setup, &ids, FIRST), id_of(&setup, &ids, SECOND));
+    // rekordbox has the first, with its analysis: keeping the other would lose it.
+    let error = resolve_duplicate(&setup.service, &setup.probe, second, &[first]).unwrap_err();
+    assert!(error.contains("Keep that copy"), "{error}");
+    assert!(setup.music.join(FIRST).is_file());
+
+    let (setup, ids) = duplicates(true);
+    let (first, second) = (id_of(&setup, &ids, FIRST), id_of(&setup, &ids, SECOND));
+    let error = resolve_duplicate(&setup.service, &setup.probe, first, &[second]).unwrap_err();
+    assert!(error.contains("Settings"), "{error}");
+    assert!(setup.music.join(SECOND).is_file());
+    assert!(rekordbox_has(&setup, &fixture::track_id(1)));
+}
+
+#[test]
+fn a_copy_rekordbox_does_not_have_is_archived_without_writing_to_it() {
+    let (setup, ids) = duplicates(false);
+    let (first, second) = (id_of(&setup, &ids, FIRST), id_of(&setup, &ids, SECOND));
+    let done = resolve_duplicate(&setup.service, &setup.probe, first, &[second]).unwrap();
+    assert_eq!((done.archived, done.merged), (1, 0));
+    assert!(!setup.music.join(SECOND).exists());
 }

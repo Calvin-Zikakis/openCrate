@@ -176,13 +176,17 @@ pub struct Release {
     pub artist: String,
     pub year: Option<i32>,
     pub label: Option<String>,
+    /// A genre or style, where the source has one (Discogs does; MusicBrainz does not).
+    pub genre: Option<String>,
+    /// The release's page on the source's website.
+    pub page: String,
     pub media: Vec<Medium>,
 }
 
 impl Release {
     #[must_use]
     pub fn web_page(&self) -> String {
-        format!("https://musicbrainz.org/release/{}", self.id)
+        self.page.clone()
     }
 
     #[must_use]
@@ -227,6 +231,8 @@ pub fn parse_release(json: &str) -> Result<Release, Error> {
         serde_json::from_str(json).map_err(|error| Error::Unreadable(error.to_string()))?;
     let artist = credited(&answer.artist_credit);
     Ok(Release {
+        page: format!("https://musicbrainz.org/release/{}", answer.id),
+        genre: None,
         id: answer.id,
         title: answer.title,
         year: year(answer.date.as_deref()),

@@ -79,6 +79,8 @@ pub struct Accepted {
     pub album: Option<String>,
     pub album_artist: Option<String>,
     pub label: Option<String>,
+    #[serde(default)]
+    pub genre: Option<String>,
     pub year: Option<i32>,
     pub track: Option<u32>,
     pub disc: Option<u32>,
@@ -92,6 +94,7 @@ impl Accepted {
             album: self.album.clone(),
             album_artist: self.album_artist.clone(),
             label: self.label.clone(),
+            genre: self.genre.clone(),
             year: self.year,
             track_number: self.track,
             disc_number: self.disc,

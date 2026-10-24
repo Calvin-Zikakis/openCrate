@@ -24,7 +24,7 @@ export function doubtsIn(release: string, files: PlanFile[]): Doubt[] {
 }
 
 const FIELD_KEYS: Record<string, keyof Omit<Accepted, "source">> = {
-  Title: "title", Artist: "artist", Album: "album", "Album artist": "albumArtist", Label: "label", Year: "year", Track: "track", Disc: "disc",
+  Title: "title", Artist: "artist", Album: "album", "Album artist": "albumArtist", Label: "label", Genre: "genre", Year: "year", Track: "track", Disc: "disc",
 };
 const NUMBERS = new Set(["year", "track", "disc"]);
 
@@ -87,7 +87,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan }: Props) {
     setStage({ kind: "review", plans, failed });
   };
 
-  /** Ask MusicBrainz about each release with doubtful tags, one at a time. */
+  /** Look up each release with doubtful tags, one at a time. */
   const lookUp = async (plans: { release: DownloadRelease; plan: ImportPlan }[]) => {
     if (rootId === null) return;
     for (const { release } of plans) {
@@ -166,22 +166,22 @@ function Review({ stage, lookups, unticked, onToggle, onLookUp, onCancel, onImpo
     {stage.failed.map((item) => <p key={item.name} className="inline-error">{`${item.name}: ${item.error}`}</p>)}
     {doubts.length > 0 && <>
       <h3>{`${plural(doubts.length, "file has", "files have")} tags worth a look`}</h3>
-      <p className="settings-copy">They will be imported as shown, unless you look them up and keep what MusicBrainz suggests. To change them by hand, cancel and open the release's preview.</p>
+      <p className="settings-copy">They will be imported as shown, unless you look them up and keep what the lookup suggests. To change them by hand, cancel and open the release's preview.</p>
       <ul className="doubt-list">{doubts.map((doubt) => <li key={`${doubt.release}/${doubt.file}`}>
         <strong>{doubt.file}</strong> <small>{doubt.release}</small>
         <ul>{doubt.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
       </li>)}</ul>
     </>}
     {doubtful.length > 0 && !asked && <div className="lookup-offer">
-      <button className="secondary-button" onClick={() => onLookUp(doubtful)}>{`Look up ${plural(doubtful.length, "release", "releases")} on MusicBrainz`}</button>
-      <small>Sends the artist and album names to musicbrainz.org, one request a second. Nothing changes until you import.</small>
+      <button className="secondary-button" onClick={() => onLookUp(doubtful)}>{`Look up ${plural(doubtful.length, "release", "releases")}`}</button>
+      <small>Sends the artist and album names to musicbrainz.org (and to Discogs, with your token from Settings), one request a second. Nothing changes until you import.</small>
     </div>}
     {doubtful.map(({ release }) => {
       const lookup = lookups[keyOf(release)];
       if (!lookup) return null;
-      return <div key={keyOf(release)} className="lookup-result" role="group" aria-label={`MusicBrainz: ${release.name}`}>
+      return <div key={keyOf(release)} className="lookup-result" role="group" aria-label={`Lookup: ${release.name}`}>
         <h3>{release.name}</h3>
-        {lookup.state === "asking" && <p className="settings-copy" role="status">Asking MusicBrainz...</p>}
+        {lookup.state === "asking" && <p className="settings-copy" role="status">Looking it up...</p>}
         {lookup.state === "failed" && <p className="inline-error">{lookup.error}</p>}
         {lookup.state === "done" && <LookupResult lookup={lookup.result} unticked={unticked} onToggle={onToggle} />}
       </div>;
@@ -199,7 +199,7 @@ function LookupResult({ lookup, unticked, onToggle }: { lookup: ReleaseLookup; u
   const changing = lookup.files.filter((file) => file.changes.length > 0);
   const unmatched = lookup.files.filter((file) => file.matchedBy === null).length;
   return <>
-    <p className="settings-copy">{`Found "${found.title}" by ${found.artist}${found.year ? ` (${found.year}` : ""}${found.label ? `${found.year ? ", " : " ("}${found.label}` : ""}${found.year || found.label ? ")" : ""}, ${plural(found.tracks, "track", "tracks")}.`} <span className="lookup-url">{found.url}</span></p>
+    <p className="settings-copy">{`Found on ${found.source}: "${found.title}" by ${found.artist}${found.year ? ` (${found.year}` : ""}${found.label ? `${found.year ? ", " : " ("}${found.label}` : ""}${found.year || found.label ? ")" : ""}, ${plural(found.tracks, "track", "tracks")}${found.genre ? `, ${found.genre}` : ""}.`} <span className="lookup-url">{found.url}</span></p>
     {changing.length === 0 && <p className="settings-copy">The tags already agree with it.</p>}
     <ul className="suggestion-list">{changing.map((file) => <li key={file.source}>
       <label><input type="checkbox" checked={!unticked.has(file.source)} onChange={() => onToggle(file.source)} /> <strong>{file.source.split("/").at(-1)}</strong> <small>{`matched by ${file.matchedBy ?? "nothing"}`}</small></label>

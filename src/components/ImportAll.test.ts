@@ -53,7 +53,7 @@ describe("import choices remembered in this browser", () => {
 describe("values accepted from a lookup", () => {
   it("become one entry per ticked file, with numbers as numbers", () => {
     const lookup = {
-      found: { title: "Between Spaces", artist: "Studio 001", year: 2019, label: null, tracks: 2, url: "https://musicbrainz.org/release/x" },
+      found: { source: "MusicBrainz", genre: null, title: "Between Spaces", artist: "Studio 001", year: 2019, label: null, tracks: 2, url: "https://musicbrainz.org/release/x" },
       note: null,
       files: [
         { source: "R/a.flac", matchedBy: "title", changes: [{ field: "Track", from: null, to: "2" }, { field: "Album artist", from: null, to: "Studio 001" }, { field: "Year", from: "1850", to: "2019" }] },

@@ -1,30 +1,38 @@
-//! Looking a release up in MusicBrainz when the owner asks, and turning the answer into tag
-//! suggestions for the release's files. Nothing is looked up on its own, and nothing is written:
-//! the page shows the suggestions, and the owner's accepted values travel with the import.
+//! Looking a release up when the owner asks, in MusicBrainz and, with the owner's own token, in
+//! Discogs, and turning the answer into tag suggestions for the release's files. Nothing is
+//! looked up on its own, and nothing is written: the page shows the suggestions, and the owner's
+//! accepted values travel with the import.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use oc_core_db::service::LibraryService;
-use oc_lookup::{parse_release, parse_search, pick, release_url, search_url, suggest, FileFacts};
+use oc_lookup::{
+    discogs_identity_url, discogs_release_url, discogs_search_url, parse_discogs_release,
+    parse_discogs_search, parse_release, parse_search, pick, release_url, search_url, suggest,
+    FileFacts, Release,
+};
 use oc_tag::TagInfo;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::plan::{plan_release, ImportOptions};
 
-/// MusicBrainz allows about one request per second per address.
+/// MusicBrainz allows about one request per second per address; Discogs 60 a minute per token.
 const SPACING: Duration = Duration::from_millis(1_100);
 const BUSY_RETRIES: u32 = 2;
+/// Discogs results tried before giving up on it.
+const DISCOGS_TRIES: usize = 3;
 
-/// Fetches from MusicBrainz, never faster than it allows.
-pub struct MusicBrainz {
+/// One lookup service, never asked faster than it allows.
+pub struct Throttled {
+    name: &'static str,
     agent: ureq::Agent,
     last: Mutex<Option<Instant>>,
 }
 
-impl Default for MusicBrainz {
-    fn default() -> Self {
+impl Throttled {
+    fn new(name: &'static str) -> Self {
         let agent = ureq::Agent::config_builder()
             .user_agent(oc_lookup::USER_AGENT)
             .timeout_global(Some(Duration::from_secs(15)))
@@ -32,13 +40,12 @@ impl Default for MusicBrainz {
             .build()
             .into();
         Self {
+            name,
             agent,
             last: Mutex::new(None),
         }
     }
-}
 
-impl MusicBrainz {
     fn wait_turn(&self) {
         let mut last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(left) = (*last).and_then(|previous| SPACING.checked_sub(previous.elapsed())) {
@@ -47,15 +54,21 @@ impl MusicBrainz {
         *last = Some(Instant::now());
     }
 
-    /// One GET. A busy answer (503) is tried again after a pause, twice at most.
-    fn get(&self, url: &str) -> Result<String, String> {
+    /// One GET, with the owner's token where the service takes one. A busy answer (503, or 429
+    /// from Discogs) is tried again after a pause, twice at most.
+    fn get(&self, url: &str, token: Option<&str>) -> Result<String, String> {
+        let name = self.name;
         for attempt in 0..=BUSY_RETRIES {
             self.wait_turn();
-            let mut response = self.agent.get(url).call().map_err(|_| {
-                "MusicBrainz could not be reached. Check the internet connection.".to_owned()
+            let mut request = self.agent.get(url);
+            if let Some(token) = token {
+                request = request.header("Authorization", &format!("Discogs token={token}"));
+            }
+            let mut response = request.call().map_err(|_| {
+                format!("{name} could not be reached. Check the internet connection.")
             })?;
             let status = response.status().as_u16();
-            if status == 503 && attempt < BUSY_RETRIES {
+            if (status == 503 || status == 429) && attempt < BUSY_RETRIES {
                 std::thread::sleep(Duration::from_secs(2 << attempt));
                 continue;
             }
@@ -66,25 +79,142 @@ impl MusicBrainz {
                     .limit(4 << 20)
                     .read_to_string()
                     .map_err(|error| error.to_string()),
-                503 => Err("MusicBrainz is busy right now. Try again in a minute.".to_owned()),
-                404 => Err("MusicBrainz no longer has that release.".to_owned()),
-                other => Err(format!("MusicBrainz answered with an error ({other}).")),
+                503 | 429 => Err(format!("{name} is busy right now. Try again in a minute.")),
+                401 | 403 => Err(format!(
+                    "{name} did not accept the token. Check it in Settings."
+                )),
+                404 => Err(format!("{name} no longer has that release.")),
+                other => Err(format!("{name} answered with an error ({other}).")),
             };
         }
-        Err("MusicBrainz is busy right now. Try again in a minute.".to_owned())
+        Err(format!("{name} is busy right now. Try again in a minute."))
     }
+}
+
+/// The lookup services, each with its own pace.
+pub struct Lookups {
+    pub musicbrainz: Throttled,
+    pub discogs: Throttled,
+}
+
+impl Default for Lookups {
+    fn default() -> Self {
+        Self {
+            musicbrainz: Throttled::new("MusicBrainz"),
+            discogs: Throttled::new("Discogs"),
+        }
+    }
+}
+
+/// The owner's own keys for lookup services, kept in openCrate's local settings.
+const KEYS: &str = "lookup_keys";
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Keys {
+    discogs_token: Option<String>,
+    acoustid_key: Option<String>,
+}
+
+fn keys(service: &LibraryService) -> Result<Keys, String> {
+    Ok(service
+        .setting(KEYS)
+        .map_err(|error| error.to_string())?
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default())
+}
+
+/// Whether a key is saved, and its last four characters to recognise it by. The key itself
+/// never goes back to the page.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyDto {
+    pub saved: bool,
+    pub ending: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeysDto {
+    pub discogs: KeyDto,
+    pub acoustid: KeyDto,
+    /// What saving found, in plain words.
+    pub note: Option<String>,
+}
+
+fn shown(key: Option<&String>) -> KeyDto {
+    KeyDto {
+        saved: key.is_some(),
+        ending: key.map(|key| {
+            let chars: Vec<char> = key.chars().collect();
+            chars[chars.len().saturating_sub(4)..].iter().collect()
+        }),
+    }
+}
+
+pub fn keys_status(service: &LibraryService) -> Result<KeysDto, String> {
+    let saved = keys(service)?;
+    Ok(KeysDto {
+        discogs: shown(saved.discogs_token.as_ref()),
+        acoustid: shown(saved.acoustid_key.as_ref()),
+        note: None,
+    })
+}
+
+/// Save or clear one key. A Discogs token is checked with Discogs first; one it refuses is not
+/// saved.
+pub fn set_key(
+    service: &LibraryService,
+    lookups: &Lookups,
+    which: &str,
+    value: Option<String>,
+) -> Result<KeysDto, String> {
+    let value = value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let mut saved = keys(service)?;
+    let mut note = None;
+    match which {
+        "discogs" => {
+            if let Some(token) = &value {
+                match lookups.discogs.get(&discogs_identity_url(), Some(token)) {
+                    Ok(_) => note = Some("Discogs accepted the token.".to_owned()),
+                    Err(error) if error.contains("token") => {
+                        return Err("Discogs did not accept that token. Copy it again from \
+                                    Discogs, Settings, Developers."
+                            .into())
+                    }
+                    Err(error) => note = Some(format!("Saved, but not checked: {error}")),
+                }
+            }
+            saved.discogs_token = value;
+        }
+        "acoustid" => saved.acoustid_key = value,
+        other => return Err(format!("{other} is not a lookup service openCrate knows.")),
+    }
+    let text = serde_json::to_string(&saved).map_err(|error| error.to_string())?;
+    service
+        .set_setting(KEYS, Some(text))
+        .map_err(|error| error.to_string())?;
+    let mut state = keys_status(service)?;
+    state.note = note;
+    Ok(state)
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FoundDto {
+    /// Where the release was found: "MusicBrainz" or "Discogs".
+    pub source: &'static str,
     pub title: String,
     pub artist: String,
     pub year: Option<i32>,
     pub label: Option<String>,
     pub tracks: usize,
-    /// The release's page on musicbrainz.org.
+    /// The release's page on the source's website.
     pub url: String,
+    /// A genre or style from the source, when it has one.
+    pub genre: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -175,6 +305,11 @@ fn changes(current: &TagInfo, wanted: &TagInfo) -> Vec<ChangeDto> {
         text(current.label.as_ref()),
         text(wanted.label.as_ref()),
     );
+    add(
+        "Genre",
+        text(current.genre.as_ref()),
+        text(wanted.genre.as_ref()),
+    );
     found
 }
 
@@ -194,10 +329,12 @@ pub fn facts_of(plan: &crate::plan::PlanDto) -> Vec<FileFacts> {
 }
 
 /// Compare a fetched release with the files. Pure, for tests.
-pub fn compare(release: &oc_lookup::Release, files: &[FileFacts]) -> LookupDto {
+pub fn compare(source: &'static str, release: &Release, files: &[FileFacts]) -> LookupDto {
     let suggestions = suggest(release, files);
     LookupDto {
         found: Some(FoundDto {
+            source,
+            genre: release.genre.clone(),
             title: release.title.clone(),
             artist: release.artist.clone(),
             year: release.year,
@@ -226,9 +363,40 @@ fn nothing(note: String) -> LookupDto {
     }
 }
 
+/// The first of Discogs's results whose tracks match at least half the files, if any.
+fn discogs_find(
+    client: &Throttled,
+    token: &str,
+    artist: &str,
+    album: &str,
+    files: &[FileFacts],
+) -> Result<Option<Release>, String> {
+    let ids = parse_discogs_search(&client.get(&discogs_search_url(artist, album), Some(token))?)
+        .map_err(|error| error.to_string())?;
+    for id in ids.into_iter().take(DISCOGS_TRIES) {
+        let release = parse_discogs_release(&client.get(&discogs_release_url(id), Some(token))?)
+            .map_err(|error| error.to_string())?;
+        if matches_enough(&release, files) {
+            return Ok(Some(release));
+        }
+    }
+    Ok(None)
+}
+
+/// A release matches when at least half the files find a track in it.
+fn matches_enough(release: &Release, files: &[FileFacts]) -> bool {
+    let matched = suggest(release, files)
+        .iter()
+        .filter(|suggestion| suggestion.matched_by.is_some())
+        .count();
+    !files.is_empty() && matched * 2 >= files.len()
+}
+
+/// MusicBrainz first. With a Discogs token, Discogs adds a genre or style to what MusicBrainz
+/// found, and is asked on its own when MusicBrainz finds nothing.
 pub fn lookup_release(
     service: &LibraryService,
-    client: &MusicBrainz,
+    lookups: &Lookups,
     folder_id: i64,
     name: &str,
     root_id: i64,
@@ -249,16 +417,48 @@ pub fn lookup_release(
                 .to_owned(),
         ));
     };
-    let candidates = parse_search(&client.get(&search_url(&artist, &album))?)
+    let token = keys(service)?.discogs_token;
+    let found = (|| -> Result<Option<Release>, String> {
+        let candidates = parse_search(
+            &lookups
+                .musicbrainz
+                .get(&search_url(&artist, &album), None)?,
+        )
         .map_err(|error| error.to_string())?;
-    let Some(best) = pick(&candidates, files.len()) else {
-        return Ok(nothing(format!(
-            "MusicBrainz has no release that matches \"{album}\" by {artist} closely enough."
-        )));
-    };
-    let release =
-        parse_release(&client.get(&release_url(&best.id))?).map_err(|error| error.to_string())?;
-    Ok(compare(&release, &files))
+        let Some(best) = pick(&candidates, files.len()) else {
+            return Ok(None);
+        };
+        let release = parse_release(&lookups.musicbrainz.get(&release_url(&best.id), None)?)
+            .map_err(|error| error.to_string())?;
+        Ok(Some(release))
+    })();
+    match (found, token) {
+        (Ok(Some(mut release)), token) => {
+            if let Some(token) = token {
+                // The style is a nicety: a Discogs failure leaves MusicBrainz's answer as it is.
+                if let Ok(Some(more)) =
+                    discogs_find(&lookups.discogs, &token, &artist, &album, &files)
+                {
+                    release.genre = more.genre;
+                }
+            }
+            Ok(compare("MusicBrainz", &release, &files))
+        }
+        (Ok(None) | Err(_), Some(token)) => {
+            match discogs_find(&lookups.discogs, &token, &artist, &album, &files)? {
+                Some(release) => Ok(compare("Discogs", &release, &files)),
+                None => Ok(nothing(format!(
+                    "Neither MusicBrainz nor Discogs has a release that matches \"{album}\" by \
+                     {artist} closely enough."
+                ))),
+            }
+        }
+        (Ok(None), None) => Ok(nothing(format!(
+            "MusicBrainz has no release that matches \"{album}\" by {artist} closely enough. \
+             With a Discogs token in Settings, Discogs is asked too."
+        ))),
+        (Err(error), None) => Err(error),
+    }
 }
 
 #[cfg(test)]
@@ -293,6 +493,7 @@ mod tests {
     fn suggestions_name_each_field_with_what_it_was_and_would_be() {
         let release = parse_release(RELEASE).unwrap();
         let found = compare(
+            "MusicBrainz",
             &release,
             &[
                 file("R/a.flac", "Night Drive", Some(1)),
@@ -328,6 +529,44 @@ mod tests {
     }
 
     #[test]
+    fn a_key_is_never_handed_back_whole_and_can_be_cleared() {
+        let data = tempfile::tempdir().unwrap();
+        let service = LibraryService::open(data.path(), 2).unwrap();
+        let lookups = Lookups::default();
+        let empty = keys_status(&service).unwrap();
+        assert!(!empty.discogs.saved && !empty.acoustid.saved);
+        let saved = set_key(
+            &service,
+            &lookups,
+            "acoustid",
+            Some("  abcdEFGH1234 ".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            saved.acoustid,
+            KeyDto {
+                saved: true,
+                ending: Some("1234".into())
+            }
+        );
+        let text = serde_json::to_string(&saved).unwrap();
+        assert!(!text.contains("abcdEFGH"), "{text}");
+        let cleared = set_key(&service, &lookups, "acoustid", Some("   ".into())).unwrap();
+        assert!(!cleared.acoustid.saved);
+        assert!(set_key(&service, &lookups, "bandcamp", Some("x".into())).is_err());
+    }
+
+    #[test]
+    fn a_release_matches_when_half_the_files_find_a_track() {
+        let release = parse_release(RELEASE).unwrap();
+        let night = file("R/a.flac", "Night Drive", Some(1));
+        let other = file("R/c.flac", "Something Else", Some(9));
+        assert!(matches_enough(&release, &[night.clone(), other.clone()]));
+        assert!(!matches_enough(&release, &[other.clone(), other]));
+        assert!(!matches_enough(&release, &[]));
+    }
+
+    #[test]
     fn the_release_is_named_by_what_most_files_say() {
         let a = "Between Spaces".to_owned();
         let b = "Between Spaces (Bonus)".to_owned();
@@ -340,7 +579,7 @@ mod tests {
 
     #[test]
     fn requests_are_spaced_a_second_apart() {
-        let client = MusicBrainz::default();
+        let client = Throttled::new("MusicBrainz");
         let start = Instant::now();
         client.wait_turn();
         client.wait_turn();
@@ -384,7 +623,7 @@ mod tests {
             .unwrap();
         let found = lookup_release(
             &service,
-            &MusicBrainz::default(),
+            &Lookups::default(),
             folder,
             "Discovery",
             root,

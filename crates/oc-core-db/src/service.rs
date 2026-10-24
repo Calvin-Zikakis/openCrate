@@ -484,6 +484,11 @@ impl LibraryService {
         crate::health::files_below(self.pool.lease().connection(), root_id, folder)
     }
 
+    /// One copy of a recording filed more than once, with what rekordbox has for it.
+    pub fn duplicate_copy(&self, file_id: i64) -> Result<Option<crate::health::Copy>> {
+        crate::health::copy_of(self.pool.lease().connection(), file_id)
+    }
+
     /// rekordbox's id for a library file, when the last direct read matched it.
     pub fn rekordbox_file_key(&self, file_id: i64) -> Result<Option<String>> {
         crate::offers::rekordbox_file_key(self.pool.lease().connection(), file_id)

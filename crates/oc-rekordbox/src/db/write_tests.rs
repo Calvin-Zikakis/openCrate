@@ -5,7 +5,8 @@ use rbl_db::fixture::{self, Shape};
 use rbl_db::{Library, LibraryLocation, OpenMode};
 
 use super::write::{
-    add_to_playlist, check_path_form, relocate, set_fields, FieldEdit, Member, Playlist, TrackText,
+    add_to_playlist, check_path_form, merge_duplicates, relocate, set_fields, Duplicate, FieldEdit,
+    Member, Playlist, TrackText,
 };
 use super::*;
 
@@ -403,6 +404,151 @@ fn a_relocation_to_a_missing_file_is_refused_and_rekordbox_is_put_back() {
             .to_string_lossy(),
         "the one that worked is undone too"
     );
+}
+
+/// Give tracks My Tags, a rating and cues the way rekordbox would.
+fn prepare_tracks(location: &LibraryLocation, edit: impl FnOnce(&mut rbl_db::write::Writer)) {
+    let backups = tempfile::tempdir().unwrap();
+    let mut writer = rbl_db::write::Writer::open(location.clone(), backups.path()).unwrap();
+    writer.disable_automatic_backups();
+    edit(&mut writer);
+}
+
+fn live(location: &LibraryLocation, content: &str) -> bool {
+    Library::open(location.clone(), OpenMode::ReadOnly)
+        .unwrap()
+        .connection()
+        .query_row(
+            "SELECT rb_local_deleted = 0 FROM djmdContent WHERE ID = ?1",
+            [content],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+fn my_tags(location: &LibraryLocation, content: &str) -> Vec<String> {
+    rbl_db::details::my_tag_names(
+        Library::open(location.clone(), OpenMode::ReadOnly)
+            .unwrap()
+            .connection(),
+        content,
+    )
+}
+
+fn rating(location: &LibraryLocation, content: &str) -> i64 {
+    Library::open(location.clone(), OpenMode::ReadOnly)
+        .unwrap()
+        .connection()
+        .query_row(
+            "SELECT COALESCE(Rating, 0) FROM djmdContent WHERE ID = ?1",
+            [content],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+#[test]
+fn a_duplicate_gives_its_playlist_places_tags_and_rating_to_the_copy_kept() {
+    let world = world();
+    let (kept, dropped) = (fixture::track_id(20), fixture::track_id(2));
+    let playlist = fixture::playlist_id(0);
+    prepare_tracks(&world.location, |writer| {
+        writer
+            .set_my_tags(&dropped, &[fixture::MY_TAG_PEAK.to_owned()])
+            .unwrap();
+        writer
+            .set_my_tags(&kept, &[fixture::MY_TAG_WARM_UP.to_owned()])
+            .unwrap();
+        writer.set_rating(&dropped, 4).unwrap();
+    });
+    let before = members_of(&world.location, &playlist);
+    let position = before.iter().position(|id| *id == dropped).unwrap();
+    let backup = merge_duplicates(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW,
+        &[Duplicate {
+            kept: kept.clone(),
+            dropped: dropped.clone(),
+        }],
+    )
+    .unwrap();
+    assert_eq!(backup.reason, "before-write");
+    let after = members_of(&world.location, &playlist);
+    assert_eq!(after.len(), before.len());
+    assert_eq!(after[position], kept, "the kept copy takes the same place");
+    assert!(!after.contains(&dropped));
+    assert!(
+        !live(&world.location, &dropped),
+        "the dropped entry is removed"
+    );
+    assert!(live(&world.location, &kept));
+    let mut tags = my_tags(&world.location, &kept);
+    tags.sort();
+    assert_eq!(tags, ["Peak", "Warm-up"]);
+    assert_eq!(
+        rating(&world.location, &kept),
+        4,
+        "an unrated copy takes the rating"
+    );
+}
+
+#[test]
+fn a_copy_already_in_the_playlist_is_not_put_in_twice() {
+    let world = world();
+    let playlist = fixture::playlist_id(0);
+    let before = members_of(&world.location, &playlist);
+    let (kept, dropped) = (before[0].clone(), before[1].clone());
+    merge_duplicates(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW,
+        &[Duplicate {
+            kept: kept.clone(),
+            dropped,
+        }],
+    )
+    .unwrap();
+    let after = members_of(&world.location, &playlist);
+    assert_eq!(after.len(), before.len() - 1);
+    assert_eq!(after.iter().filter(|id| **id == kept).count(), 1);
+}
+
+#[test]
+fn cues_only_the_dropped_copy_has_stop_the_merge_before_anything_is_written() {
+    let world = world();
+    let (kept, dropped) = (fixture::track_id(20), fixture::track_id(2));
+    prepare_tracks(&world.location, |writer| {
+        writer.add_cue(&dropped, 1, 12_000).unwrap();
+    });
+    let error = merge_duplicates(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW,
+        &[Duplicate {
+            kept,
+            dropped: dropped.clone(),
+        }],
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("cues"), "{error}");
+    assert!(live(&world.location, &dropped));
+    assert_eq!(list_backups(world.backups.path()).len(), 0);
+    let error = merge_duplicates(
+        &world.location,
+        world.backups.path(),
+        true,
+        NOW,
+        &[Duplicate {
+            kept: fixture::track_id(21),
+            dropped: fixture::track_id(22),
+        }],
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("running"), "{error}");
 }
 
 /// Every kind of write, on a copy of the installed library (never the library itself), read back

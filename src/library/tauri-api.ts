@@ -10,6 +10,7 @@ import {
   type LibraryItem,
   type LibraryPage,
   type LibraryQuery,
+  type LookupKeys,
   type MergeApplied,
   type MergeChange,
   type MergeReview,
@@ -208,6 +209,16 @@ function toTagView(value: unknown): TagView {
   };
 }
 
+function toLookupKeys(value: unknown): LookupKeys {
+  const what = "lookup keys";
+  const key = (field: unknown) => {
+    if (!isRecord(field)) throw new Error(`The library returned unreadable ${what}.`);
+    return { saved: flag(field.saved, what), ending: maybeText(field.ending ?? null, what) };
+  };
+  if (!isRecord(value)) throw new Error(`The library returned unreadable ${what}.`);
+  return { discogs: key(value.discogs), acoustid: key(value.acoustid), note: maybeText(value.note ?? null, what) };
+}
+
 function toLookup(value: unknown): ReleaseLookup {
   const bad = () => new Error("The library returned an unreadable lookup.");
   if (!isRecord(value) || !Array.isArray(value.files)) throw bad();
@@ -217,8 +228,9 @@ function toLookup(value: unknown): ReleaseLookup {
     const f = value.found;
     if (!isRecord(f)) throw bad();
     found = {
-      title: text(f.title, "lookup"), artist: text(f.artist, "lookup"), year: f.year === null ? null : whole(f.year, "lookup"),
-      label: maybe(f.label), tracks: whole(f.tracks, "lookup"), url: text(f.url, "lookup"),
+      source: text(f.source, "lookup"), title: text(f.title, "lookup"), artist: text(f.artist, "lookup"),
+      year: f.year === null ? null : whole(f.year, "lookup"), label: maybe(f.label), genre: maybe(f.genre),
+      tracks: whole(f.tracks, "lookup"), url: text(f.url, "lookup"),
     };
   }
   return {
@@ -259,7 +271,11 @@ function toHealth(value: unknown): LibraryHealth {
     }),
     duplicates: value.duplicates.map((item: unknown) => {
       if (!isRecord(item) || !Array.isArray(item.files)) throw bad();
-      return { artist: text(item.artist, "check"), title: text(item.title, "check"), files: item.files.map((file: unknown) => text(file, "check")) };
+      if (!Array.isArray(item.fileIds)) throw bad();
+      return {
+        artist: text(item.artist, "check"), title: text(item.title, "check"), files: item.files.map((file: unknown) => text(file, "check")),
+        fileIds: item.fileIds.map((id: unknown) => whole(id, "check")),
+      };
     }),
   };
 }
@@ -660,7 +676,31 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       const args = action === "seek" ? { action, positionMs: Math.max(0, Math.round(value ?? 0)) } : action === "volume" ? { action, volume: value ?? 1 } : { action };
       return toPlayer(await invoke("player_control", args).catch((error: unknown) => { throw failure(error); }));
     },
+    lookupKeys: async () => toLookupKeys(await invoke("lookup_keys").catch((error: unknown) => { throw failure(error); })),
+    setLookupKey: async (service, value) =>
+      toLookupKeys(await invoke("lookup_set_key", { serviceName: service, value }).catch((error: unknown) => { throw failure(error); })),
     checkLibrary: async () => toHealth(await invoke("library_check").catch((error: unknown) => { throw failure(error); })),
+    duplicateCopies: async (fileIds) => {
+      const value: unknown = await invoke("library_duplicate_copies", { fileIds }).catch((error: unknown) => { throw failure(error); });
+      const what = "duplicate copies";
+      if (!isRecord(value) || !Array.isArray(value.copies)) throw new Error(`The library returned unreadable ${what}.`);
+      return {
+        copies: value.copies.map((copy: unknown) => {
+          if (!isRecord(copy)) throw new Error(`The library returned unreadable ${what}.`);
+          return {
+            fileId: whole(copy.fileId, what), path: text(copy.path, what), format: text(copy.format, what),
+            inRekordbox: flag(copy.inRekordbox, what), analysed: flag(copy.analysed, what), cues: whole(copy.cues, what), playlists: whole(copy.playlists, what),
+          };
+        }),
+        suggested: value.suggested === null ? null : whole(value.suggested, what), note: maybeText(value.note ?? null, what),
+      };
+    },
+    resolveDuplicate: async (keep, drop) => {
+      const value: unknown = await invoke("library_resolve_duplicate", { keep, drop }).catch((error: unknown) => { throw failure(error); });
+      const what = "resolved duplicate";
+      if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+      return { archived: whole(value.archived, what), merged: whole(value.merged, what), archive: text(value.archive, what) };
+    },
     tidyFolder: async (rootId, folder) => {
       const value: unknown = await invoke("library_tidy_folder", { rootId, folder }).catch((error: unknown) => { throw failure(error); });
       const what = "tidied folder";

@@ -282,9 +282,24 @@ describe("managing folders", () => {
     }
   });
 
+  it("reads lookup keys by their endings only and saves them by service name", async () => {
+    const keys = { discogs: { saved: true, ending: "wxyz" }, acoustid: { saved: false, ending: null }, note: "Discogs accepted the token." };
+    const invoke = vi.fn().mockResolvedValue(keys);
+    const admin = new TauriLibraryApi(invoke, manage).admin!;
+    expect(await admin.lookupKeys()).toEqual(keys);
+    expect(await admin.setLookupKey("discogs", "token-wxyz")).toEqual(keys);
+    expect(await admin.setLookupKey("acoustid", null)).toEqual(keys);
+    expect(invoke.mock.calls).toEqual([
+      ["lookup_keys"],
+      ["lookup_set_key", { serviceName: "discogs", value: "token-wxyz" }],
+      ["lookup_set_key", { serviceName: "acoustid", value: null }],
+    ]);
+    await expect(new TauriLibraryApi(vi.fn().mockResolvedValue({ ...keys, discogs: { saved: "yes" } }), manage).admin!.lookupKeys()).rejects.toThrow("unreadable");
+  });
+
   it("asks MusicBrainz only through the lookup command and reads its suggestions", async () => {
     const answer = {
-      found: { title: "Between Spaces", artist: "Studio 001", year: 2019, label: "Test Label", tracks: 2, url: "https://musicbrainz.org/release/x" },
+      found: { source: "Discogs", genre: "Techno", title: "Between Spaces", artist: "Studio 001", year: 2019, label: "Test Label", tracks: 2, url: "https://musicbrainz.org/release/x" },
       files: [{ source: "R/a.flac", matchedBy: "title", changes: [{ field: "Track", from: null, to: "2" }] }],
       note: null,
     };
@@ -303,7 +318,7 @@ describe("managing folders", () => {
     const health = {
       files: 5,
       untidy: [{ rootId: 7, rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
-      duplicates: [{ artist: "Studio 001", title: "Soft Focus", files: ["a/x.aif", "b/x.aif"] }],
+      duplicates: [{ artist: "Studio 001", title: "Soft Focus", files: ["a/x.aif", "b/x.aif"], fileIds: [3, 4] }],
     };
     const invoke = vi.fn().mockResolvedValue(health);
     expect(await new TauriLibraryApi(invoke, manage).admin!.checkLibrary()).toEqual(health);

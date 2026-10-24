@@ -256,6 +256,178 @@ pub fn relocate(
     Ok(backup)
 }
 
+/// Two entries in rekordbox for the same recording: `dropped` gives way to `kept`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Duplicate {
+    pub kept: String,
+    pub dropped: String,
+}
+
+fn ids(connection: &rusqlite::Connection, sql: &str, key: &str) -> Result<Vec<String>, DbError> {
+    let mut statement = connection.prepare(sql)?;
+    let found = statement
+        .query_map(params![key], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(found)
+}
+
+const PLAYLISTS_OF: &str =
+    "SELECT DISTINCT PlaylistID FROM djmdSongPlaylist WHERE ContentID = ?1 AND rb_local_deleted = 0";
+const MEMBERS_OF: &str =
+    "SELECT ContentID FROM djmdSongPlaylist WHERE PlaylistID = ?1 AND rb_local_deleted = 0 ORDER BY TrackNo, ID";
+const TAGS_OF: &str =
+    "SELECT MyTagID FROM djmdSongMyTag WHERE ContentID = ?1 AND rb_local_deleted = 0 ORDER BY TrackNo, MyTagID";
+
+fn count(connection: &rusqlite::Connection, sql: &str, key: &str) -> Result<i64, DbError> {
+    Ok(connection.query_row(sql, params![key], |row| row.get(0))?)
+}
+
+/// Merge duplicate entries in rekordbox. Every playlist holding the dropped entry gets the kept
+/// one in the same place (or keeps the one it already has); the kept entry gains the dropped one's
+/// My Tags, and its rating when it has none; then the dropped entry is removed (rekordbox's own
+/// soft delete). Refused before anything is written when the dropped entry has cues the kept one
+/// lacks, or sits in a playlist that holds a track twice. A backup comes first, and any failure
+/// after it puts rekordbox back. Returns the backup.
+pub fn merge_duplicates(
+    location: &LibraryLocation,
+    backups: &Path,
+    running: bool,
+    now_ms: i64,
+    merges: &[Duplicate],
+) -> Result<Snapshot, DbError> {
+    if running {
+        return Err(refused(
+            "rekordbox is running. Quit it (and wait for its agent to stop) first.",
+        ));
+    }
+    let known: Vec<Member> = merges
+        .iter()
+        .flat_map(|merge| {
+            [
+                Member::Known(merge.kept.clone()),
+                Member::Known(merge.dropped.clone()),
+            ]
+        })
+        .collect();
+    check_before(location, None, &known)?;
+    {
+        let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
+        let connection = library.connection();
+        let cues = "SELECT COUNT(*) FROM djmdCue WHERE ContentID = ?1 AND rb_local_deleted = 0";
+        for merge in merges {
+            if merge.kept == merge.dropped {
+                return Err(refused("A track cannot be merged with itself."));
+            }
+            if count(connection, cues, &merge.dropped)? > 0
+                && count(connection, cues, &merge.kept)? == 0
+            {
+                return Err(refused(&format!(
+                    "Track {} has cues the copy kept lacks. Keep that copy instead, or set the cues \
+                     on the other in rekordbox first. Nothing was changed.",
+                    merge.dropped
+                )));
+            }
+            for playlist in ids(connection, PLAYLISTS_OF, &merge.dropped)? {
+                let members = ids(connection, MEMBERS_OF, &playlist)?;
+                let distinct: std::collections::HashSet<&String> = members.iter().collect();
+                if distinct.len() != members.len() {
+                    return Err(refused(&format!(
+                        "Playlist {playlist} holds a track more than once; merging there could lose \
+                         a place. Nothing was changed."
+                    )));
+                }
+            }
+        }
+    }
+    let backup = take_snapshot(location, backups, "before-write", false, now_ms)?;
+    let written = (|| {
+        let mut writer = Writer::open(location.clone(), backups)?;
+        writer.disable_automatic_backups();
+        let mut places: Vec<(String, String)> = Vec::new();
+        for merge in merges {
+            let connection = writer.library().connection();
+            let playlists = ids(connection, PLAYLISTS_OF, &merge.dropped)?;
+            let mut orders = Vec::with_capacity(playlists.len());
+            for playlist in &playlists {
+                let members = ids(connection, MEMBERS_OF, playlist)?;
+                let holds_kept = members.contains(&merge.kept);
+                let order: Vec<String> = members
+                    .into_iter()
+                    .filter_map(|id| {
+                        if id != merge.dropped {
+                            Some(id)
+                        } else if holds_kept {
+                            None
+                        } else {
+                            Some(merge.kept.clone())
+                        }
+                    })
+                    .collect();
+                orders.push((playlist.clone(), order));
+            }
+            let mut tags = ids(connection, TAGS_OF, &merge.kept)?;
+            let before = tags.len();
+            for tag in ids(connection, TAGS_OF, &merge.dropped)? {
+                if !tags.contains(&tag) {
+                    tags.push(tag);
+                }
+            }
+            let rating = |content: &str| -> Result<i64, DbError> {
+                count(
+                    connection,
+                    "SELECT COALESCE(Rating, 0) FROM djmdContent WHERE ID = ?1",
+                    content,
+                )
+            };
+            let (kept_rating, dropped_rating) = (rating(&merge.kept)?, rating(&merge.dropped)?);
+            for (playlist, order) in &orders {
+                writer.set_tracks(playlist, order)?;
+                places.push((playlist.clone(), merge.kept.clone()));
+            }
+            if tags.len() != before {
+                writer.set_my_tags(&merge.kept, &tags)?;
+            }
+            if kept_rating == 0 && dropped_rating > 0 {
+                writer.set_rating(
+                    &merge.kept,
+                    u8::try_from(dropped_rating.min(5)).unwrap_or(5),
+                )?;
+            }
+            writer.delete_tracks(std::slice::from_ref(&merge.dropped))?;
+        }
+        drop(writer);
+        let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
+        let connection = library.connection();
+        for merge in merges {
+            let live = "SELECT COUNT(*) FROM djmdContent WHERE ID = ?1 AND rb_local_deleted = 0";
+            if count(connection, live, &merge.dropped)? != 0 {
+                return Err(DbError::WriteRefused(format!(
+                    "After writing, track {} is still in rekordbox.",
+                    merge.dropped
+                )));
+            }
+        }
+        for (playlist, kept) in &places {
+            if !ids(connection, MEMBERS_OF, playlist)?.contains(kept) {
+                return Err(DbError::WriteRefused(format!(
+                    "After writing, playlist {playlist} does not hold track {kept}."
+                )));
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = written {
+        if let Err(undo) = super::restore(&backup.dir, location, backups, false, now_ms + 1) {
+            return Err(DbError::WriteRefused(format!(
+                "{error} Putting rekordbox back from the backup also failed ({undo}); restore it \
+                 from Settings."
+            )));
+        }
+        return Err(error);
+    }
+    Ok(backup)
+}
+
 /// A path as rekordbox stores it: with forward slashes on Windows, as rekordbox writes its own.
 fn stored_form(path: &Path) -> PathBuf {
     if cfg!(windows) {

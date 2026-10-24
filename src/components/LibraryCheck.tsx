@@ -1,10 +1,25 @@
 import { useState } from "react";
-import type { LibraryAdmin, LibraryHealth, TidiedFolder } from "../library/types";
+import type { DuplicateCopies, LibraryAdmin, LibraryHealth, ResolvedDuplicate, TidiedFolder } from "../library/types";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 type Untidy = LibraryHealth["untidy"][number];
+type Duplicate = LibraryHealth["duplicates"][number];
+
+/** A copy's facts: format, then what rekordbox has for it. */
+function facts(copy: DuplicateCopies["copies"][number]): string {
+  const parts = [copy.format];
+  if (copy.inRekordbox) {
+    parts.push("in rekordbox");
+    if (copy.analysed) parts.push("analysed");
+    if (copy.cues > 0) parts.push(plural(copy.cues, "cue", "cues"));
+    if (copy.playlists > 0) parts.push(`in ${plural(copy.playlists, "playlist", "playlists")}`);
+  } else {
+    parts.push("not in rekordbox");
+  }
+  return parts.join(", ");
+}
 
 /** Settings: a look for folders named from untidy tags and recordings filed twice, and tidying
  * a folder when asked. */
@@ -15,6 +30,37 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
   const [confirming, setConfirming] = useState<Untidy | null>(null);
   const [tidied, setTidied] = useState<TidiedFolder | null>(null);
   const [tidyError, setTidyError] = useState("");
+  const [resolving, setResolving] = useState<{ duplicate: Duplicate; copies: DuplicateCopies | null; keep: number | null } | null>(null);
+  const [resolved, setResolved] = useState<ResolvedDuplicate | null>(null);
+
+  const openResolve = async (duplicate: Duplicate) => {
+    setResolving({ duplicate, copies: null, keep: null });
+    setResolved(null);
+    setTidyError("");
+    try {
+      const copies = await admin.duplicateCopies(duplicate.fileIds);
+      setResolving({ duplicate, copies, keep: copies.suggested });
+    } catch (reason) {
+      setTidyError(message(reason));
+      setResolving(null);
+    }
+  };
+  const resolve = async () => {
+    if (!resolving?.copies || resolving.keep === null) return;
+    const keep = resolving.keep;
+    setChecking(true);
+    setTidyError("");
+    try {
+      setResolved(await admin.resolveDuplicate(keep, resolving.copies.copies.map((copy) => copy.fileId).filter((id) => id !== keep)));
+      setResolving(null);
+      setHealth(await admin.checkLibrary());
+      onChanged?.();
+    } catch (reason) {
+      setTidyError(message(reason));
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const tidy = async (folder: Untidy) => {
     setChecking(true);
@@ -50,6 +96,7 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
     {error && <p role="alert" className="inline-error">{error}</p>}
     {health && <div className="library-check" role="region" aria-label="Library check results">
       {tidyError && <p role="alert" className="inline-error">{tidyError}</p>}
+      {resolved && <p role="status" className="settings-copy">{`${plural(resolved.archived, "copy", "copies")} moved to ${resolved.archive}${resolved.merged > 0 ? `; ${resolved.merged} merged into the kept copy in rekordbox` : ""}.`}</p>}
       {tidied && <div role="status" className="settings-copy">
         <p>{`Moved ${plural(tidied.moved, "file", "files")} to ${tidied.suggested}${tidied.relocated > 0 ? `; rekordbox was told where ${tidied.relocated} went` : ""}.`}</p>
         {tidied.left.length > 0 && <ul className="skipped-list">{tidied.left.map((why) => <li key={why}>{why}</li>)}</ul>}
@@ -73,7 +120,24 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
         <h4>{plural(health.duplicates.length, "recording is filed more than once", "recordings are filed more than once")}</h4>
         <ul className="check-list">{health.duplicates.map((item) => <li key={item.files.join("|")}>
           <strong>{item.title}</strong> <small>{item.artist}</small>
-          <ul>{item.files.map((file) => <li key={file}><code>{file}</code></li>)}</ul>
+          <button className="link-button" disabled={checking} aria-label={`Resolve ${item.title}`} onClick={() => void openResolve(item)}>Resolve...</button>
+          {resolving?.duplicate !== item && <ul>{item.files.map((file) => <li key={file}><code>{file}</code></li>)}</ul>}
+          {resolving?.duplicate === item && <div className="warning-panel" role="region" aria-label={`Which ${item.title} to keep?`}>
+            {!resolving.copies ? <p className="settings-copy" role="status">Reading rekordbox...</p> : <>
+              <p className="settings-copy">The copy kept stays where it is. The others move to an archive folder beside your music folder, never deleted. Where rekordbox has them, their playlist places, My Tags and rating go to the kept copy first (after a backup), then their entries are removed. rekordbox must be closed, with writing on in Settings.</p>
+              {resolving.copies.note && <p className="settings-copy">{resolving.copies.note}</p>}
+              <fieldset className="copy-choice"><legend className="sr-only">Copy to keep</legend>
+                {resolving.copies.copies.map((copy) => <label key={copy.fileId}>
+                  <input type="radio" name={`keep-${item.title}`} checked={resolving.keep === copy.fileId} onChange={() => setResolving({ ...resolving, keep: copy.fileId })} />
+                  <span><code>{copy.path}</code><small>{facts(copy)}</small></span>
+                </label>)}
+              </fieldset>
+              <div className="warning-actions">
+                <button className="import-button" disabled={checking || resolving.keep === null} onClick={() => void resolve()}>Keep this copy</button>
+                <button className="secondary-button" disabled={checking} onClick={() => setResolving(null)}>Cancel</button>
+              </div>
+            </>}
+          </div>}
         </li>)}</ul>
       </>}
     </div>}

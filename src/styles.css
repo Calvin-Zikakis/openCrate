@@ -428,3 +428,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .merge-sides { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: var(--secondary); }
 .merge-sides label { display: inline-flex; align-items: center; gap: 5px; }
 .merge-sides input { accent-color: var(--accent); }
+
+/* Lookup keys: a name and what it is for, then the field and its buttons. */
+.key-row { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.key-row label strong { display: block; font-size: 12px; font-weight: 500; }
+.key-row label small, .key-state { display: block; font-size: 11px; margin-top: 4px; color: var(--secondary); line-height: 1.5; }
+.key-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.key-controls input { flex: 1 1 200px; min-width: 0; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font-size: 12px; }
+
+/* Choosing which copy of a duplicate to keep. */
+.copy-choice { border: 0; padding: 0; margin: 8px 0; display: grid; gap: 8px; }
+.copy-choice label { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; }
+.copy-choice input { accent-color: var(--accent); margin-top: 2px; }
+.copy-choice small { display: block; color: var(--secondary); margin-top: 3px; }

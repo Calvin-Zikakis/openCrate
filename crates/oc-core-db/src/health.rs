@@ -26,6 +26,8 @@ pub struct Duplicate {
     pub title: String,
     /// Relative paths, `/`-separated.
     pub files: Vec<String>,
+    /// The library files, in the same order.
+    pub file_ids: Vec<i64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -46,6 +48,7 @@ struct Seen {
     path: String,
     artist: String,
     title: String,
+    file_id: i64,
 }
 
 fn shown(components: &[&[u8]]) -> String {
@@ -58,7 +61,7 @@ fn shown(components: &[&[u8]]) -> String {
 
 pub fn check(connection: &Connection) -> Result<Health> {
     let mut statement = connection.prepare(
-        "SELECT f.root_id, f.path_raw, a.name, t.title, COALESCE(f.duration_ms, t.duration_ms) \
+        "SELECT f.root_id, f.path_raw, a.name, t.title, COALESCE(f.duration_ms, t.duration_ms), f.id \
          FROM file f JOIN track t ON t.id = f.track_id JOIN artist a ON a.id = t.artist_id \
          WHERE f.presence = 'present' AND f.lifecycle = 'active' ORDER BY f.root_id, f.path_raw",
     )?;
@@ -69,13 +72,14 @@ pub fn check(connection: &Connection) -> Result<Health> {
             row.get::<_, String>(2)?,
             row.get::<_, String>(3)?,
             row.get::<_, i64>(4)?,
+            row.get::<_, i64>(5)?,
         ))
     })?;
     let mut health = Health::default();
     let mut folders: BTreeMap<(i64, String), (String, usize)> = BTreeMap::new();
     let mut recordings: BTreeMap<(String, String), Vec<Seen>> = BTreeMap::new();
     for row in rows {
-        let (root_id, path, artist, title, length) = row?;
+        let (root_id, path, artist, title, length, file_id) = row?;
         health.files += 1;
         let components: Vec<&[u8]> = path.split(|byte| *byte == 0).collect();
         let Some((_, directories)) = components.split_last() else {
@@ -100,6 +104,7 @@ pub fn check(connection: &Connection) -> Result<Health> {
             path: shown(&components),
             artist,
             title,
+            file_id,
         });
     }
     health.untidy = folders
@@ -121,6 +126,7 @@ pub fn check(connection: &Connection) -> Result<Health> {
                     artist: group[0].artist.clone(),
                     title: group[0].title.clone(),
                     files: group.iter().map(|item| item.path.clone()).collect(),
+                    file_ids: group.iter().map(|item| item.file_id).collect(),
                 });
             }
             group.clear();
@@ -166,4 +172,81 @@ pub fn files_below(
         }
     }
     Ok(found)
+}
+
+/// One copy of a recording filed more than once, with what decides which to keep.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Copy {
+    pub file_id: i64,
+    pub root_id: i64,
+    /// Inside the music folder, as components.
+    pub relative: Vec<Vec<u8>>,
+    pub container: String,
+    pub bitrate_kbps: Option<i64>,
+    /// rekordbox's id for it, from the last direct read.
+    pub rb_key: Option<String>,
+    /// rekordbox has analysed it: it has a tempo (a direct read) or beat grid points (an export).
+    pub analysed: bool,
+    pub cues: i64,
+    /// rekordbox playlists it is in.
+    pub playlists: i64,
+}
+
+pub fn copy_of(connection: &Connection, file_id: i64) -> Result<Option<Copy>> {
+    use rusqlite::OptionalExtension;
+    let found = connection
+        .query_row(
+            "SELECT f.root_id, f.path_raw, f.container, f.bitrate_kbps FROM file f \
+             WHERE f.id = ?1 AND f.presence = 'present' AND f.lifecycle = 'active'",
+            [file_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((root_id, path, container, bitrate_kbps)) = found else {
+        return Ok(None);
+    };
+    let rekordbox: Option<(i64, i64, bool)> = connection
+        .query_row(
+            "SELECT t.id, t.rb_key, COALESCE(t.bpm, 0) > 0 FROM rb_track t \
+             JOIN rb_source s ON s.id = t.rb_source_id \
+             WHERE t.file_id = ?1 AND s.kind = 'master_db' AND t.match_status = 'matched' \
+             ORDER BY t.rb_key LIMIT 1",
+            [file_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let count = |sql: &str, key: i64| -> Result<i64> {
+        Ok(connection.query_row(sql, [key], |row| row.get(0))?)
+    };
+    let (analysed, cues, playlists) = match rekordbox {
+        Some((row, key, tempo)) => (
+            tempo || count("SELECT COUNT(*) FROM rb_tempo WHERE rb_track_id = ?1", row)? > 0,
+            count("SELECT COUNT(*) FROM rb_cue WHERE rb_track_id = ?1", row)?,
+            count(
+                "SELECT COUNT(DISTINCT i.playlist_id) FROM playlist_item i \
+                 JOIN playlist p ON p.id = i.playlist_id JOIN rb_source s ON s.id = p.rb_source_id \
+                 WHERE i.rb_key = ?1 AND s.kind = 'master_db'",
+                key,
+            )?,
+        ),
+        None => (false, 0, 0),
+    };
+    Ok(Some(Copy {
+        file_id,
+        root_id,
+        relative: path.split(|byte| *byte == 0).map(<[u8]>::to_vec).collect(),
+        container,
+        bitrate_kbps,
+        rb_key: rekordbox.map(|(_, key, _)| key.to_string()),
+        analysed,
+        cues,
+        playlists,
+    }))
 }

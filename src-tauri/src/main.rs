@@ -67,7 +67,7 @@ struct AppState {
     scan: Arc<folders::ScanControl>,
     downloads: Arc<downloads::DownloadWatch>,
     art: Arc<artwork::ArtCache>,
-    musicbrainz: Arc<lookup::MusicBrainz>,
+    lookups: Arc<lookup::Lookups>,
     /// Started with the app; the sound device opens when the first track loads.
     player: Arc<oc_player::Player>,
     /// Close-up waveforms of the last few tracks played.
@@ -88,7 +88,7 @@ impl AppState {
             scan: Arc::default(),
             downloads: Arc::default(),
             art: Arc::default(),
-            musicbrainz: Arc::default(),
+            lookups: Arc::default(),
             player: Arc::new(oc_player::Player::start()),
             waves: Arc::default(),
             persistent: false,
@@ -443,6 +443,60 @@ async fn library_tidy_folder(
     .map_err(|error| error.to_string())?
 }
 
+/// The copies of a recording filed more than once, and which to keep by the rule.
+#[tauri::command]
+async fn library_duplicate_copies(
+    state: State<'_, AppState>,
+    file_ids: Vec<i64>,
+) -> Result<library_fix::CopiesDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        library_fix::duplicate_copies(&service, &rekordbox_db::Probe::installed(), &file_ids)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Keep one copy of a duplicate: the others are archived and merged in rekordbox.
+#[tauri::command]
+async fn library_resolve_duplicate(
+    state: State<'_, AppState>,
+    keep: i64,
+    drop: Vec<i64>,
+) -> Result<library_fix::ResolvedDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        library_fix::resolve_duplicate(&service, &rekordbox_db::Probe::installed(), keep, &drop)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Which lookup keys are saved, by their last four characters only.
+#[tauri::command]
+async fn lookup_keys(state: State<'_, AppState>) -> Result<lookup::KeysDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || lookup::keys_status(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Save or clear the owner's key for a lookup service ("discogs" or "acoustid").
+#[tauri::command]
+async fn lookup_set_key(
+    state: State<'_, AppState>,
+    service_name: String,
+    value: Option<String>,
+) -> Result<lookup::KeysDto, String> {
+    let service = state.library()?;
+    let lookups = Arc::clone(&state.lookups);
+    tauri::async_runtime::spawn_blocking(move || {
+        lookup::set_key(&service, &lookups, &service_name, value)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// How imported music is arranged, the presets, and whether converting is possible.
 #[tauri::command]
 async fn library_folder_layout(state: State<'_, AppState>) -> Result<layout::LayoutDto, String> {
@@ -463,7 +517,7 @@ async fn library_set_folder_layout(
         .map_err(|error| error.to_string())?
 }
 
-/// Look a release up in MusicBrainz and suggest tag values for its files. Only on request;
+/// Look a release up (MusicBrainz, and Discogs with a token) and suggest tag values for its files. Only on request;
 /// nothing is written.
 #[tauri::command]
 async fn library_lookup_release(
@@ -474,7 +528,7 @@ async fn library_lookup_release(
     options: Option<plan::ImportOptions>,
 ) -> Result<lookup::LookupDto, String> {
     let service = state.library()?;
-    let client = Arc::clone(&state.musicbrainz);
+    let client = Arc::clone(&state.lookups);
     let options = options.unwrap_or_default();
     tauri::async_runtime::spawn_blocking(move || {
         lookup::lookup_release(&service, &client, folder_id, &name, root_id, options)
@@ -1090,6 +1144,10 @@ fn main() -> Result<(), tauri::Error> {
             rekordbox_merge_review,
             rekordbox_merge_apply,
             library_tidy_folder,
+            lookup_keys,
+            library_duplicate_copies,
+            library_resolve_duplicate,
+            lookup_set_key,
             rekordbox_backups,
             rekordbox_backup_pin,
             rekordbox_restore,

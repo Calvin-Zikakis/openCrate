@@ -182,7 +182,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_lookup_release":
               if (args?.name === "Second Light") throw "MusicBrainz is busy right now. Try again in a minute.";
               return {
-                found: { title: "Between Spaces", artist: "Studio 001", year: 2019, label: "Test Label", tracks: 2, url: "https://musicbrainz.org/release/0b1d" },
+                found: { source: "MusicBrainz", title: "Between Spaces", artist: "Studio 001", year: 2019, label: "Test Label", genre: null, tracks: 2, url: "https://musicbrainz.org/release/0b1d" },
                 note: null,
                 files: [
                   { source: `${args?.name}/01.flac`, matchedBy: "track number and title", changes: [{ field: "Title", from: "Studio 001 - Night Drive.mp3", to: "Night Drive" }, { field: "Year", from: null, to: "2019" }] },
@@ -226,6 +226,31 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               (window as any).__volume = player.volume;
               return playerState();
             }
+            case "lookup_keys":
+            case "lookup_set_key": {
+              const store = ((window as any).__keys ??= { discogs: null, acoustid: null }) as Record<string, string | null>;
+              let note: string | null = null;
+              if (command === "lookup_set_key") {
+                const value = typeof args?.value === "string" && args.value.trim() ? args.value.trim() : null;
+                if (args?.serviceName === "discogs" && value === "bad") throw "Discogs did not accept that token. Copy it again from Discogs, Settings, Developers.";
+                store[args?.serviceName] = value;
+                note = args?.serviceName === "discogs" && value ? "Discogs accepted the token." : null;
+              }
+              const key = (value: string | null) => ({ saved: value !== null, ending: value === null ? null : value.slice(-4) });
+              return { discogs: key(store.discogs ?? null), acoustid: key(store.acoustid ?? null), note };
+            }
+            case "library_duplicate_copies":
+              return {
+                suggested: 11, note: null,
+                copies: [
+                  { fileId: 11, path: "Studio 001/Between Spaces/02 - Soft Focus.aif", format: "AIFF", inRekordbox: true, analysed: true, cues: 4, playlists: 2 },
+                  { fileId: 12, path: "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif", format: "MP3, 320 kbps", inRekordbox: true, analysed: true, cues: 0, playlists: 1 },
+                ],
+              };
+            case "library_resolve_duplicate":
+              if (!(window as any).__rbWriting) throw "rekordbox has a copy that would go, so it has to be told. Writing to rekordbox is off. Turn it on in Settings.";
+              (window as any).__resolved = { keep: args?.keep, drop: args?.drop };
+              return { archived: 1, merged: 1, archive: "/Users/dj/Music/openCrate archive/Music" };
             case "library_tidy_folder":
               if (!(window as any).__rbWriting) throw "rekordbox uses files in this folder, so it has to be told where they go. Writing to rekordbox is off. Turn it on in Settings.";
               (window as any).__tidied = [...((window as any).__tidied ?? []), { rootId: args?.rootId, folder: args?.folder }];
@@ -234,7 +259,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return {
                 files: 10,
                 untidy: (window as any).__tidied ? [] : [{ rootId: 7, rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
-                duplicates: [{ artist: "Studio 001", title: "Soft Focus", files: ["Studio 001/Between Spaces/02 - Soft Focus.aif", "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"] }],
+                duplicates: (window as any).__resolved ? [] : [{ artist: "Studio 001", title: "Soft Focus", files: ["Studio 001/Between Spaces/02 - Soft Focus.aif", "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"], fileIds: [11, 12] }],
               };
             case "library_folder_layout":
               return layoutOut();
@@ -997,11 +1022,11 @@ test("import all: a lookup on request suggests values, and only ticked files sen
   await page.getByRole("button", { name: "Import all 2 finished releases..." }).click();
   const review = page.getByRole("region", { name: "Before importing" });
   expect((await calls(page)).filter((call) => call.command === "library_lookup_release")).toHaveLength(0);
-  await review.getByRole("button", { name: "Look up 2 releases on MusicBrainz" }).click();
-  const found = review.getByRole("group", { name: "MusicBrainz: Between Spaces" });
-  await expect(found).toContainText('Found "Between Spaces" by Studio 001 (2019, Test Label), 2 tracks.');
+  await review.getByRole("button", { name: "Look up 2 releases" }).click();
+  const found = review.getByRole("group", { name: "Lookup: Between Spaces" });
+  await expect(found).toContainText('Found on MusicBrainz: "Between Spaces" by Studio 001 (2019, Test Label), 2 tracks.');
   await expect(found.getByText("Night Drive", { exact: true })).toBeVisible();
-  await expect(review.getByRole("group", { name: "MusicBrainz: Second Light" })).toContainText("MusicBrainz is busy right now");
+  await expect(review.getByRole("group", { name: "Lookup: Second Light" })).toContainText("MusicBrainz is busy right now");
   await found.getByRole("checkbox", { name: /03\.flac/ }).uncheck();
   await review.getByRole("button", { name: "Import 3 files" }).click();
   await expect(page.getByText("3 files are now in your music folder.")).toBeVisible();
@@ -1009,6 +1034,26 @@ test("import all: a lookup on request suggests values, and only ticked files sen
   expect(sent[0]!.args.options.accepted).toEqual([{ source: "Between Spaces/01.flac", title: "Night Drive", year: 2019 }]);
   expect(sent[1]!.args.options.accepted).toBeUndefined();
   expect((await calls(page)).filter((call) => call.command === "library_lookup_release").map((call) => call.args.name)).toEqual(["Between Spaces", "Second Light"]);
+});
+
+test("settings: lookup keys are saved, shown only by their ending, refused when bad, and removed", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  const discogs = dialog.locator("#key-discogs");
+  await expect(discogs).toHaveAttribute("type", "password");
+  await expect(discogs).toHaveAttribute("placeholder", "Not set");
+  await discogs.fill("bad");
+  await discogs.locator("xpath=..").getByRole("button", { name: "Save" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Discogs did not accept that token");
+  await discogs.fill("my-token-wxyz");
+  await discogs.locator("xpath=..").getByRole("button", { name: "Save" }).click();
+  await expect(dialog.getByRole("status").filter({ hasText: "Discogs accepted the token." })).toBeVisible();
+  await expect(discogs).toHaveAttribute("placeholder", "Saved, ending in wxyz");
+  await expect(discogs).toHaveValue("");
+  await dialog.getByRole("button", { name: "Remove the Discogs personal token" }).click();
+  await expect(discogs).toHaveAttribute("placeholder", "Not set");
 });
 
 test("library check: untidy folder names and recordings filed twice are listed, read only", async ({ page }) => {
@@ -1025,6 +1070,26 @@ test("library check: untidy folder names and recordings filed twice are listed, 
   await expect(results.getByText("Studio 001;Guest/Between Spaces/02 - Soft Focus.aif")).toBeVisible();
   const sent = (await calls(page)).map((call) => call.command);
   expect(sent.filter((command) => /move|rename|delete|remove/.test(command))).toEqual([]);
+});
+
+test("library check: a duplicate is resolved by keeping the analysed copy, after a look at each", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbWriting = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("button", { name: "Check library" }).click();
+  const results = dialog.getByRole("region", { name: "Library check results" });
+  await results.getByRole("button", { name: "Resolve Soft Focus" }).click();
+  const panel = results.getByRole("region", { name: "Which Soft Focus to keep?" });
+  const first = panel.getByRole("radio", { name: /Studio 001\/Between Spaces\/02 - Soft Focus.aif/ });
+  await expect(first).toBeChecked();
+  await expect(panel).toContainText("AIFF, in rekordbox, analysed, 4 cues, in 2 playlists");
+  await expect(panel).toContainText("MP3, 320 kbps, in rekordbox, analysed, in 1 playlist");
+  await panel.getByRole("button", { name: "Keep this copy" }).click();
+  await expect(results.getByRole("status")).toContainText("1 copy moved to /Users/dj/Music/openCrate archive/Music; 1 merged into the kept copy in rekordbox.");
+  expect(await page.evaluate(() => (window as any).__resolved)).toEqual({ keep: 11, drop: [12] });
+  await expect(results.getByRole("heading", { name: /filed more than once/ })).toHaveCount(0);
 });
 
 test("library check: an untidy folder is tidied after a confirmation, and rekordbox follows", async ({ page }) => {
