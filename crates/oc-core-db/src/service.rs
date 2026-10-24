@@ -454,6 +454,19 @@ impl LibraryService {
             .collect())
     }
 
+    /// Every release with a present file: id, artist and title, for checking album art.
+    pub fn releases_all(&self) -> Result<Vec<(i64, String, String)>> {
+        let lease = self.pool.lease();
+        let mut statement = lease.connection().prepare(
+            "SELECT r.id, a.name, r.title FROM release r JOIN artist a ON a.id = r.artist_id \
+             WHERE EXISTS (SELECT 1 FROM track t JOIN file f ON f.track_id = t.id \
+             WHERE t.release_id = r.id AND f.presence = 'present' AND f.lifecycle = 'active') \
+             ORDER BY r.artist_key, r.sort_key, r.id",
+        )?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Where a release's audio files are on disk, album order first, for reading cover art.
     /// Only files the index lists as present; at most `limit` of them.
     pub fn release_files(&self, release_id: i64, limit: usize) -> Result<Vec<PathBuf>> {

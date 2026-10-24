@@ -121,11 +121,55 @@ pub enum TextTag {
 /// and then takes the file's place in one rename. On any failure the copy is removed and the
 /// file is exactly as it was.
 pub fn rewrite_tags(path: &Path, changes: &[(TextTag, String)]) -> Result<(), ReadError> {
+    rewrite_through_copy(path, |copy| retag_copy(path, copy, changes))
+}
+
+/// Set a file's front cover to `cover`, replacing any picture it had; `None` removes every
+/// picture. Through a copy, as [`rewrite_tags`].
+pub fn rewrite_cover(path: &Path, cover: Option<&Cover>) -> Result<(), ReadError> {
+    rewrite_through_copy(path, |copy| {
+        std::fs::copy(path, copy)?;
+        let file = std::fs::File::open(copy)?;
+        let mut tagged = Probe::new(std::io::BufReader::new(file))
+            .options(ParseOptions::new().read_cover_art(true))
+            .guess_file_type()?
+            .read()
+            .map_err(|error| ReadError::Parse(error.to_string()))?;
+        if tagged.primary_tag().is_none() {
+            tagged.insert_tag(Tag::new(tagged.primary_tag_type()));
+        }
+        let Some(tag) = tagged.primary_tag_mut() else {
+            return Err(ReadError::Parse("this file cannot hold tags".into()));
+        };
+        while tag.picture_count() > 0 {
+            tag.remove_picture(0);
+        }
+        if let Some(cover) = cover {
+            tag.push_picture(Picture::new_unchecked(
+                PictureType::CoverFront,
+                Some(MimeType::from_str(cover.mime)),
+                Some("Cover".into()),
+                cover.data.clone(),
+            ));
+        }
+        let mut options = WriteOptions::default();
+        tagged
+            .save_to_path(copy, options.use_id3v23(true))
+            .map_err(|error| ReadError::Parse(error.to_string()))
+    })
+}
+
+/// `edit` fills a copy beside the file; the copy is flushed and takes the file's place in one
+/// rename. On any failure the copy is removed and the file is exactly as it was.
+fn rewrite_through_copy(
+    path: &Path,
+    edit: impl FnOnce(&Path) -> Result<(), ReadError>,
+) -> Result<(), ReadError> {
     let name = path
         .file_name()
         .ok_or_else(|| ReadError::Parse("not a file".into()))?;
     let copy = path.with_file_name(format!(".opencrate-retag-{}", name.to_string_lossy()));
-    let result = retag_copy(path, &copy, changes).and_then(|()| {
+    let result = edit(&copy).and_then(|()| {
         // Flushing needs write access on Windows.
         std::fs::OpenOptions::new()
             .write(true)
@@ -297,6 +341,51 @@ mod tests {
         let tags = read_file(&path).unwrap().tags;
         assert_eq!((tags.genre, tags.track_number), (None, None));
         assert!(rewrite_tags(&path, &[(TextTag::TrackNumber, "seven".into())]).is_err());
+    }
+
+    #[test]
+    fn a_cover_is_embedded_replaced_and_removed_through_a_copy() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("c.aif");
+        fs::write(&path, aiff(2)).unwrap();
+        fixture_tags(
+            &path,
+            &TagInfo {
+                title: Some("Night Drive".into()),
+                ..TagInfo::default()
+            },
+        );
+        assert_eq!(embedded_cover(&path), None);
+        let png = Cover {
+            mime: "image/png",
+            data: PNG.to_vec(),
+        };
+        rewrite_cover(&path, Some(&png)).unwrap();
+        assert_eq!(embedded_cover(&path).unwrap().mime, "image/png");
+        let jpeg = Cover {
+            mime: "image/jpeg",
+            data: vec![
+                0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, b'J', b'F', b'I', b'F', 0, 1,
+            ],
+        };
+        rewrite_cover(&path, Some(&jpeg)).unwrap();
+        let found = embedded_cover(&path).unwrap();
+        assert_eq!(
+            found.mime, "image/jpeg",
+            "the old picture is replaced, not kept beside"
+        );
+        assert_eq!(
+            read_file(&path).unwrap().tags.title.as_deref(),
+            Some("Night Drive"),
+            "tags stay"
+        );
+        rewrite_cover(&path, None).unwrap();
+        assert_eq!(embedded_cover(&path), None);
+        assert_eq!(
+            fs::read_dir(folder.path()).unwrap().count(),
+            1,
+            "no copy is left behind"
+        );
     }
 
     #[test]

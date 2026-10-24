@@ -45,6 +45,12 @@ impl ArtCache {
         }
     }
 
+    /// Forget a release after its files changed, so the next request reads them again.
+    pub fn forget(&self, release_id: i64) {
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        entries.remove(&release_id);
+    }
+
     fn store(&self, release_id: i64, cover: Option<Arc<Cover>>) {
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         if entries.len() >= MAX_ENTRIES {

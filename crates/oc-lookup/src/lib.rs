@@ -15,8 +15,8 @@ pub use discogs::{
 
 pub use matching::{normalized, suggest, FileFacts, Suggestion};
 pub use musicbrainz::{
-    parse_release, parse_search, pick, release_url, search_url, Candidate, Medium, Release, Track,
-    BASE, USER_AGENT,
+    cover_art_url, parse_release, parse_search, pick, release_url, search_url, Candidate, Medium,
+    Release, Track, BASE, USER_AGENT,
 };
 
 use thiserror::Error;

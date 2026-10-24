@@ -436,6 +436,18 @@ export interface GenreGroup { suggested: string; members: string[]; tracks: numb
 export interface Genres { genres: GenreCount[]; groups: GenreGroup[] }
 export interface TrackName { trackId: number; title: string; artist: string }
 
+/** A release whose files carry no picture. */
+export interface MissingArt {
+  releaseId: number;
+  artist: string;
+  title: string;
+  files: number;
+  /** An image such as cover.jpg sits beside the files. */
+  folderImage: boolean;
+}
+export type ArtSource = "folder" | "online" | "choose";
+export interface ArtChanged { files: number; left: string[] }
+
 /** What tidying a folder did. */
 export interface TidiedFolder {
   folder: string;
@@ -583,6 +595,12 @@ export interface LibraryAdmin {
   genres(): Promise<Genres>;
   /** Give every track with one of the genres `from` the genre `to`. */
   renameGenres(from: string[], to: string): Promise<EditedTracks>;
+  /** Releases whose files carry no picture. */
+  releasesWithoutArt(): Promise<MissingArt[]>;
+  /** Give a release a cover from beside its files, the Cover Art Archive, or the system picker (null when cancelled). */
+  setReleaseArt(releaseId: number, source: ArtSource): Promise<ArtChanged | null>;
+  /** Strip every picture from a release's files. */
+  removeReleaseArt(releaseId: number): Promise<ArtChanged>;
   /** Move a folder the check names to its tidy name; rekordbox follows the files it uses. */
   tidyFolder(rootId: number, folder: string): Promise<TidiedFolder>;
   folderLayout(): Promise<FolderLayout>;

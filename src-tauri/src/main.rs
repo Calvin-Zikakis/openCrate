@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod art_fix;
+#[cfg(test)]
+mod art_fix_tests;
 mod artwork;
 mod crates;
 mod downloads;
@@ -545,6 +548,81 @@ async fn library_rename_genres(
     tauri::async_runtime::spawn_blocking(move || editor::rename_genres(&service, &from, &to))
         .await
         .map_err(|error| error.to_string())?
+}
+
+/// Releases whose files carry no picture.
+#[tauri::command]
+async fn library_releases_without_art(
+    state: State<'_, AppState>,
+) -> Result<Vec<art_fix::MissingArtDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || art_fix::releases_without_art(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Give a release a cover: "folder" (the image beside its files), "online" (the Cover Art
+/// Archive), or "choose" (the system picker; the page never supplies a path). `None` means
+/// the picker was cancelled.
+#[tauri::command]
+async fn library_set_release_art(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    release_id: i64,
+    source: String,
+) -> Result<Option<art_fix::ArtChangedDto>, String> {
+    let service = state.library()?;
+    let (art, lookups) = (Arc::clone(&state.art), Arc::clone(&state.lookups));
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = match source.as_str() {
+            "folder" => art_fix::ArtSource::Folder,
+            "online" => {
+                let (artist, title) = service
+                    .releases_all()
+                    .map_err(|error| error.to_string())?
+                    .into_iter()
+                    .find(|(id, _, _)| *id == release_id)
+                    .map(|(_, artist, title)| (artist, title))
+                    .ok_or_else(|| "That release is no longer in the library.".to_owned())?;
+                let files = service
+                    .release_files(release_id, usize::MAX)
+                    .map_or(0, |found| found.len());
+                art_fix::ArtSource::Bytes(art_fix::find_online(&lookups, &artist, &title, files)?)
+            }
+            "choose" => {
+                let Some(picked) = app
+                    .dialog()
+                    .file()
+                    .set_title("Choose a cover image")
+                    .add_filter("Images", &["jpg", "jpeg", "png", "webp", "gif"])
+                    .blocking_pick_file()
+                else {
+                    return Ok(None);
+                };
+                let path = picked.into_path().map_err(|error| error.to_string())?;
+                art_fix::ArtSource::File(path)
+            }
+            other => return Err(format!("{other} is not a place a cover can come from.")),
+        };
+        art_fix::set_release_art(&service, &art, release_id, &source).map(Some)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Strip every picture from a release's files.
+#[tauri::command]
+async fn library_remove_release_art(
+    state: State<'_, AppState>,
+    release_id: i64,
+) -> Result<art_fix::ArtChangedDto, String> {
+    let service = state.library()?;
+    let art = Arc::clone(&state.art);
+    tauri::async_runtime::spawn_blocking(move || {
+        art_fix::remove_release_art(&service, &art, release_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Which lookup keys are saved, by their last four characters only.
@@ -1223,6 +1301,9 @@ fn main() -> Result<(), tauri::Error> {
             library_track_tags,
             library_edit_tracks,
             library_edit_each,
+            library_releases_without_art,
+            library_set_release_art,
+            library_remove_release_art,
             library_track_names,
             library_genres,
             library_rename_genres,

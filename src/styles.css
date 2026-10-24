@@ -470,3 +470,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 
 /* Clean up: a genre row holds its name, a field for the new one, and the button. */
 .genre-row input { flex: 0 1 220px; min-width: 0; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font-size: 12px; }
+
+/* Cover actions on a release page. */
+.cover-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-top: 10px; font-size: 11px; }
+.cover-actions small { color: var(--secondary); }

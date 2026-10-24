@@ -37,6 +37,17 @@ pub fn search_url(artist: &str, release: &str) -> String {
     )
 }
 
+/// The front cover the Cover Art Archive holds for a MusicBrainz release, 500 pixels across.
+/// No key is needed; the answer is a redirect to the image.
+#[must_use]
+pub fn cover_art_url(id: &str) -> String {
+    let id: String = id
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit() || *c == '-')
+        .collect();
+    format!("https://coverartarchive.org/release/{id}/front-500")
+}
+
 /// One release with its tracks, artists and labels.
 #[must_use]
 pub fn release_url(id: &str) -> String {

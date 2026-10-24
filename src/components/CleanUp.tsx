@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { proposeFixes, type ProposedFix } from "../library/cleanup";
-import type { Genres, LibraryAdmin } from "../library/types";
+import type { Genres, LibraryAdmin, MissingArt } from "../library/types";
 import { Icon } from "./Icon";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -25,6 +25,7 @@ export function CleanUp({ admin, onChanged }: Props) {
     </div>
     <GenresCard admin={admin} onChanged={onChanged} />
     <TitlesCard admin={admin} onChanged={onChanged} />
+    <ArtCard admin={admin} onChanged={onChanged} />
   </div>;
 }
 
@@ -158,6 +159,69 @@ function TitlesCard({ admin, onChanged }: Props) {
       </li>)}</ul>
       {found.length > DRAWN && <p className="settings-copy">{`And ${found.length - DRAWN} more, included while ticked.`}</p>}
       <button className="import-button" disabled={busy || ticked === 0} onClick={() => void apply()}>{busy ? "Cleaning up..." : `Clean up ${plural(ticked, "track", "tracks")}`}</button>
+    </>}
+  </section>;
+}
+
+function ArtCard({ admin, onChanged }: Props) {
+  const [missing, setMissing] = useState<MissingArt[] | null>(null);
+  const [busy, setBusy] = useState<number | "all" | null>(null);
+  const [notes, setNotes] = useState<Record<number, string>>({});
+  const [error, setError] = useState("");
+
+  const check = async () => {
+    setBusy("all");
+    setError("");
+    try {
+      setMissing(await admin.releasesWithoutArt());
+      setNotes({});
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const fill = async (release: MissingArt, source: "folder" | "online" | "choose") => {
+    setBusy(release.releaseId);
+    setError("");
+    try {
+      const done = await admin.setReleaseArt(release.releaseId, source);
+      if (done) {
+        setNotes({ ...notes, [release.releaseId]: `${plural(done.files, "file", "files")} now ${done.files === 1 ? "has" : "have"} the cover.${done.left.length > 0 ? ` ${plural(done.left.length, "file was", "files were")} left as they were.` : ""}` });
+        setMissing((before) => before?.filter((found) => found.releaseId !== release.releaseId) ?? null);
+        onChanged();
+      }
+    } catch (reason) {
+      setNotes({ ...notes, [release.releaseId]: message(reason) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const fillAllFromFolders = async () => {
+    if (!missing) return;
+    for (const release of missing.filter((found) => found.folderImage)) await fill(release, "folder");
+  };
+  const withFolder = missing?.filter((found) => found.folderImage).length ?? 0;
+
+  return <section className="sync-card" role="region" aria-label="Album art">
+    <h2>Album art</h2>
+    <p className="settings-copy">Finds releases whose files carry no picture. A cover can come from an image beside the files (cover.jpg and the like), from the Cover Art Archive (needs no key; one request a second), or from an image you choose. It goes into every file of the release.</p>
+    <button className="secondary-button" disabled={busy !== null} onClick={() => void check()}>{missing ? "Check again" : "Check album art"}</button>
+    {error && <p role="alert" className="inline-error">{error}</p>}
+    {missing && missing.length === 0 && <p className="settings-copy">Every release has a cover.</p>}
+    {missing && missing.length > 0 && <>
+      <p className="settings-copy">{`${plural(missing.length, "release has", "releases have")} no cover${withFolder > 0 ? `; ${withFolder} ${withFolder === 1 ? "has" : "have"} an image beside the files` : ""}.`}</p>
+      {withFolder > 1 && <button className="import-button" disabled={busy !== null} onClick={() => void fillAllFromFolders()}>{`Use the folder image for all ${withFolder}`}</button>}
+      <ul className="folder-list" aria-label="Releases without art">{missing.slice(0, DRAWN).map((release) => <li key={release.releaseId} className="folder-row">
+        <div className="folder-text">
+          <strong>{release.title}</strong>
+          <small>{`${release.artist} - ${plural(release.files, "file", "files")}`}{notes[release.releaseId] ? ` - ${notes[release.releaseId]}` : ""}</small>
+        </div>
+        {release.folderImage && <button className="secondary-button" disabled={busy !== null} aria-label={`Use the folder image for ${release.title}`} onClick={() => void fill(release, "folder")}>Use folder image</button>}
+        <button className="secondary-button" disabled={busy !== null} aria-label={`Find a cover online for ${release.title}`} onClick={() => void fill(release, "online")}>Find online</button>
+        <button className="secondary-button" disabled={busy !== null} aria-label={`Choose an image for ${release.title}`} onClick={() => void fill(release, "choose")}>Choose image...</button>
+      </li>)}</ul>
+      {missing.length > DRAWN && <p className="settings-copy">{`And ${missing.length - DRAWN} more.`}</p>}
     </>}
   </section>;
 }

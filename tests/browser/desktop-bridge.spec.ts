@@ -272,6 +272,20 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_edit_each":
               (window as any).__editEach = args?.edits;
               return { files: (args?.edits ?? []).length, left: [] };
+            case "library_releases_without_art":
+              return ((window as any).__artDone ?? []).includes(2) ? [
+                { releaseId: 3, artist: "Studio 001", title: "No Light", files: 2, folderImage: false },
+              ] : [
+                { releaseId: 2, artist: "Studio 001", title: "Between Spaces", files: 2, folderImage: true },
+                { releaseId: 3, artist: "Studio 001", title: "No Light", files: 2, folderImage: false },
+              ];
+            case "library_set_release_art":
+              if (args?.source === "online") throw "The Cover Art Archive has no cover for \"No Light\" by Studio 001.";
+              if (args?.source === "choose") return null;
+              (window as any).__artDone = [...((window as any).__artDone ?? []), args?.releaseId];
+              return { files: 2, left: [] };
+            case "library_remove_release_art":
+              return { files: 2, left: [] };
             case "library_track_tags":
               return ((args?.trackIds ?? []) as number[]).map((id) => ({
                 trackId: id, title: `${String(id).padStart(2, "0")} - RUST TRACK ${String(id).padStart(4, "0")}`, artist: "Backend Artist",
@@ -1368,6 +1382,38 @@ test("clean up: genres spelled alike are merged, and titles and artists are fixe
     { trackId: 1, changes: [{ field: "title", value: "Night Drive" }] },
     { trackId: 3, changes: [{ field: "title", value: "Late Train" }, { field: "artist", value: "Studio 001" }] },
   ]);
+});
+
+test("a release page can choose, find or remove its cover", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Releases", exact: true }).click();
+  await page.getByTestId("library-card").first().click();
+  const cover = page.getByRole("group", { name: "Cover" });
+  await cover.getByRole("button", { name: "Remove cover" }).click();
+  await expect(cover.getByRole("status")).toContainText("The cover was removed from 2 files.");
+  await cover.getByRole("button", { name: "Choose cover..." }).click();
+  const sent = (await calls(page)).filter((call) => /release_art/.test(call.command)).map((call) => [call.command, call.args.releaseId]);
+  expect(sent).toEqual([["library_remove_release_art", 1], ["library_set_release_art", 1]]);
+});
+
+test("clean up: releases without a cover are listed and filled from beside their files", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const art = page.getByRole("region", { name: "Album art" });
+  await art.getByRole("button", { name: "Check album art" }).click();
+  await expect(art).toContainText("2 releases have no cover; 1 has an image beside the files.");
+  const list = art.getByRole("list", { name: "Releases without art" });
+  await expect(list.getByRole("listitem")).toHaveCount(2);
+  await art.getByRole("button", { name: "Use the folder image for Between Spaces" }).click();
+  await expect(list.getByRole("listitem")).toHaveCount(1);
+  await art.getByRole("button", { name: "Find a cover online for No Light" }).click();
+  await expect(list).toContainText("The Cover Art Archive has no cover");
+  await art.getByRole("button", { name: "Choose an image for No Light" }).click();
+  await expect(list.getByRole("listitem")).toHaveCount(1);
+  const sent = (await calls(page)).filter((call) => call.command === "library_set_release_art").map((call) => call.args);
+  expect(sent).toEqual([{ releaseId: 2, source: "folder" }, { releaseId: 3, source: "online" }, { releaseId: 3, source: "choose" }]);
 });
 
 test("player: at the end of a track an unplayable next one is skipped", async ({ page }) => {

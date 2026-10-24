@@ -11,6 +11,7 @@ import {
   type LibraryPage,
   type LibraryQuery,
   type EditedTracks,
+  type ArtChanged,
   type LookupKeys,
   type MergeApplied,
   type MergeChange,
@@ -498,6 +499,12 @@ function toMergeApplied(value: unknown): MergeApplied {
   };
 }
 
+function toArtChanged(value: unknown): ArtChanged {
+  const what = "art change";
+  if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
+  return { files: whole(value.files, what), left: value.left.map((item) => text(item, what)) };
+}
+
 function toEdited(value: unknown): EditedTracks {
   const what = "edit result";
   if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
@@ -703,6 +710,20 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       });
     },
     editTracks: async (trackIds, changes) => toEdited(await invoke("library_edit_tracks", { trackIds, changes }).catch((error: unknown) => { throw failure(error); })),
+    releasesWithoutArt: async () => {
+      const value: unknown = await invoke("library_releases_without_art").catch((error: unknown) => { throw failure(error); });
+      const what = "releases without art";
+      if (!Array.isArray(value)) throw new Error(`The library returned unreadable ${what}.`);
+      return value.map((item: unknown) => {
+        if (!isRecord(item)) throw new Error(`The library returned unreadable ${what}.`);
+        return { releaseId: whole(item.releaseId, what), artist: text(item.artist, what), title: text(item.title, what), files: whole(item.files, what), folderImage: flag(item.folderImage, what) };
+      });
+    },
+    setReleaseArt: async (releaseId, source) => {
+      const value: unknown = await invoke("library_set_release_art", { releaseId, source }).catch((error: unknown) => { throw failure(error); });
+      return value === null ? null : toArtChanged(value);
+    },
+    removeReleaseArt: async (releaseId) => toArtChanged(await invoke("library_remove_release_art", { releaseId }).catch((error: unknown) => { throw failure(error); })),
     editEach: async (edits) => toEdited(await invoke("library_edit_each", { edits }).catch((error: unknown) => { throw failure(error); })),
     trackNames: async () => {
       const value: unknown = await invoke("library_track_names").catch((error: unknown) => { throw failure(error); });

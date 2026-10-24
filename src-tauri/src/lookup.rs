@@ -56,7 +56,39 @@ impl Throttled {
 
     /// One GET, with the owner's token where the service takes one. A busy answer (503, or 429
     /// from Discogs) is tried again after a pause, twice at most.
-    fn get(&self, url: &str, token: Option<&str>) -> Result<String, String> {
+    pub(crate) fn get(&self, url: &str, token: Option<&str>) -> Result<String, String> {
+        let mut text = String::new();
+        self.fetch(url, token, |body| {
+            text = body
+                .with_config()
+                .limit(4 << 20)
+                .read_to_string()
+                .map_err(|error| error.to_string())?;
+            Ok(())
+        })?;
+        Ok(text)
+    }
+
+    /// One GET answered with bytes (an image), at most 12 MB.
+    pub(crate) fn get_bytes(&self, url: &str) -> Result<Vec<u8>, String> {
+        let mut bytes = Vec::new();
+        self.fetch(url, None, |body| {
+            bytes = body
+                .with_config()
+                .limit(12 << 20)
+                .read_to_vec()
+                .map_err(|error| error.to_string())?;
+            Ok(())
+        })?;
+        Ok(bytes)
+    }
+
+    fn fetch(
+        &self,
+        url: &str,
+        token: Option<&str>,
+        mut read: impl FnMut(&mut ureq::Body) -> Result<(), String>,
+    ) -> Result<(), String> {
         let name = self.name;
         for attempt in 0..=BUSY_RETRIES {
             self.wait_turn();
@@ -73,12 +105,7 @@ impl Throttled {
                 continue;
             }
             return match status {
-                200 => response
-                    .body_mut()
-                    .with_config()
-                    .limit(4 << 20)
-                    .read_to_string()
-                    .map_err(|error| error.to_string()),
+                200 => read(response.body_mut()),
                 503 | 429 => Err(format!("{name} is busy right now. Try again in a minute.")),
                 401 | 403 => Err(format!(
                     "{name} did not accept the token. Check it in Settings."
@@ -95,6 +122,7 @@ impl Throttled {
 pub struct Lookups {
     pub musicbrainz: Throttled,
     pub discogs: Throttled,
+    pub archive: Throttled,
 }
 
 impl Default for Lookups {
@@ -102,6 +130,7 @@ impl Default for Lookups {
         Self {
             musicbrainz: Throttled::new("MusicBrainz"),
             discogs: Throttled::new("Discogs"),
+            archive: Throttled::new("The Cover Art Archive"),
         }
     }
 }
