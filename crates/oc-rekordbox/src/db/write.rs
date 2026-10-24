@@ -48,10 +48,11 @@ pub struct Added {
 
 const RUNNING: &str = "rekordbox is running. Quit it (and wait for its agent to stop) first.";
 
-/// A folder [`create_folder`] made.
+/// A folder [`create_folder`] or a playlist [`create_playlist`] made.
 #[derive(Debug)]
 pub struct Made {
-    pub folder: String,
+    /// rekordbox's id for it.
+    pub id: String,
     /// The name it was given: `name`, or `name (2)` and so on when that was taken.
     pub name: String,
     /// The copy taken before writing.
@@ -68,6 +69,30 @@ pub fn create_folder(
     name: &str,
     parent: &str,
 ) -> Result<Made, DbError> {
+    create(location, backups, running, now_ms, name, parent, true)
+}
+
+/// Make an empty playlist in the folder `parent`, as [`create_folder`] makes a folder.
+pub fn create_playlist(
+    location: &LibraryLocation,
+    backups: &Path,
+    running: bool,
+    now_ms: i64,
+    name: &str,
+    parent: &str,
+) -> Result<Made, DbError> {
+    create(location, backups, running, now_ms, name, parent, false)
+}
+
+fn create(
+    location: &LibraryLocation,
+    backups: &Path,
+    running: bool,
+    now_ms: i64,
+    name: &str,
+    parent: &str,
+    folder: bool,
+) -> Result<Made, DbError> {
     if running {
         return Err(refused(RUNNING));
     }
@@ -79,7 +104,11 @@ pub fn create_folder(
     let mut writer = Writer::open(location.clone(), backups)?;
     writer.disable_automatic_backups();
     let free = free_name(&writer, parent, name)?;
-    let folder = writer.create_folder(&free, parent)?;
+    let id = if folder {
+        writer.create_folder(&free, parent)?
+    } else {
+        writer.create_playlist(&free, parent)?
+    };
     drop(writer);
 
     let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
@@ -88,19 +117,20 @@ pub fn create_folder(
         .query_row(
             "SELECT COALESCE(Attribute, 0), ParentID FROM djmdPlaylist
              WHERE ID = ?1 AND rb_local_deleted = 0",
-            params![folder],
+            params![id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
-    if found != Some((ATTRIBUTE_FOLDER, parent.to_owned())) {
-        return Err(DbError::WriteRefused(
-            "After writing, the new folder is not in rekordbox. Restore the backup taken just \
-             before from Settings."
-                .into(),
-        ));
+    let attribute = if folder { ATTRIBUTE_FOLDER } else { 0 };
+    if found != Some((attribute, parent.to_owned())) {
+        return Err(DbError::WriteRefused(format!(
+            "After writing, the new {} is not in rekordbox. Restore the backup taken just before \
+             from Settings.",
+            if folder { "folder" } else { "playlist" }
+        )));
     }
     Ok(Made {
-        folder,
+        id,
         name: free,
         backup,
     })

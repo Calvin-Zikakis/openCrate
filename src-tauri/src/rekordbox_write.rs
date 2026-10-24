@@ -272,13 +272,41 @@ pub fn create_folder(
     name: &str,
     folder_id: Option<i64>,
 ) -> Result<FolderDto, String> {
+    create(service, probe, name, folder_id, true)
+}
+
+/// A new, empty playlist in rekordbox's playlist tree, placed as [`create_folder`] places a folder.
+pub fn create_playlist(
+    service: &LibraryService,
+    probe: &Probe,
+    name: &str,
+    folder_id: Option<i64>,
+) -> Result<FolderDto, String> {
+    create(service, probe, name, folder_id, false)
+}
+
+fn create(
+    service: &LibraryService,
+    probe: &Probe,
+    name: &str,
+    folder_id: Option<i64>,
+    folder: bool,
+) -> Result<FolderDto, String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 100 || name.chars().any(char::is_control) {
-        return Err("A folder needs a name of 1 to 100 characters.".into());
+        return Err(format!(
+            "A {} needs a name of 1 to 100 characters.",
+            if folder { "folder" } else { "playlist" }
+        ));
     }
     let location = ready(service, probe)?;
     let parent = folder_key(service, folder_id)?;
-    let made = write::create_folder(
+    let writer = if folder {
+        write::create_folder
+    } else {
+        write::create_playlist
+    };
+    let made = writer(
         location,
         &rekordbox_db::backups_dir(service),
         probe.running(),

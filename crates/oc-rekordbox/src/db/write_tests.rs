@@ -5,8 +5,8 @@ use rbl_db::fixture::{self, Shape};
 use rbl_db::{Library, LibraryLocation, OpenMode};
 
 use super::write::{
-    add_to_playlist, check_path_form, create_folder, merge_duplicates, relocate, set_fields,
-    Duplicate, FieldEdit, Member, Playlist, TrackText,
+    add_to_playlist, check_path_form, create_folder, create_playlist, merge_duplicates, relocate,
+    set_fields, Duplicate, FieldEdit, Member, Playlist, TrackText,
 };
 use super::*;
 
@@ -281,7 +281,7 @@ fn a_folder_is_made_after_a_backup_inside_another_and_a_taken_name_gets_a_number
     .unwrap();
     assert_eq!(sets.name, "Sets");
     assert_eq!(
-        parent_and_name(&world.location, &sets.folder),
+        parent_and_name(&world.location, &sets.id),
         (root.to_owned(), "Sets".to_owned())
     );
     assert_eq!(list_backups(world.backups.path()).len(), 1);
@@ -291,12 +291,12 @@ fn a_folder_is_made_after_a_backup_inside_another_and_a_taken_name_gets_a_number
         false,
         NOW + 1_000,
         "Friday",
-        &sets.folder,
+        &sets.id,
     )
     .unwrap();
     assert_eq!(
-        parent_and_name(&world.location, &inner.folder),
-        (sets.folder.clone(), "Friday".to_owned())
+        parent_and_name(&world.location, &inner.id),
+        (sets.id.clone(), "Friday".to_owned())
     );
     let again = create_folder(
         &world.location,
@@ -321,6 +321,57 @@ fn a_folder_is_made_after_a_backup_inside_another_and_a_taken_name_gets_a_number
     )
     .unwrap_err();
     assert!(error.to_string().contains("not a folder"), "{error}");
+}
+
+#[test]
+fn an_empty_playlist_is_made_in_a_folder_and_a_taken_name_gets_a_number() {
+    let world = world();
+    let root = super::write::ROOT;
+    let sets = create_folder(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW,
+        "Sets",
+        root,
+    )
+    .unwrap();
+    let friday = create_playlist(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW + 1_000,
+        "Friday",
+        &sets.id,
+    )
+    .unwrap();
+    assert_eq!(
+        parent_and_name(&world.location, &friday.id),
+        (sets.id.clone(), "Friday".to_owned())
+    );
+    let again = create_playlist(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW + 2_000,
+        "Friday",
+        &sets.id,
+    )
+    .unwrap();
+    assert_eq!(again.name, "Friday (2)");
+    assert_eq!(list_backups(world.backups.path()).len(), 3);
+    // A playlist goes in a folder, never in another playlist, and never while rekordbox runs.
+    for (running, parent) in [(false, friday.id.as_str()), (true, root)] {
+        assert!(create_playlist(
+            &world.location,
+            world.backups.path(),
+            running,
+            NOW + 3_000,
+            "Nope",
+            parent
+        )
+        .is_err());
+    }
 }
 
 #[test]

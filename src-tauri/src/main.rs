@@ -1229,6 +1229,25 @@ async fn rekordbox_crate_to_playlist(
 }
 
 #[tauri::command]
+async fn rekordbox_create_playlist(
+    state: State<'_, AppState>,
+    name: String,
+    folder_id: Option<i64>,
+) -> Result<rekordbox_write::FolderDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_write::create_playlist(
+            &service,
+            &rekordbox_db::Probe::installed(),
+            &name,
+            folder_id,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn rekordbox_create_folder(
     state: State<'_, AppState>,
     name: String,
@@ -1551,6 +1570,7 @@ fn main() -> Result<(), tauri::Error> {
             rekordbox_add_to_playlist,
             rekordbox_crate_to_playlist,
             rekordbox_create_folder,
+            rekordbox_create_playlist,
             rekordbox_send_new,
             rekordbox_merge_review,
             rekordbox_merge_apply,

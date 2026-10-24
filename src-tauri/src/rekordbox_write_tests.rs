@@ -249,6 +249,22 @@ fn a_folder_made_in_opencrate_appears_in_rekordbox_and_the_sidebar() {
         .map(|backup| backup.reason)
         .collect();
     assert!(reasons.contains(&"before-write".to_owned()), "{reasons:?}");
+
+    // An empty playlist goes in a folder, and shows in the sidebar as a playlist.
+    let done = crate::rekordbox_write::create_playlist(
+        &setup.service,
+        &setup.probe,
+        "Warm-up",
+        Some(sets.id),
+    )
+    .unwrap();
+    assert_eq!((done.name.as_str(), done.read_error), ("Warm-up", None));
+    let warm = playlist(&setup.service, "Warm-up").unwrap();
+    assert!(!warm.is_folder);
+    assert_eq!((warm.parent_id, warm.entries), (Some(sets.id), 0));
+    let error = crate::rekordbox_write::create_playlist(&setup.service, &setup.probe, "", None)
+        .unwrap_err();
+    assert!(error.contains("A playlist needs a name"), "{error}");
 }
 
 #[test]

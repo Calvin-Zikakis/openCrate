@@ -498,6 +498,11 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               (window as any).__rbFolders = [...((window as any).__rbFolders ?? []), { name, folderId: args?.folderId }];
               return { name: name === "Sets" ? "Sets (2)" : name, readError: null };
             }
+            case "rekordbox_create_playlist": {
+              if (rbWrite() === null) throw "Writing to rekordbox is off. Turn it on in Settings.";
+              (window as any).__rbPlaylists = [...((window as any).__rbPlaylists ?? []), { name: String(args?.name ?? "").trim(), folderId: args?.folderId }];
+              return { name: String(args?.name ?? "").trim(), readError: null };
+            }
             case "rekordbox_crate_to_playlist": {
               if (rbWrite() === null) throw "Writing to rekordbox is off. Turn it on in Settings.";
               const made = crateById(args?.crateId);
@@ -2361,33 +2366,74 @@ test("names and tags are typed as they are: no autocorrect, capitals or spelling
   }
 });
 
-test("sidebar: a rekordbox folder is made from the sidebar, at the top or inside another folder", async ({ page }) => {
+test("sidebar: a rekordbox folder or playlist is made from + or a right-click, at the top or inside a folder", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.addInitScript(() => { (window as any).__rbEnabled = true; (window as any).__rbWriting = true; });
   await page.goto("/");
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await page.getByRole("button", { name: "Choose export..." }).click();
   const playlists = page.getByRole("complementary").getByRole("navigation", { name: "Playlists" });
+  const add = playlists.getByRole("button", { name: "New rekordbox playlist or folder" });
 
-  // Escape gives up without writing.
-  await playlists.getByRole("button", { name: "New rekordbox folder" }).click();
-  await playlists.getByRole("textbox", { name: "New rekordbox folder name" }).fill("Gone");
+  // + offers both; Escape gives up without writing.
+  await add.click();
+  const top = page.getByRole("menu", { name: "New in playlists" });
+  await expect(top.getByRole("menuitem")).toHaveText(["New playlist", "New folder"]);
+  await top.getByRole("menuitem", { name: "New folder" }).click();
+  await playlists.getByRole("textbox", { name: "New folder name" }).fill("Gone");
   await page.keyboard.press("Escape");
   await expect(playlists.getByRole("textbox")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__rbFolders)).toBeUndefined();
 
   // A taken name comes back numbered.
-  await playlists.getByRole("button", { name: "New rekordbox folder" }).click();
-  await playlists.getByRole("textbox", { name: "New rekordbox folder name" }).fill("Sets");
+  await add.click();
+  await top.getByRole("menuitem", { name: "New folder" }).click();
+  await playlists.getByRole("textbox", { name: "New folder name" }).fill("Sets");
   await page.keyboard.press("Enter");
   await expect(playlists.getByRole("status")).toContainText("Made the folder Sets (2) at the top of the playlists in rekordbox.");
+  await add.click();
+  await top.getByRole("menuitem", { name: "New playlist" }).click();
+  await playlists.getByRole("textbox", { name: "New playlist name" }).fill("Openers");
+  await page.keyboard.press("Enter");
+  await expect(playlists.getByRole("status")).toContainText("Made the playlist Openers at the top of the playlists in rekordbox.");
 
+  // A right-click on a folder makes things inside it; on a playlist, beside it.
   await playlists.getByRole("button", { name: "Sets", exact: true }).click({ button: "right" });
-  await page.getByRole("menu", { name: "Sets actions" }).getByRole("menuitem", { name: "New folder inside" }).click();
+  await page.getByRole("menu", { name: "Sets actions" }).getByRole("menuitem", { name: "New folder in Sets" }).click();
   await playlists.getByRole("textbox", { name: "New folder in Sets" }).fill("Friday");
   await page.keyboard.press("Enter");
   await expect(playlists.getByRole("status")).toContainText("Made the folder Friday in Sets in rekordbox.");
+  await playlists.getByRole("button", { name: /Friday warm-up/ }).click({ button: "right" });
+  await page.getByRole("menu", { name: "Sets actions" }).getByRole("menuitem", { name: "New playlist in Sets" }).click();
+  await playlists.getByRole("textbox", { name: "New playlist in Sets" }).fill("Peak");
+  await page.keyboard.press("Enter");
+  await playlists.getByRole("button", { name: /Closers/ }).click({ button: "right" });
+  await expect(page.getByRole("menu", { name: "New in playlists" })).toBeVisible();
+  await page.keyboard.press("Escape");
   expect(await page.evaluate(() => (window as any).__rbFolders)).toEqual([{ name: "Sets", folderId: null }, { name: "Friday", folderId: 2 }]);
+  expect(await page.evaluate(() => (window as any).__rbPlaylists)).toEqual([{ name: "Openers", folderId: null }, { name: "Peak", folderId: 2 }]);
+});
+
+test("playlists: PLAYLISTS opens a browser of folders and playlists, a folder at a time", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await page.getByRole("button", { name: "Choose export..." }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "PLAYLISTS" }).click();
+  await expect(page.getByRole("heading", { name: "Playlists" })).toBeVisible();
+  const grid = page.getByRole("list", { name: "Playlists and folders" });
+  await expect(grid.getByRole("button")).toHaveText(["Sets1 item", "Closers12 of 12 in your library"]);
+  await grid.getByRole("button", { name: /Sets/ }).click();
+  const inSets = page.getByRole("list", { name: "In Sets" });
+  await expect(inSets.getByRole("button")).toHaveText(["Friday warm-up38 of 40 in your library"]);
+  await expect(page.getByRole("navigation", { name: "Folder path" })).toHaveText("rekordbox / Sets");
+  // A playlist opens its tracks; Back returns to the folder it was in.
+  await inSets.getByRole("button", { name: /Friday warm-up/ }).click();
+  await expect(page.getByRole("heading", { name: "Friday warm-up" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to playlists" }).click();
+  await expect(page.getByRole("list", { name: "In Sets" })).toBeVisible();
+  await page.getByRole("navigation", { name: "Folder path" }).getByRole("button", { name: "rekordbox" }).click();
+  await expect(page.getByRole("list", { name: "Playlists and folders" })).toBeVisible();
 });
 
 test("crates: a crate dropped on a rekordbox folder becomes a playlist there once the owner says yes", async ({ page }) => {

@@ -709,6 +709,8 @@ export interface LibraryAdmin {
   crateToRekordboxPlaylist(crateId: number, folderId: number | null): Promise<RekordboxWrite>;
   /** A new folder in rekordbox's playlist tree, inside a folder (the top of the tree when null). */
   createRekordboxFolder(name: string, parentId: number | null): Promise<RekordboxFolder>;
+  /** A new, empty rekordbox playlist, placed as `createRekordboxFolder` places a folder. */
+  createRekordboxPlaylist(name: string, parentId: number | null): Promise<RekordboxFolder>;
   /** Read rekordbox again and list what differs since both sides last agreed. */
   reviewRekordboxMerge(): Promise<MergeReview>;
   /** Apply the ticked changes. */

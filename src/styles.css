@@ -559,3 +559,19 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .library-hero .cover-actions { margin-top: 6px; }
   .library-toolbar { margin-bottom: 8px; }
 }
+
+/* PLAYLISTS in the sidebar opens the playlist browser; it keeps the caption's look. */
+.playlist-tree .caption-button, .playlist-note .caption-button { display: inline-block; width: auto; padding: 0; border-radius: 0; font-size: 10px; letter-spacing: 1.8px; font-weight: 700; color: var(--faint); text-align: left; }
+.playlist-tree .caption-button:hover, .playlist-note .caption-button:hover, .caption-button[aria-current="page"] { color: var(--accent); }
+
+/* The playlist browser: rekordbox's tree a folder at a time, as cards. */
+.playlist-browser { display: flex; flex-direction: column; min-height: 0; }
+.browser-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin: 0 0 16px; font-size: 12px; color: var(--faint); }
+.browser-trail .link-button[aria-current="page"] { color: var(--text); text-decoration: none; cursor: default; }
+.browser-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; overflow-y: auto; }
+.browser-card { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px; border-radius: 9px; text-align: left; min-width: 0; }
+.browser-card:hover { background: var(--hover); }
+.browser-card strong { font-size: 12px; font-weight: 550; width: 100%; }
+.browser-card small { color: var(--faint); font-size: 10px; }
+.browser-icon { width: 100%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 7px; background: var(--raised); color: var(--secondary); }
+.browser-icon.is-folder { color: var(--accent); }
