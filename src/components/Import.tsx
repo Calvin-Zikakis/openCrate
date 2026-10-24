@@ -109,6 +109,8 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   /** New files join the library the way any file does: by a scan of the folder. With writing
    * to rekordbox on, they then go straight into rekordbox's Imported playlist. */
   const rescan = async (root: number) => {
+    // What was read before may no longer hold: an import can take the place another release meant to use.
+    setPlans(new Map());
     await admin.scan(root).catch(() => undefined);
     for (let waited = 0; waited < SCAN_WAIT_MS; waited += 500) {
       if ((await admin.scanStatus().catch(() => null))?.state !== "running") break;

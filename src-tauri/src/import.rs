@@ -168,7 +168,21 @@ pub fn import_release(
     // Planned again now: the folder may have changed since the preview was shown.
     let plan = plan_release(service, folder_id, name, root_id, options)?;
     if plan.ready == 0 {
-        return Err("Nothing in this release is ready to import.".to_owned());
+        // Say why, so a release that cannot go in is not a mystery: usually every file is already there.
+        let mut reasons: Vec<&str> = Vec::new();
+        for problem in plan.files.iter().filter_map(|file| file.problem.as_deref()) {
+            if !reasons.contains(&problem) {
+                reasons.push(problem);
+            }
+        }
+        return Err(if reasons.is_empty() {
+            "Nothing in this release is ready to import.".to_owned()
+        } else {
+            format!(
+                "Nothing in this release is ready to import: {}",
+                reasons.join(" ")
+            )
+        });
     }
     let staging = staging_for(&plan.root_path, &plan.root_label)?;
     let mut filed = 0;
@@ -373,7 +387,7 @@ mod tests {
         );
         assert_eq!(
             again.unwrap_err(),
-            "Nothing in this release is ready to import."
+            "Nothing in this release is ready to import: A file is already there."
         );
     }
 

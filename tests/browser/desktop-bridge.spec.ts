@@ -1115,8 +1115,12 @@ test("import: one table shows every release's tags at once, with an Import butto
   const older = page.locator(".sync-card").filter({ hasText: "Already there when you added the folder" });
   await expect(older.locator("tbody.plan-group").filter({ hasText: "Old Favourites" }).getByRole("button", { name: "Import Old Favourites" })).toBeVisible();
 
+  const readsOf = async (name: string) => (await calls(page)).filter((call) => call.command === "library_plan_release" && call.args.name === name).length;
+  expect(await readsOf("Between Spaces")).toBe(1);
   await clean.getByRole("button", { name: "Import Clean Single" }).click();
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_import_release").map((call) => call.args.name)).toEqual(["Clean Single"]);
+  // An import can take a place another release meant to use, so the rest are read again.
+  await expect.poll(() => readsOf("Between Spaces")).toBe(2);
   await expect(page.locator(".sync-card").filter({ hasText: "Already copied into your music folder" })).toContainText("Clean Single");
 
   // The choice is remembered.
