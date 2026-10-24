@@ -28,6 +28,8 @@ pub struct Duplicate {
     pub files: Vec<String>,
     /// The library files, in the same order.
     pub file_ids: Vec<i64>,
+    /// The music folder each file is in, in the same order: two copies can share a relative path.
+    pub root_ids: Vec<i64>,
 }
 
 /// A file in a music folder whose tags the scan could not read, so it is not in the library.
@@ -59,6 +61,7 @@ struct Seen {
     artist: String,
     title: String,
     file_id: i64,
+    root_id: i64,
 }
 
 fn shown(components: &[&[u8]]) -> String {
@@ -115,6 +118,7 @@ pub fn check(connection: &Connection) -> Result<Health> {
             artist,
             title,
             file_id,
+            root_id,
         });
     }
     let mut unreadable = connection.prepare(
@@ -156,6 +160,7 @@ pub fn check(connection: &Connection) -> Result<Health> {
                     title: group[0].title.clone(),
                     files: group.iter().map(|item| item.path.clone()).collect(),
                     file_ids: group.iter().map(|item| item.file_id).collect(),
+                    root_ids: group.iter().map(|item| item.root_id).collect(),
                 });
             }
             group.clear();

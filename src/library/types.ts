@@ -478,7 +478,7 @@ export interface LibraryHealth {
   /** Folders whose names carry stray separators from untidy tags. */
   untidy: { rootId: number; rootLabel: string; folder: string; suggested: string; files: number }[];
   /** The same recording (artist, title, length within 2 s) in more than one file. */
-  duplicates: { artist: string; title: string; files: string[]; fileIds: number[] }[];
+  duplicates: { artist: string; title: string; files: string[]; fileIds: number[]; /** The music folder of each file. */ rootLabels?: string[] }[];
   /** Files the scan could not read tags from, with why. */
   broken: { rootLabel: string; path: string; error: string }[];
 }

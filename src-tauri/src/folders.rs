@@ -564,6 +564,8 @@ pub struct DuplicateDto {
     pub title: String,
     pub files: Vec<String>,
     pub file_ids: Vec<i64>,
+    /// The music folder of each file, in the same order.
+    pub root_labels: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -622,6 +624,11 @@ pub fn check_health(service: &LibraryService) -> Result<HealthDto, String> {
                 file_ids: duplicate.file_ids,
                 title: duplicate.title,
                 files: duplicate.files,
+                root_labels: duplicate
+                    .root_ids
+                    .iter()
+                    .map(|id| labels.get(id).cloned().unwrap_or_default())
+                    .collect(),
             })
             .collect(),
     })

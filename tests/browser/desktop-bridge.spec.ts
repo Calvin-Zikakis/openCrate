@@ -347,7 +347,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return {
                 files: 10,
                 untidy: (window as any).__tidied ? [] : [{ rootId: 7, rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
-                duplicates: (window as any).__resolved ? [] : [{ artist: "Studio 001", title: "Soft Focus", files: ["Studio 001/Between Spaces/02 - Soft Focus.aif", "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"], fileIds: [11, 12] }],
+                duplicates: (window as any).__resolved ? [] : [{ artist: "Studio 001", title: "Soft Focus", files: ["Studio 001/Between Spaces/02 - Soft Focus.aif", "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"], fileIds: [11, 12], rootLabels: (window as any).__twoFolders ? ["Music", "Music2"] : ["Music", "Music"] }],
                 broken: [{ rootLabel: "Music", path: "Studio 001/Between Spaces/03 - Late Train.aif", error: "not an audio file" }],
               };
             case "library_folder_layout":
@@ -1252,6 +1252,18 @@ test("library check: untidy folder names and recordings filed twice are listed, 
   await expect(results.getByRole("list", { name: "Files that could not be read" })).toContainText("Music: not an audio file");
   const sent = (await calls(page)).map((call) => call.command);
   expect(sent.filter((command) => /move|rename|delete|remove/.test(command))).toEqual([]);
+});
+
+test("library check: copies in different music folders say which folder each is in", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__twoFolders = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("button", { name: "Check library" }).click();
+  const results = dialog.getByRole("region", { name: "Library check results" });
+  const copies = results.locator("li li");
+  await expect(copies).toHaveText(["Music: Studio 001/Between Spaces/02 - Soft Focus.aif", "Music2: Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"]);
 });
 
 test("library check: a duplicate is resolved by keeping the analysed copy, after a look at each", async ({ page }) => {

@@ -97,6 +97,7 @@ fn untidy_folders_and_the_same_recording_twice_are_reported_without_changing_any
             "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"
         ]
     );
+    assert_eq!(health.duplicates[0].root_ids, [id, id]);
     assert_eq!(walk(root), before, "nothing on disk changed");
 }
 

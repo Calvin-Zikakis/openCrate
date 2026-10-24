@@ -128,7 +128,7 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
         <ul className="check-list">{health.duplicates.map((item) => <li key={item.files.join("|")}>
           <strong>{item.title}</strong> <small>{item.artist}</small>
           <button className="link-button" disabled={checking} aria-label={`Resolve ${item.title}`} onClick={() => void openResolve(item)}>Resolve...</button>
-          {resolving?.duplicate !== item && <ul>{item.files.map((file) => <li key={file}><code>{file}</code></li>)}</ul>}
+          {resolving?.duplicate !== item && <ul>{item.files.map((file, index) => <li key={item.fileIds[index] ?? file}>{item.rootLabels?.[index] && new Set(item.rootLabels).size > 1 && <small>{`${item.rootLabels[index]}: `}</small>}<code>{file}</code></li>)}</ul>}
           {resolving?.duplicate === item && <div className="warning-panel" role="region" aria-label={`Which ${item.title} to keep?`}>
             {!resolving.copies ? <p className="settings-copy" role="status">Reading rekordbox...</p> : <>
               <p className="settings-copy">The copy kept stays where it is. The others move to an archive folder beside your music folder, never deleted. Where rekordbox has them, their playlist places, My Tags and rating go to the kept copy first (after a backup), then their entries are removed. rekordbox must be closed, with writing on in Settings.</p>

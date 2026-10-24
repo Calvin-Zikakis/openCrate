@@ -124,7 +124,7 @@ export function RekordboxDatabase({ admin, open }: { admin: LibraryAdmin; open: 
       <ul className="folder-list" aria-label="rekordbox backups">{backups.map((backup) => <li key={backup.name} className="folder-row">
         <div className="folder-text">
           <strong>{`${REASONS[backup.reason] ?? backup.reason}, ${when(backup.takenMs)}`}{backup.pinned ? " (pinned)" : ""}</strong>
-          <small>{`${backup.tracks} tracks, ${backup.playlists} playlists${backup.appVersion ? `, rekordbox ${backup.appVersion}` : ""}`}</small>
+          <small>{`${backup.tracks} ${backup.tracks === 1 ? "track" : "tracks"}, ${backup.playlists} ${backup.playlists === 1 ? "playlist" : "playlists"}${backup.appVersion ? `, rekordbox ${backup.appVersion}` : ""}`}</small>
         </div>
         <button className="secondary-button" disabled={busy} aria-label={`${backup.pinned ? "Unpin" : "Pin"} backup from ${when(backup.takenMs)}`} onClick={() => void pin(backup)}>{backup.pinned ? "Unpin" : "Pin"}</button>
         <button className="secondary-button" disabled={busy} aria-label={`Restore backup from ${when(backup.takenMs)}`} onClick={() => setRestoring(backup)}>Restore...</button>

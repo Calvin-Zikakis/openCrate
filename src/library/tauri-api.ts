@@ -281,6 +281,7 @@ function toHealth(value: unknown): LibraryHealth {
       return {
         artist: text(item.artist, "check"), title: text(item.title, "check"), files: item.files.map((file: unknown) => text(file, "check")),
         fileIds: item.fileIds.map((id: unknown) => whole(id, "check")),
+        ...(Array.isArray(item.rootLabels) ? { rootLabels: item.rootLabels.map((label: unknown) => text(label, "check")) } : {}),
       };
     }),
   };
