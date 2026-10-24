@@ -34,6 +34,18 @@ test("search, formats, sorting and rapid changes show only current results", asy
   await expect(page.getByRole("heading", { name: "No matches this time" })).toBeVisible();
 });
 
+test("searching artists for a track's title finds its artist, which opens on that track", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Artists", exact: true }).click();
+  await page.getByRole("textbox", { name: "Search library" }).fill("Morning Light 099999");
+  await expect(page.getByRole("status")).toContainText(/\b1 artist matching/);
+  await page.getByTestId("library-card").first().click();
+  await expect(page.getByRole("status")).toContainText(/\b1 track matching/);
+  await expect(page.getByTestId("track-row")).toContainText("Morning Light 099999");
+  await page.getByRole("button", { name: "Clear search" }).click();
+  await expect(page.getByRole("status")).toContainText(/\b\d{2,} tracks/);
+});
+
 test("release and artist cards are virtualized and open the correct tracks", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Releases", exact: true }).click();

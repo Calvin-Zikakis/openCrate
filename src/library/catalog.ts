@@ -66,13 +66,20 @@ export function createCatalog(count = 100_000) {
       const key = JSON.stringify(query);
       if (key !== lastQuery) {
         const terms = query.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const matches = (item: LibraryItem) => {
+          const text = `${item.title} ${item.artist} ${item.release}`.toLowerCase();
+          return terms.every((term) => text.includes(term));
+        };
+        // A release or artist shows for a track of its that matches, as in the desktop library.
+        const byTrack = query.view !== "tracks" && terms.length > 0
+          ? new Set(ordered("tracks", "recent").filter(matches).map((track) => (query.view === "releases" ? track.releaseId : track.artistId)))
+          : null;
         lastRows = ordered(query.view, query.sort).filter((item) => {
           if (query.artistId !== null && item.artistId !== query.artistId) return false;
           if (query.releaseId !== null && item.releaseId !== query.releaseId) return false;
           if (query.format !== "all" && item.format !== query.format) return false;
           if (terms.length === 0) return true;
-          const text = `${item.title} ${item.artist} ${item.release}`.toLowerCase();
-          return terms.every((term) => text.includes(term));
+          return matches(item) || (byTrack?.has(item.id) ?? false);
         });
         lastQuery = key;
       }

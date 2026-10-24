@@ -241,8 +241,9 @@ export function App({ api }: { api: LibraryApi }) {
   } : null), [admin, crate, sort, crateChanged]);
   const reorder = crateOrder ?? libraryOrder;
   const refreshLibrary = useCallback(() => setLibraryVersion((value) => value + 1), []);
+  // A search stays: an artist or release found by a track's title opens on that track.
   const openItem = (item: LibraryItem) => {
-    setFocus(item); setScreen("tracks"); setSearch(""); setFormat("all");
+    setFocus(item); setScreen("tracks"); setFormat("all");
   };
   const isLibrary = screen !== "import" && screen !== "sync" && screen !== "cleanup" && screen !== "playlists";
   useEffect(() => { setCoverNote(""); setExportNote(""); }, [focus, crate, playlist, screen]);
