@@ -222,3 +222,36 @@ fn a_waveform_is_computed_once_and_again_only_when_the_file_or_its_format_change
         "format 1 is gone"
     );
 }
+
+#[test]
+fn files_whose_tags_cannot_be_read_are_listed_as_broken() {
+    let music = tempdir().unwrap();
+    let root = music.path();
+    put(
+        root,
+        "Studio 001/Between Spaces/01 - Night Drive.aif",
+        "Studio 001",
+        "Night Drive",
+        2,
+    );
+    // An audio extension on something that is not audio: the scan records why it could not be read.
+    let broken = root.join("Studio 001/Between Spaces/02 - Soft Focus.aif");
+    fs::write(&broken, b"not audio at all, just text").unwrap();
+    let data = tempdir().unwrap();
+    let service = LibraryService::open(data.path(), 2).unwrap();
+    let root_id = service.add_root(root, "Music").unwrap();
+    service.scan_root(root_id, &ScanOptions::default()).unwrap();
+    let health = service.check_health().unwrap();
+    assert_eq!(health.broken.len(), 1, "{:?}", health.broken);
+    assert_eq!(health.broken[0].root_id, root_id);
+    assert_eq!(
+        health.broken[0].path,
+        "Studio 001/Between Spaces/02 - Soft Focus.aif"
+    );
+    assert_ne!(health.broken[0].error.len(), 0);
+    assert_eq!(
+        fs::read(&broken).unwrap(),
+        b"not audio at all, just text",
+        "only read"
+    );
+}

@@ -472,6 +472,8 @@ export interface LibraryHealth {
   untidy: { rootId: number; rootLabel: string; folder: string; suggested: string; files: number }[];
   /** The same recording (artist, title, length within 2 s) in more than one file. */
   duplicates: { artist: string; title: string; files: string[]; fileIds: number[] }[];
+  /** Files the scan could not read tags from, with why. */
+  broken: { rootLabel: string; path: string; error: string }[];
 }
 
 /** How imported music is arranged inside a music folder. */

@@ -30,10 +30,20 @@ pub struct Duplicate {
     pub file_ids: Vec<i64>,
 }
 
+/// A file in a music folder whose tags the scan could not read, so it is not in the library.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrokenFile {
+    pub root_id: i64,
+    /// Relative to the music folder, `/`-separated, for showing only.
+    pub path: String,
+    pub error: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Health {
     pub untidy: Vec<UntidyFolder>,
     pub duplicates: Vec<Duplicate>,
+    pub broken: Vec<BrokenFile>,
     /// Files looked at.
     pub files: usize,
 }
@@ -105,6 +115,25 @@ pub fn check(connection: &Connection) -> Result<Health> {
             artist,
             title,
             file_id,
+        });
+    }
+    let mut unreadable = connection.prepare(
+        "SELECT root_id, path_raw, tags_error FROM file WHERE tags_error IS NOT NULL \
+         AND presence = 'present' AND lifecycle = 'active' ORDER BY root_id, path_raw",
+    )?;
+    for row in unreadable.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, Vec<u8>>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })? {
+        let (root_id, path, error) = row?;
+        let components: Vec<&[u8]> = path.split(|byte| *byte == 0).collect();
+        health.broken.push(BrokenFile {
+            root_id,
+            path: shown(&components),
+            error,
         });
     }
     health.untidy = folders

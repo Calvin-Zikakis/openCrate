@@ -91,7 +91,7 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
 
   return <>
     <h3>Library check</h3>
-    <p className="settings-copy">Looks for folders named from untidy tags (such as "Artist;") and the same recording filed more than once. Checking only reads what the last scan found. Tidy moves a folder's files to the tidy name, and tells rekordbox where any it uses went, so they keep their cues and playlists.</p>
+    <p className="settings-copy">Looks for folders named from untidy tags (such as "Artist;"), the same recording filed more than once, and files whose tags could not be read. Checking only reads what the last scan found. Tidy moves a folder's files to the tidy name, and tells rekordbox where any it uses went, so they keep their cues and playlists.</p>
     <button className="secondary-button" disabled={checking} onClick={() => void check()}>{checking ? "Checking..." : "Check library"}</button>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {health && <div className="library-check" role="region" aria-label="Library check results">
@@ -101,7 +101,14 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
         <p>{`Moved ${plural(tidied.moved, "file", "files")} to ${tidied.suggested}${tidied.relocated > 0 ? `; rekordbox was told where ${tidied.relocated} went` : ""}.`}</p>
         {tidied.left.length > 0 && <ul className="skipped-list">{tidied.left.map((why) => <li key={why}>{why}</li>)}</ul>}
       </div>}
-      <p className="settings-copy">{`Looked at ${plural(health.files, "file", "files")}.`}{health.untidy.length === 0 && health.duplicates.length === 0 ? " Nothing to tidy." : ""}</p>
+      <p className="settings-copy">{`Looked at ${plural(health.files, "file", "files")}.`}{health.untidy.length === 0 && health.duplicates.length === 0 && health.broken.length === 0 ? " Nothing to tidy." : ""}</p>
+      {health.broken.length > 0 && <>
+        <h4>{plural(health.broken.length, "file could not be read", "files could not be read")}</h4>
+        <p className="settings-copy">These are in your folders but their tags could not be read, so they are not in the library. Each says why; a file that is not really audio, or is cut short, is usually a download that went wrong.</p>
+        <ul className="check-list" aria-label="Files that could not be read">{health.broken.map((item) => <li key={`${item.rootLabel}/${item.path}`}>
+          <code>{item.path}</code> <small>{`${item.rootLabel}: ${item.error}`}</small>
+        </li>)}</ul>
+      </>}
       {health.untidy.length > 0 && <>
         <h4>{plural(health.untidy.length, "folder name looks untidy", "folder names look untidy")}</h4>
         <ul className="check-list">{health.untidy.map((item) => <li key={`${item.rootLabel}/${item.folder}`}>

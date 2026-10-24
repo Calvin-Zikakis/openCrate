@@ -317,6 +317,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 files: 10,
                 untidy: (window as any).__tidied ? [] : [{ rootId: 7, rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
                 duplicates: (window as any).__resolved ? [] : [{ artist: "Studio 001", title: "Soft Focus", files: ["Studio 001/Between Spaces/02 - Soft Focus.aif", "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"], fileIds: [11, 12] }],
+                broken: [{ rootLabel: "Music", path: "Studio 001/Between Spaces/03 - Late Train.aif", error: "not an audio file" }],
               };
             case "library_folder_layout":
               return layoutOut();
@@ -1127,6 +1128,8 @@ test("library check: untidy folder names and recordings filed twice are listed, 
   await expect(results).toContainText("Studio 001; would be Studio 001");
   await expect(results.getByRole("heading", { name: "1 recording is filed more than once" })).toBeVisible();
   await expect(results.getByText("Studio 001;Guest/Between Spaces/02 - Soft Focus.aif")).toBeVisible();
+  await expect(results.getByRole("heading", { name: "1 file could not be read" })).toBeVisible();
+  await expect(results.getByRole("list", { name: "Files that could not be read" })).toContainText("Music: not an audio file");
   const sent = (await calls(page)).map((call) => call.command);
   expect(sent.filter((command) => /move|rename|delete|remove/.test(command))).toEqual([]);
 });
@@ -1686,11 +1689,14 @@ test("arrange: dragging in Tracks switches to Custom order and keeps the move", 
   await expect(page.getByRole("combobox", { name: "Sort library" })).toHaveValue("custom");
 
   // Mid-drag, the rows in between slide up to open a gap and the dragged row's own slot closes.
+  // The press lands on the row's time column: clear of the play button that appears at the
+  // row's left edge on hover (a press on it starts no drag) and of the artwork and text.
   const source = (await page.getByRole("button", { name: /Rust Track 0003,/ }).boundingBox())!;
   const target = (await page.getByRole("button", { name: /Rust Track 0004,/ }).boundingBox())!;
-  await page.mouse.move(source.x + 40, source.y + source.height / 2);
+  const grip = source.width - 120;
+  await page.mouse.move(source.x + grip, source.y + source.height / 2);
   await page.mouse.down();
-  await page.mouse.move(target.x + 40, target.y + target.height * 0.8, { steps: 8 });
+  await page.mouse.move(target.x + grip, target.y + target.height * 0.8, { steps: 8 });
   const slide = (name: RegExp) => page.getByRole("button", { name }).evaluate((button) => getComputedStyle(button.parentElement!).transform);
   await expect.poll(() => slide(/Rust Track 0001,/)).toMatch(/matrix\(1, 0, 0, 1, 0, -\d+/);
   await expect(page.getByRole("button", { name: /Rust Track 0003,/ })).toHaveClass(/is-drag-gap/);

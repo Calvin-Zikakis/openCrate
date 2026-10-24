@@ -9,9 +9,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-${{ github.workflow }}-${{ github.ref }}
-  # Runs on main finish, so their build cache is saved; other branches keep only the newest run.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # A run started by hand (the Windows run on a branch) is never cancelled by a later push: it
+  # has a group of its own. Push runs on a branch keep only the newest; runs on main finish, so
+  # their build cache is saved.
+  group: rust-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch' }}
 
 jobs:
   validate:

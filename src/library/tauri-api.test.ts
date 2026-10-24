@@ -319,6 +319,7 @@ describe("managing folders", () => {
       files: 5,
       untidy: [{ rootId: 7, rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
       duplicates: [{ artist: "Studio 001", title: "Soft Focus", files: ["a/x.aif", "b/x.aif"], fileIds: [3, 4] }],
+      broken: [{ rootLabel: "Music", path: "c/bad.aif", error: "not an audio file" }],
     };
     const invoke = vi.fn().mockResolvedValue(health);
     expect(await new TauriLibraryApi(invoke, manage).admin!.checkLibrary()).toEqual(health);

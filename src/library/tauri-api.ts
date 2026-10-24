@@ -264,9 +264,13 @@ function toPlayer(value: unknown): PlayerState {
 
 function toHealth(value: unknown): LibraryHealth {
   const bad = () => new Error("The library returned an unreadable check.");
-  if (!isRecord(value) || !Array.isArray(value.untidy) || !Array.isArray(value.duplicates)) throw bad();
+  if (!isRecord(value) || !Array.isArray(value.untidy) || !Array.isArray(value.duplicates) || !Array.isArray(value.broken)) throw bad();
   return {
     files: whole(value.files, "check"),
+    broken: value.broken.map((item: unknown) => {
+      if (!isRecord(item)) throw bad();
+      return { rootLabel: text(item.rootLabel, "check"), path: text(item.path, "check"), error: text(item.error, "check") };
+    }),
     untidy: value.untidy.map((item: unknown) => {
       if (!isRecord(item)) throw bad();
       return { rootId: whole(item.rootId, "check"), rootLabel: text(item.rootLabel, "check"), folder: text(item.folder, "check"), suggested: text(item.suggested, "check"), files: whole(item.files, "check") };

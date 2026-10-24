@@ -568,10 +568,19 @@ pub struct DuplicateDto {
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct BrokenFileDto {
+    pub root_label: String,
+    pub path: String,
+    pub error: String,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct HealthDto {
     pub files: usize,
     pub untidy: Vec<UntidyFolderDto>,
     pub duplicates: Vec<DuplicateDto>,
+    pub broken: Vec<BrokenFileDto>,
 }
 
 /// Folders named from untidy tags and recordings filed twice. Reads the database only.
@@ -585,6 +594,15 @@ pub fn check_health(service: &LibraryService) -> Result<HealthDto, String> {
         .collect();
     Ok(HealthDto {
         files: health.files,
+        broken: health
+            .broken
+            .into_iter()
+            .map(|file| BrokenFileDto {
+                root_label: labels.get(&file.root_id).cloned().unwrap_or_default(),
+                path: file.path,
+                error: file.error,
+            })
+            .collect(),
         untidy: health
             .untidy
             .into_iter()
