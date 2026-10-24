@@ -103,14 +103,17 @@ pub fn write_tags(
     id3.save_to_path(path, options).map_err(failed)
 }
 
-/// A text field the rekordbox sync can change.
+/// A field the rekordbox sync or the track editor can change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextTag {
     Title,
     Artist,
     Album,
+    AlbumArtist,
+    Genre,
     Year,
     Label,
+    TrackNumber,
 }
 
 /// Change `changes` in a file already in the library; an empty value removes the field. The
@@ -155,6 +158,14 @@ fn retag_copy(path: &Path, copy: &Path, changes: &[(TextTag, String)]) -> Result
             TextTag::Artist => values.artist = Some(value),
             TextTag::Album => values.album = Some(value),
             TextTag::Label => values.label = Some(value),
+            TextTag::AlbumArtist => values.album_artist = Some(value),
+            TextTag::Genre => values.genre = Some(value),
+            TextTag::TrackNumber => {
+                values.track_number =
+                    Some(value.parse().map_err(|_| {
+                        ReadError::Parse(format!("\"{value}\" is not a track number"))
+                    })?);
+            }
             TextTag::Year => {
                 values.year = Some(
                     value
@@ -187,6 +198,9 @@ fn clear(path: &Path, cleared: &[TextTag]) -> Result<(), ReadError> {
             TextTag::Album => tag.remove_album(),
             TextTag::Year => tag.remove_year(),
             TextTag::Label => tag.remove_key(&ItemKey::Label),
+            TextTag::AlbumArtist => tag.remove_key(&ItemKey::AlbumArtist),
+            TextTag::Genre => tag.remove_genre(),
+            TextTag::TrackNumber => tag.remove_track(),
         }
     }
     let mut options = WriteOptions::default();
@@ -247,6 +261,42 @@ mod tests {
             .map(|entry| entry.unwrap().file_name())
             .collect();
         assert_eq!(names, ["a.mp3"], "no copy is left behind");
+    }
+
+    #[test]
+    fn genre_album_artist_and_track_number_are_set_and_cleared() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("b.aif");
+        fs::write(&path, aiff(2)).unwrap();
+        rewrite_tags(
+            &path,
+            &[
+                (TextTag::Genre, "Dub Techno".into()),
+                (TextTag::AlbumArtist, "Various".into()),
+                (TextTag::TrackNumber, "7".into()),
+            ],
+        )
+        .unwrap();
+        let tags = read_file(&path).unwrap().tags;
+        assert_eq!(
+            (
+                tags.genre.as_deref(),
+                tags.album_artist.as_deref(),
+                tags.track_number
+            ),
+            (Some("Dub Techno"), Some("Various"), Some(7))
+        );
+        rewrite_tags(
+            &path,
+            &[
+                (TextTag::Genre, String::new()),
+                (TextTag::TrackNumber, String::new()),
+            ],
+        )
+        .unwrap();
+        let tags = read_file(&path).unwrap().tags;
+        assert_eq!((tags.genre, tags.track_number), (None, None));
+        assert!(rewrite_tags(&path, &[(TextTag::TrackNumber, "seven".into())]).is_err());
     }
 
     #[test]

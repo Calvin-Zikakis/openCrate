@@ -251,6 +251,14 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               if (!(window as any).__rbWriting) throw "rekordbox has a copy that would go, so it has to be told. Writing to rekordbox is off. Turn it on in Settings.";
               (window as any).__resolved = { keep: args?.keep, drop: args?.drop };
               return { archived: 1, merged: 1, archive: "/Users/dj/Music/openCrate archive/Music" };
+            case "library_track_tags":
+              return ((args?.trackIds ?? []) as number[]).map((id) => ({
+                trackId: id, title: `${String(id).padStart(2, "0")} - RUST TRACK ${String(id).padStart(4, "0")}`, artist: "Backend Artist",
+                album: "Backend Release", albumArtist: null, genre: "House", label: null, year: 2019, track: id,
+              }));
+            case "library_edit_tracks":
+              (window as any).__edits = [...((window as any).__edits ?? []), { trackIds: args?.trackIds, changes: args?.changes }];
+              return { files: (args?.trackIds ?? []).length, left: [] };
             case "library_tidy_folder":
               if (!(window as any).__rbWriting) throw "rekordbox uses files in this folder, so it has to be told where they go. Writing to rekordbox is off. Turn it on in Settings.";
               (window as any).__tidied = [...((window as any).__tidied ?? []), { rootId: args?.rootId, folder: args?.folder }];
@@ -1270,6 +1278,47 @@ test("player: a release, artist, crate or playlist plays from its first playable
   await expect(bar.locator(".now-playing")).toContainText("Rust Track 0002");
   await bar.getByRole("button", { name: "Next track" }).click();
   await expect(bar.locator(".now-playing")).toContainText("Rust Track 0003");
+});
+
+test("editing: tracks chosen together are edited at once, with cleanup shown before saving", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0002").click();
+  await row("0004").click({ modifiers: ["ControlOrMeta"] });
+  await expect(row("0002")).toHaveAttribute("aria-pressed", "true");
+  await expect(row("0004")).toHaveAttribute("aria-pressed", "true");
+  await expect(row("0003")).toHaveAttribute("aria-pressed", "false");
+
+  await row("0004").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Edit details (2 tracks)..." }).click();
+  const editor = page.getByRole("dialog", { name: "Edit 2 tracks" });
+  await expect(editor.getByLabel("Genre")).toHaveValue("House");
+  await expect(editor.getByLabel("Title")).toHaveAttribute("placeholder", "Several values");
+  await expect(editor.getByLabel("Track number")).toHaveCount(0);
+
+  await editor.getByLabel("Genre").fill("Deep House");
+  await editor.getByRole("button", { name: "Remove number prefixes" }).click();
+  await editor.getByRole("button", { name: "Fix casing" }).click();
+  const preview = editor.getByRole("list", { name: "Cleanup changes" });
+  await expect(preview).toContainText("Title: 02 - RUST TRACK 0002 -> Rust Track 0002");
+  await expect(preview).toContainText("Title: 04 - RUST TRACK 0004 -> Rust Track 0004");
+  await editor.getByRole("button", { name: "Save 3 changes" }).click();
+  await expect(editor).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__edits)).toEqual([
+    { trackIds: [2, 4], changes: [{ field: "genre", value: "Deep House" }] },
+    { trackIds: [2], changes: [{ field: "title", value: "Rust Track 0002" }] },
+    { trackIds: [4], changes: [{ field: "title", value: "Rust Track 0004" }] },
+  ]);
+
+  // Shift-click takes a range; Cmd+I opens the editor for it.
+  await row("0002").click();
+  await row("0005").click({ modifiers: ["Shift"] });
+  for (const n of ["0002", "0003", "0004", "0005"]) await expect(row(n)).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("ControlOrMeta+KeyI");
+  await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toHaveCount(0);
 });
 
 test("player: at the end of a track an unplayable next one is skipped", async ({ page }) => {

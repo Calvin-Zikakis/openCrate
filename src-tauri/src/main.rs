@@ -3,6 +3,9 @@
 mod artwork;
 mod crates;
 mod downloads;
+mod editor;
+#[cfg(test)]
+mod editor_tests;
 mod folders;
 mod import;
 mod ipc;
@@ -467,6 +470,33 @@ async fn library_resolve_duplicate(
     let service = state.library()?;
     tauri::async_runtime::spawn_blocking(move || {
         library_fix::resolve_duplicate(&service, &rekordbox_db::Probe::installed(), keep, &drop)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// What the chosen tracks' files hold, for the editor.
+#[tauri::command]
+async fn library_track_tags(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+) -> Result<Vec<editor::TrackTagsDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::track_tags(&service, &track_ids))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Write the editor's changes into the chosen tracks' files.
+#[tauri::command]
+async fn library_edit_tracks(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+    changes: Vec<editor::FieldChange>,
+) -> Result<editor::EditedDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        editor::edit_tracks(&service, &track_ids, &changes)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -1145,6 +1175,8 @@ fn main() -> Result<(), tauri::Error> {
             rekordbox_merge_apply,
             library_tidy_folder,
             lookup_keys,
+            library_track_tags,
+            library_edit_tracks,
             library_duplicate_copies,
             library_resolve_duplicate,
             lookup_set_key,

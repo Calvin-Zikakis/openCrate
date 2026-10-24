@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { ArtistArtwork, Artwork } from "./components/Artwork";
 import { Icon, type IconName } from "./components/Icon";
 import { Analysis } from "./components/Analysis";
+import { EditTracks } from "./components/EditTracks";
 import { Downloads } from "./components/Downloads";
 import { FolderLayout } from "./components/FolderLayout";
 import { RekordboxDatabase } from "./components/RekordboxDatabase";
@@ -87,6 +88,9 @@ export function App({ api }: { api: LibraryApi }) {
   const [playRequest, setPlayRequest] = useState<PlayRequest | null>(null);
   /** Tracks to play before the list carries on. */
   const [queue, setQueue] = useState<LibraryItem[]>([]);
+  /** Tracks chosen together in the list, and the ones open in the editor. */
+  const [selection, setSelection] = useState<number[]>([]);
+  const [editing, setEditing] = useState<number[] | null>(null);
   /** The loaded track and whether it plays, marked in the list. */
   const [nowPlaying, setNowPlaying] = useState<{ id: number; playing: boolean } | null>(null);
   const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
@@ -200,6 +204,22 @@ export function App({ api }: { api: LibraryApi }) {
     setFocus(item); setScreen("tracks"); setSearch(""); setFormat("all");
   };
   const isLibrary = screen !== "import" && screen !== "sync";
+  const selectionSet = useMemo(() => new Set(selection), [selection]);
+  // A new list starts with nothing chosen.
+  useEffect(() => { setSelection([]); }, [query]);
+  // Cmd+I (Ctrl+I) edits the chosen tracks, or the selected one.
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "i" || !api.admin) return;
+      const ids = selection.length > 0 ? selection : selected?.kind === "tracks" ? [selected.id] : [];
+      if (ids.length === 0 || document.querySelector("dialog[open]")) return;
+      event.preventDefault();
+      setEditing(ids);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [api.admin, selection, selected]);
+
   /** Play a whole release, artist, crate or playlist from its first track that can be played. */
   const playAll = async () => {
     const page = await api.read(query, 0, 50, new AbortController().signal).catch(() => null);
@@ -242,10 +262,11 @@ export function App({ api }: { api: LibraryApi }) {
             <div className="format-filters" role="group" aria-label="Format filters">{screen === "tracks" ? (["all", "AIFF", "MP3", "FLAC"] as const).map((value) => <button key={value} aria-pressed={format === value} onClick={() => setFormat(value)}>{value === "all" ? "All tracks" : value}</button>) : <span />}</div>
             <div className="view-options">{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="recent">Recently added</option><option value="title">Title</option><option value="artist">Artist</option>{screen === "tracks" && <option value="bpm">BPM</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label></div>
           </div>
-          <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restoreScroll} version={crateVersion} />
+          <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} selection={selectionSet} onSelectionChange={setSelection} onEdit={api.admin ? setEditing : undefined} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restoreScroll} version={crateVersion} />
         </> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "import" && api.admin ? <Import admin={api.admin} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : "rekordbox"}</h1><p>{screen === "import" ? "Watching download folders needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}
       </main>
     </div>
+    {editing && api.admin && <EditTracks admin={api.admin} trackIds={editing} onClose={() => setEditing(null)} onSaved={refreshLibrary} />}
     <PlayerBar api={api} selected={selected} selectedIndex={selectedIndex} query={query} request={playRequest} queue={queue} onQueueChange={setQueue} onNowPlaying={setNowPlaying}
       analysis={api.admin && selected?.kind === "tracks" ? <button className="secondary-button analysis-button" onClick={() => setAnalysisOpen(true)}>Cues and grid</button> : null} />
     <dialog ref={analysisDialog} className="settings-dialog" {...closesOutside(() => setAnalysisOpen(false))} aria-labelledby="analysis-title" onCancel={() => setAnalysisOpen(false)} onClose={(event) => { if (closedByBrowser(event.currentTarget)) setAnalysisOpen(false); }}>

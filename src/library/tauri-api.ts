@@ -680,6 +680,27 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     setLookupKey: async (service, value) =>
       toLookupKeys(await invoke("lookup_set_key", { serviceName: service, value }).catch((error: unknown) => { throw failure(error); })),
     checkLibrary: async () => toHealth(await invoke("library_check").catch((error: unknown) => { throw failure(error); })),
+    trackTags: async (trackIds) => {
+      const value: unknown = await invoke("library_track_tags", { trackIds }).catch((error: unknown) => { throw failure(error); });
+      const what = "track tags";
+      if (!Array.isArray(value)) throw new Error(`The library returned unreadable ${what}.`);
+      const maybeNumber = (field: unknown) => (field === null || field === undefined ? null : whole(field, what));
+      return value.map((item: unknown) => {
+        if (!isRecord(item)) throw new Error(`The library returned unreadable ${what}.`);
+        const maybe = (field: unknown) => maybeText(field ?? null, what);
+        return {
+          trackId: whole(item.trackId, what), title: maybe(item.title), artist: maybe(item.artist), album: maybe(item.album),
+          albumArtist: maybe(item.albumArtist), genre: maybe(item.genre), label: maybe(item.label),
+          year: maybeNumber(item.year), track: maybeNumber(item.track),
+        };
+      });
+    },
+    editTracks: async (trackIds, changes) => {
+      const value: unknown = await invoke("library_edit_tracks", { trackIds, changes }).catch((error: unknown) => { throw failure(error); });
+      const what = "edit result";
+      if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
+      return { files: whole(value.files, what), left: value.left.map((item) => text(item, what)) };
+    },
     duplicateCopies: async (fileIds) => {
       const value: unknown = await invoke("library_duplicate_copies", { fileIds }).catch((error: unknown) => { throw failure(error); });
       const what = "duplicate copies";

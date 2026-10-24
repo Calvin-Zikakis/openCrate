@@ -17,6 +17,11 @@ interface Props {
   onOpen: (item: LibraryItem) => void;
   /** Double-click, Enter or the row's play button on a track. */
   onPlay?: (item: LibraryItem, index: number) => void;
+  /** Tracks chosen together (Cmd- or Ctrl-click, Shift-click), for editing or dragging. */
+  selection?: ReadonlySet<number>;
+  onSelectionChange?: (trackIds: number[]) => void;
+  /** Right-click, then "Edit details". */
+  onEdit?: (trackIds: number[]) => void;
   /** The loaded track, marked in place of its number. */
   nowPlaying?: { id: number; playing: boolean } | null;
   /** Right-click, then "Play next" (`next`) or "Add to queue". */
@@ -50,7 +55,7 @@ function dragPreview(data: DataTransfer, title: string, artist: string) {
   setTimeout(() => label.remove(), 0);
 }
 
-export function Library({ api, query, compact, selected, onSelect, onOpen, onPlay, onQueue, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
+export function Library({ api, query, compact, selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -62,6 +67,10 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
   const [error, setError] = useState("");
   const [start, setStart] = useState(0);
   const [retry, setRetry] = useState(0);
+  /** The row a Shift-click extends a selection from. */
+  const anchor = useRef<number | null>(null);
+  /** The tracks an action on `item` covers: the whole selection when the item is in it. */
+  const chosen = (item: LibraryItem) => (selection?.has(item.id) && selection.size > 1 ? [...selection] : [item.id]);
   /** The track a right-click menu is open for, and where. */
   const [menu, setMenu] = useState<{ item: LibraryItem; index: number; x: number; y: number } | null>(null);
   const isGrid = query.view !== "tracks";
@@ -243,10 +252,12 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
               className={drag ? "reorder-slide" : undefined}
               style={shift ? { transform: `translateY(${shift}px)` } : undefined}>
               <button
-                className={isGrid ? "release-card" : `track-row track-columns${selected?.id === item.id ? " is-selected" : ""}${item.missing ? " is-missing" : ""}${isSource ? (drag?.insertAt === null ? " is-drag-source" : " is-drag-gap") : ""}`}
+                className={isGrid ? "release-card" : `track-row track-columns${selected?.id === item.id || selection?.has(item.id) ? " is-selected" : ""}${item.missing ? " is-missing" : ""}${isSource ? (drag?.insertAt === null ? " is-drag-source" : " is-drag-gap") : ""}`}
                 draggable={!isGrid && (dragTracks || reorderable)}
                 onDragStart={(event) => {
-                  setDraggedTracks(event.dataTransfer, [item.id], `${item.title} - ${item.artist}`, [item]);
+                  const many = selection?.has(item.id) && selection.size > 1 ? page.items.filter((loaded) => selection.has(loaded.id)) : [];
+                  if (many.length > 1) setDraggedTracks(event.dataTransfer, many.map((loaded) => loaded.id), `${many.length} tracks`, many);
+                  else setDraggedTracks(event.dataTransfer, [item.id], `${item.title} - ${item.artist}`, [item]);
                   dragPreview(event.dataTransfer, item.title, item.artist);
                   if (reorderable) setDrag({ source: index, insertAt: null });
                   else event.dataTransfer.effectAllowed = "copy";
@@ -255,17 +266,38 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
                 style={isGrid ? undefined : { height: rowHeight }}
                 data-index={index} data-testid={isGrid ? "library-card" : "track-row"}
                 aria-label={isGrid ? `${item.title}, ${item.trackCount} tracks` : `${item.title}, ${item.artist}`}
-                aria-pressed={isGrid ? undefined : selected?.id === item.id}
+                aria-pressed={isGrid ? undefined : selected?.id === item.id || Boolean(selection?.has(item.id))}
                 onClick={(event) => {
                   // WebKit does not focus a button on click; the keyboard should carry on from here.
                   event.currentTarget.focus();
-                  if (isGrid) onOpen(item); else onSelect(item, index);
+                  if (isGrid) {
+                    onOpen(item);
+                    return;
+                  }
+                  if ((event.metaKey || event.ctrlKey) && onSelectionChange) {
+                    const next = new Set(selection ?? (selected ? [selected.id] : []));
+                    if (!next.delete(item.id)) next.add(item.id);
+                    onSelectionChange([...next]);
+                    anchor.current = index;
+                    return;
+                  }
+                  if (event.shiftKey && onSelectionChange && anchor.current !== null) {
+                    const [from, to] = anchor.current < index ? [anchor.current, index] : [index, anchor.current];
+                    onSelectionChange(page.items.filter((_, at) => at + page.start >= from && at + page.start <= to).map((loaded) => loaded.id));
+                    return;
+                  }
+                  anchor.current = index;
+                  onSelectionChange?.([item.id]);
+                  onSelect(item, index);
                 }}
                 onDoubleClick={() => { if (!isGrid && onPlay && !item.missing) onPlay(item, index); }}
                 onContextMenu={(event) => {
-                  if (isGrid || !onQueue || item.missing) return;
+                  if (isGrid || (!onQueue && !onEdit)) return;
                   event.preventDefault();
-                  onSelect(item, index);
+                  if (!selection?.has(item.id)) {
+                    onSelectionChange?.([item.id]);
+                    onSelect(item, index);
+                  }
                   setMenu({ item, index, x: event.clientX, y: event.clientY });
                 }}
                 onKeyDown={(event) => {
@@ -316,8 +348,9 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
       </div>
     </div>
     {menu && <RowMenu item={menu.item} x={menu.x} y={menu.y} onClose={() => setMenu(null)} actions={[
-      ...(onPlay ? [{ label: "Play now", run: () => onPlay(menu.item, menu.index) }] : []),
-      ...(onQueue ? [{ label: "Play next", run: () => onQueue(menu.item, true) }, { label: "Add to queue", run: () => onQueue(menu.item, false) }] : []),
+      ...(onPlay && !menu.item.missing ? [{ label: "Play now", run: () => onPlay(menu.item, menu.index) }] : []),
+      ...(onQueue && !menu.item.missing ? [{ label: "Play next", run: () => onQueue(menu.item, true) }, { label: "Add to queue", run: () => onQueue(menu.item, false) }] : []),
+      ...(onEdit ? [{ label: chosen(menu.item).length > 1 ? `Edit details (${chosen(menu.item).length} tracks)...` : "Edit details...", run: () => onEdit(chosen(menu.item)) }] : []),
     ]} />}
   </section>;
 }

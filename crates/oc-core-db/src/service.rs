@@ -512,6 +512,31 @@ impl LibraryService {
         }))
     }
 
+    /// Every present file of a track, with its music folder: what an edit to the track changes.
+    pub fn track_files(&self, track_id: i64) -> Result<Vec<(i64, PathBuf)>> {
+        let lease = self.pool.lease();
+        let mut statement = lease.connection().prepare(
+            "SELECT r.id, r.path_raw, f.path_raw FROM file f JOIN library_root r ON r.id = f.root_id \
+             WHERE f.track_id = ?1 AND f.presence = 'present' AND f.lifecycle = 'active' \
+             AND r.availability = 'available' ORDER BY f.id",
+        )?;
+        let rows = statement.query_map([track_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+            ))
+        })?;
+        let mut files = Vec::new();
+        for row in rows {
+            let (root_id, root, relative) = row?;
+            if let Some(path) = crate::catalog::full_path(&root, &relative) {
+                files.push((root_id, path));
+            }
+        }
+        Ok(files)
+    }
+
     /// The file to play for a track: a present, active one, lossless first. `None` when the track
     /// has no file that can be reached.
     pub fn track_file(&self, track_id: i64) -> Result<Option<PathBuf>> {

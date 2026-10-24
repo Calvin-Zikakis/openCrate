@@ -408,6 +408,28 @@ export interface ResolvedDuplicate {
   archive: string;
 }
 
+/** What a track's file holds, for the editor. */
+export interface TrackTags {
+  trackId: number;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  albumArtist: string | null;
+  genre: string | null;
+  label: string | null;
+  year: number | null;
+  track: number | null;
+}
+
+export type EditField = "title" | "artist" | "album" | "albumArtist" | "genre" | "label" | "year" | "track";
+
+/** What saving edits did. */
+export interface EditedTracks {
+  files: number;
+  /** Files left as they were, and why. */
+  left: string[];
+}
+
 /** What tidying a folder did. */
 export interface TidiedFolder {
   folder: string;
@@ -543,6 +565,10 @@ export interface LibraryAdmin {
   duplicateCopies(fileIds: number[]): Promise<DuplicateCopies>;
   /** Keep one copy; archive the others and merge their rekordbox entries into the kept one's. */
   resolveDuplicate(keep: number, drop: number[]): Promise<ResolvedDuplicate>;
+  /** What the chosen tracks' files hold. */
+  trackTags(trackIds: number[]): Promise<TrackTags[]>;
+  /** Write changes into every file of the chosen tracks; an empty value clears a field. */
+  editTracks(trackIds: number[], changes: { field: EditField; value: string }[]): Promise<EditedTracks>;
   /** Move a folder the check names to its tidy name; rekordbox follows the files it uses. */
   tidyFolder(rootId: number, folder: string): Promise<TidiedFolder>;
   folderLayout(): Promise<FolderLayout>;
