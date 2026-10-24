@@ -69,7 +69,7 @@ export function Downloads({ admin, open }: Props) {
     <p className="settings-copy">Where new music lands when you download it. openCrate only reads these folders; it never moves, renames or deletes anything in them.</p>
     {folders.length === 0
       ? <p className="settings-copy">No download folders yet.</p>
-      : <ul className="folder-list">{folders.map((folder) => <li key={folder.id} className="folder-row">
+      : <ul className="folder-list">{folders.map((folder) => <li key={folder.id} className="folder-row folder-row-stacked">
         <div className="folder-text">
           <strong>{folder.label}</strong>
           <small title={folder.path}>{folder.path}</small>

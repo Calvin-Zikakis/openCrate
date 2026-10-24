@@ -400,7 +400,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return { rootId: 7, rootLabel: "Music", filed: 1, skipped: [{ source: `${args?.name}/02.flac`, problem: "No track number in the tags or file name." }] };
             case "library_add_watch_folder":
               if ((window as any).__overlap) throw "That folder is, contains or lies inside your music library. Download folders must be separate from it.";
-              downloads.push({ id: 9, label: "Downloads", path: "/Users/dj/Downloads", enabled: true, online: true, lastSeenMs: 1 });
+              downloads.push({ id: 9, label: "Downloads", path: (window as any).__downloadPath ?? "/Users/dj/Downloads", enabled: true, online: true, lastSeenMs: 1 });
               return downloads[0];
             case "library_set_watch_folder_enabled":
               downloads[0] = { ...downloads[0], enabled: args?.enabled };
@@ -569,7 +569,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 const order = crateById(query.crateId).order;
                 return { items: order.slice(start, start + count).map((id) => row(id - 1)), total: order.length, start };
               }
-              const total = scanStarted && statusCalls >= 3 ? 1500 : 1234;
+              const total = (window as any).__emptyLibrary ? 0 : scanStarted && statusCalls >= 3 ? 1500 : 1234;
               const items = [];
               for (let i = start; i < Math.min(start + count, total); i += 1) {
                 items.push({
@@ -860,6 +860,7 @@ test("a release can be previewed before anything is imported, and the screen scr
   await dialog.getByRole("button", { name: "Add download folder..." }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
+  await page.getByRole("button", { name: "By release" }).click();
 
   const screen = page.locator(".sync-screen");
   await expect(page.getByRole("heading", { name: "Already there when you added the folder" })).toBeAttached();
@@ -963,6 +964,7 @@ test("import: a previewed release is copied in, the library rescanned, and it mo
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add download folder..." }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
+  await page.getByRole("button", { name: "By release" }).click();
 
   await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("the originals stay in Downloads")).toBeVisible();
@@ -1008,13 +1010,17 @@ test("import: with rekordbox open, imported tracks wait for it and the note says
   expect(await page.evaluate(() => (window as any).__rbSentNew ?? 0)).toBe(0);
 });
 
-async function openImportWithFolders(page: Page) {
+/** Opens Import with a music and a download folder, showing releases one by one unless told otherwise. */
+async function openImportWithFolders(page: Page, view: "One table" | "By release" = "By release") {
+  // Chosen before the screen opens, so no release is read for the other view first.
+  await page.addInitScript((value) => { localStorage.setItem("opencrate.importView", value); }, view === "By release" ? "releases" : "table");
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add folder..." }).click();
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add download folder..." }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
+  await page.getByRole("group", { name: "Show releases as" }).getByRole("button", { name: view }).click();
 }
 
 test("import choices: conversion and tidying are sent with the preview and shown in it", async ({ page }) => {
@@ -1078,6 +1084,44 @@ test("import: finished releases have their tags read without a click, and those 
   await expect(between.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "false");
   await expect(between.getByText("1 file ready to go into Music")).toBeVisible();
   expect(await planned()).toEqual(["Between Spaces", "Clean Single"]);
+});
+
+test("import: one table shows every release's tags at once, with an Import button per release", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__cleanReady = true; });
+  await openImportWithFolders(page, "One table");
+  // No row has to be opened: every finished release, new or already there, has its tags read.
+  const planned = async () => (await calls(page)).filter((call) => call.command === "library_plan_release").map((call) => call.args.name).sort();
+  await expect.poll(planned).toEqual(["Between Spaces", "Clean Single", "Old Favourites"]);
+  await expect(page.getByRole("button", { name: /^Preview / })).toHaveCount(0);
+
+  const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
+  const groups = fresh.locator("tbody.plan-group");
+  await expect(groups).toHaveCount(4);
+  const between = groups.filter({ hasText: "Between Spaces" });
+  await expect(between.locator(".folder-badge")).toHaveText("Needs attention");
+  await expect(between.getByText("No track number in the tags or file name.")).toBeVisible();
+  await expect(between.getByText("FLAC 16/44.1")).toBeVisible();
+  const clean = groups.filter({ hasText: "Clean Single" });
+  await expect(clean.locator(".folder-badge")).toHaveText("Ready");
+  await expect(clean.getByRole("cell", { name: "Studio 001/Clean Single/01 - Studio 001 - Clean Single.aif" })).toBeVisible();
+  // Still downloading: listed with its state, nothing to import yet.
+  const downloading = groups.filter({ hasText: "Night Drive EP" });
+  await expect(downloading.locator(".folder-badge")).toHaveText("Still downloading");
+  await expect(downloading.getByRole("button", { name: /^Import / })).toHaveCount(0);
+  // One heading row for the whole table.
+  await expect(fresh.getByRole("columnheader", { name: "Title", exact: true })).toHaveCount(1);
+  const older = page.locator(".sync-card").filter({ hasText: "Already there when you added the folder" });
+  await expect(older.locator("tbody.plan-group").filter({ hasText: "Old Favourites" }).getByRole("button", { name: "Import Old Favourites" })).toBeVisible();
+
+  await clean.getByRole("button", { name: "Import Clean Single" }).click();
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_import_release").map((call) => call.args.name)).toEqual(["Clean Single"]);
+  await expect(page.locator(".sync-card").filter({ hasText: "Already copied into your music folder" })).toContainText("Clean Single");
+
+  // The choice is remembered.
+  await page.getByRole("group", { name: "Show releases as" }).getByRole("button", { name: "By release" }).click();
+  await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("opencrate.importView"))).toBe("releases");
 });
 
 test("import all: a review lists doubtful tags, then every finished release is imported and scanned once", async ({ page }) => {
@@ -1502,6 +1546,12 @@ test("a crate is exported as an M3U8 or CSV to a file the owner picks", async ({
   await crates.getByRole("textbox", { name: "New crate name" }).fill("Warm-up");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Warm-up" })).toBeVisible();
+  // An empty crate has nothing to export.
+  await expect(page.getByText("This crate is empty")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Export" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to tracks" }).click();
+  await page.getByRole("button", { name: /Rust Track 0001,/ }).dragTo(crates.getByRole("button", { name: /Warm-up/ }));
+  await crates.getByRole("button", { name: /Warm-up/ }).click();
   const exportGroup = page.getByRole("group", { name: "Export" });
   await exportGroup.getByRole("button", { name: "Export M3U8 playlist..." }).click();
   await expect(exportGroup.getByRole("status")).toContainText("3 tracks exported to /Users/dj/Desktop/Warm-up.m3u8. 1 has no file that can be reached.");
@@ -1512,6 +1562,64 @@ test("a crate is exported as an M3U8 or CSV to a file the owner picks", async ({
   expect(sent[0].name).toBe("Warm-up");
   expect(sent[0].query.crateId).toBeTruthy();
   expect(sent[1].format).toBe("csv");
+});
+
+test("an empty library says there is no music yet, points to Settings and Import, and has nothing to export", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__emptyLibrary = true; });
+  await page.goto("/");
+  const empty = page.locator(".empty-state");
+  await expect(empty.getByRole("heading", { name: "No music in your library yet" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Export" })).toHaveCount(0);
+  await empty.getByRole("button", { name: "Open Settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeHidden();
+  await empty.getByRole("button", { name: "Go to Import" }).click();
+  await expect(page.getByRole("heading", { name: "Import", level: 1 })).toBeVisible();
+  // Once something is typed, an empty result is about the search, not about the library.
+  await page.getByRole("button", { name: "Tracks" }).first().click();
+  await page.getByRole("textbox", { name: "Search library" }).fill("night");
+  await expect(page.locator(".empty-state").getByRole("heading", { name: "No matches this time" })).toBeVisible();
+});
+
+test("settings: a long download folder path is shown whole, on a line of its own, above its buttons", async ({ page }) => {
+  await page.setViewportSize({ width: 864, height: 700 });
+  await stubBridge(page, "managed");
+  const path = "/Users/dj/Library/Mobile Documents/com~apple~CloudDocs/Music Downloads/New Releases 2026";
+  await page.addInitScript((value) => { (window as any).__downloadPath = value; }, path);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("button", { name: "Add download folder..." }).click();
+  const row = dialog.locator(".folder-row").filter({ hasText: "Downloads" });
+  const shown = row.locator("small[title]");
+  await expect(shown).toHaveText(path);
+  expect(await shown.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  // The buttons sit below the path, inside the dialog, and Remove is still reachable.
+  const remove = row.getByRole("button", { name: "Remove Downloads from download folders" });
+  await expect(remove).toBeInViewport();
+  const [pathBox, removeBox, dialogBox] = await Promise.all([shown.boundingBox(), remove.boundingBox(), dialog.boundingBox()]);
+  expect(pathBox && removeBox && removeBox.y >= pathBox.y + pathBox.height - 1).toBe(true);
+  expect(removeBox && dialogBox && removeBox.x + removeBox.width <= dialogBox.x + dialogBox.width).toBe(true);
+});
+
+test("import: columns past the edge of a narrow preview are pointed out, and the hint goes when they fit", async ({ page }) => {
+  await page.setViewportSize({ width: 864, height: 700 });
+  await stubBridge(page, "managed");
+  await openImportWithFolders(page);
+  const table = page.locator(".plan-table-wrap");
+  await expect(table).toBeVisible();
+  expect(await table.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  const hint = page.getByRole("note").filter({ hasText: "More columns are off to the right" });
+  await expect(hint).toBeVisible();
+  await expect(page.locator(".plan-table-frame")).toHaveAttribute("data-more-right", "true");
+  // Scrolled to the far end, nothing is left to find.
+  await table.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+  await expect(page.locator(".plan-table-frame")).toHaveAttribute("data-more-right", "false");
+  // A wide window shows every column.
+  await page.setViewportSize({ width: 2000, height: 700 });
+  await expect(hint).toHaveCount(0);
 });
 
 test("keys are shown in the chosen notation", async ({ page }) => {
@@ -1875,6 +1983,7 @@ test("sidebar: crates are as wide as the navigation, and the width can be dragge
 
 test("the Import screen shows what has finished downloading and what was already there", async ({ page }) => {
   await stubBridge(page, "managed");
+  await page.addInitScript(() => { localStorage.setItem("opencrate.importView", "releases"); });
   await page.goto("/");
   await page.getByRole("button", { name: "Import" }).first().click();
   await expect(page.getByRole("heading", { name: "No download folders yet" })).toBeVisible();

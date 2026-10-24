@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { startPolling } from "../library/poller";
-import { PlanTable } from "./PlanTable";
+import { PlanTable, type PlanGroup } from "./PlanTable";
 import { Icon } from "./Icon";
 import { ImportAll } from "./ImportAll";
 import { ImportChoices, loadOptions } from "./ImportChoices";
@@ -53,6 +53,16 @@ function folderNote(folder: DownloadFolderState): string | null {
   return null;
 }
 
+/** One table for every release, or a row per release to open one at a time. Remembered here. */
+type View = "table" | "releases";
+const VIEW_KEY = "opencrate.importView";
+function loadView(): View {
+  try { return localStorage.getItem(VIEW_KEY) === "releases" ? "releases" : "table"; } catch { return "table"; }
+}
+function saveView(view: View) {
+  try { localStorage.setItem(VIEW_KEY, view); } catch { /* applied for now, not remembered */ }
+}
+
 interface Props {
   admin: LibraryAdmin;
   onOpenSettings: () => void;
@@ -79,6 +89,8 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   const [rekordboxNote, setRekordboxNote] = useState("");
   const [options, setOptions] = useState<ImportOptions>(loadOptions);
   const [canConvert, setCanConvert] = useState(false);
+  const [view, setView] = useState<View>(loadView);
+  const changeView = (next: View) => { setView(next); saveView(next); };
 
   useEffect(() => {
     let stopped = false;
@@ -166,8 +178,9 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   const ready = fresh.filter((release) => release.state === "ready").length;
 
   // Every finished new release has its tags read without asking, one at a time, so problems show
-  // in the list; any other row is read when it is opened.
-  const wanted = releases.filter((release) => !release.imported && ((fresh.includes(release) && release.state === "ready") || chosen.get(keyOf(release)) === true));
+  // in the list; in the one-table view so is every finished release already there. Any other row
+  // is read when it is opened.
+  const wanted = releases.filter((release) => !release.imported && ((release.state === "ready" && (fresh.includes(release) || view === "table")) || chosen.get(keyOf(release)) === true));
   const reading = useRef(new Set<string>());
   const todo = rootId === null ? [] : wanted.filter((release) => !planned(release) && !reading.current.has(`${keyOf(release)}|${stampOf(release)}`));
   const todoKey = todo.map((release) => `${keyOf(release)}|${stampOf(release)}`).join("\n");
@@ -190,20 +203,55 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     })();
     // todoKey names exactly the releases still to read.
   }, [admin, todoKey]);
+  const status = (release: DownloadRelease, plan: ImportPlan | null) => release.imported
+    ? { text: "Imported", tone: "available" }
+    : plan && plan.blocked > 0 ? { text: "Needs attention", tone: "unavailable" }
+    : plan && needsLook(plan) ? { text: "Check the tags", tone: "unavailable" }
+    : badge(release);
+  const available = roots.filter((folder) => folder.availability === "available");
+  const rootChoice = available.length > 1 && <label className="plan-root">Put it in <select value={rootId ?? ""} onChange={(event) => setRootId(Number(event.target.value))}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>;
+
+  /** Every release in a list as one table: a header row each, with its own Import button. */
+  const table = (list: DownloadRelease[]) => {
+    const groups: PlanGroup[] = list.map((release) => {
+      const key = keyOf(release);
+      const entry = planned(release);
+      const plan = entry?.plan ?? null;
+      const step = importing?.key === key ? importing.step : null;
+      const { text, tone } = status(release, plan);
+      const waiting = !entry && wanted.includes(release) && rootId !== null;
+      return {
+        key,
+        files: plan?.files ?? [],
+        header: <>
+          <span className="plan-group-name"><strong>{release.name}</strong><small>{contents(release)} - in {release.folderLabel}</small></span>
+          <span className={`folder-badge ${tone}`}>{text}</span>
+          {plan && plan.ready > 0 && <button className="secondary-button" disabled={importing !== null || release.state !== "ready"} aria-label={`Import ${release.name}`} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
+          {waiting && <small role="status">Reading the tags...</small>}
+          {step && <small role="status">{step === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</small>}
+          {entry?.error && <small role="alert" className="inline-error">{entry.error}</small>}
+          {importErrors.get(key) && <small role="alert" className="inline-error">{importErrors.get(key)}</small>}
+        </>,
+      };
+    });
+    return <div className="plan-panel import-table">
+      {rootChoice}
+      {rootId === null && <p role="alert" className="inline-error">Add a music folder in Settings first, so there is somewhere to put it.</p>}
+      <p className="settings-copy">Importing copies the files; the originals stay in the download folder. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
+      <PlanTable groups={groups} />
+    </div>;
+  };
+
   const row = (release: DownloadRelease) => {
     const key = keyOf(release);
     const entry = planned(release);
     const plan = release.imported ? null : entry?.plan ?? null;
     const result = results.get(key);
     const step = importing?.key === key ? importing.step : null;
-    const auto = release.imported ? result !== undefined : plan !== null && needsLook(plan);
+    // Only new releases open by themselves; one already there opens when asked.
+    const auto = release.imported ? result !== undefined : fresh.includes(release) && plan !== null && needsLook(plan);
     const open = chosen.get(key) ?? auto;
-    const { text, tone } = release.imported
-      ? { text: "Imported", tone: "available" }
-      : plan && plan.blocked > 0 ? { text: "Needs attention", tone: "unavailable" }
-      : plan && needsLook(plan) ? { text: "Check the tags", tone: "unavailable" }
-      : badge(release);
-    const available = roots.filter((folder) => folder.availability === "available");
+    const { text, tone } = status(release, plan);
     const waiting = !entry && wanted.includes(release) && rootId !== null;
     return <li key={key} className="folder-row">
       <div className="folder-text">
@@ -214,7 +262,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
       <span className={`folder-badge ${tone}`}>{text}</span>
       <button className="secondary-button" aria-expanded={open} aria-label={`Preview ${release.name}`} onClick={() => choose(key, !open)}>{open ? "Hide preview" : "Preview..."}</button>
       {open && <div className="plan-panel">
-        {available.length > 1 && <label className="plan-root">Put it in <select value={rootId ?? ""} onChange={(event) => setRootId(Number(event.target.value))}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>}
+        {rootChoice}
         {rootId === null && <p role="alert" className="inline-error">Add a music folder in Settings first, so there is somewhere to put it.</p>}
         {waiting && <p className="settings-copy" role="status">Reading the tags...</p>}
         {step && <p className="settings-copy" role="status">{step === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</p>}
@@ -241,7 +289,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     <div className="feature-empty sync-hero">
       <div className="empty-icon"><Icon name="folder" size={36} /></div>
       <h1>Import</h1>
-      <p>Releases in your download folders, and whether they have finished downloading. Their tags are read as they arrive, and any that need a look open by themselves. Importing copies files into your music folder; the download folder is never changed.</p>
+      <p>Releases in your download folders, and whether they have finished downloading. Their tags are read as they arrive and shown together in one table, or release by release. Importing copies files into your music folder; the download folder is never changed.</p>
     </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {!snapshot && !error && <p className="settings-copy" role="status">Looking at your download folders...</p>}
@@ -253,6 +301,10 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     {notes.map((note) => <p key={note} className="settings-copy" role="status">{note}</p>)}
     {rekordboxNote && <p className="settings-copy rekordbox-note" role="status">{rekordboxNote}</p>}
     {snapshot && snapshot.folders.length > 0 && <ImportChoices options={options} canConvert={canConvert} onChange={setOptions} />}
+    {snapshot && snapshot.folders.length > 0 && <div className="format-filters import-view" role="group" aria-label="Show releases as">
+      <button aria-pressed={view === "table"} onClick={() => changeView("table")}>One table</button>
+      <button aria-pressed={view === "releases"} onClick={() => changeView("releases")}>By release</button>
+    </div>}
     {snapshot && snapshot.folders.length > 0 && <div className="sync-card">
       <h2>New since you added the folder</h2>
       {fresh.length === 0
@@ -260,7 +312,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
         : <>
           <p className="settings-copy">{ready} of {fresh.length} {fresh.length === 1 ? "release has" : "releases have"} finished downloading.</p>
           <ImportAll admin={admin} releases={fresh.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} />
-          <ul className="folder-list">{fresh.map(row)}</ul>
+          {view === "table" ? table(fresh) : <ul className="folder-list">{fresh.map(row)}</ul>}
         </>}
     </div>}
     {imported.length > 0 && <div className="sync-card">
@@ -273,7 +325,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
       <p className="settings-copy">These are not picked up on their own. They stay out of the way until you choose to bring them in, one at a time or all together.</p>
       <ImportAll admin={admin} releases={older.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan}
         label={(count) => `Import all ${count} ${count === 1 ? "release" : "releases"} already there...`} />
-      <ul className="folder-list">{older.map(row)}</ul>
+      {view === "table" ? table(older) : <ul className="folder-list">{older.map(row)}</ul>}
     </div>}
   </div>;
 }

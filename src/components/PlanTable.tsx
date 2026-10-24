@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { PlanFile, TagView } from "../library/types";
 
 type Field = { value: string | null; guessed: boolean; tidiedFrom: string | null };
@@ -92,17 +92,28 @@ function cell(id: PlanColumn, file: PlanFile) {
   }
 }
 
+/** Several releases in one table: each starts with a row of its own (`header`) above its files. */
+export interface PlanGroup {
+  key: string;
+  header: ReactNode;
+  files: PlanFile[];
+}
+
 /** The preview table: drag a heading's edge to resize, right-click a heading to choose columns.
- * Both choices are remembered in this browser. */
-export function PlanTable({ files }: { files: PlanFile[] }) {
+ * Both choices are remembered in this browser. Given `groups`, it lists every release at once. */
+export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?: PlanGroup[] }) {
+  const allFiles = groups ? groups.flatMap((group) => group.files) : files;
   const [hidden, setHidden] = useState<Set<PlanColumn>>(() => new Set(load(HIDDEN_KEY, DEFAULT_HIDDEN, isIdList)));
   const [widths, setWidths] = useState<Partial<Record<PlanColumn, number>>>(() => load(WIDTHS_KEY, {}, isWidths));
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: PlanColumn; startX: number; startWidth: number } | null>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  /** Columns lie past the right edge: a fade and a hint say so, since a thin scrollbar hides itself. */
+  const [moreRight, setMoreRight] = useState(false);
 
   // "Becomes" only matters when something in this release would be converted.
-  const converting = files.some((file) => file.becomes !== null);
+  const converting = allFiles.some((file) => file.becomes !== null);
   const shown = (id: PlanColumn) => !hidden.has(id) && (id !== "becomes" || converting);
   const visible = PLAN_COLUMNS.filter((column) => shown(column.id));
   const widthOf = (id: PlanColumn) => clamp(widths[id] ?? PLAN_COLUMNS.find((column) => column.id === id)?.width ?? 100);
@@ -190,8 +201,33 @@ export function PlanTable({ files }: { files: PlanFile[] }) {
     }
   };
 
+  const fileRows = (file: PlanFile) => {
+    const notes = [...(file.problem ? [file.problem] : []), ...(file.shortened ? ["Name shortened to fit Windows' path limit."] : []), ...(file.tags?.warnings ?? [])];
+    return <Fragment key={file.source}>
+      <tr className={notes.length > 0 ? "plan-row has-notes" : "plan-row"}>
+        {visible.map((column) => <td key={column.id} className={`plan-cell plan-${column.id}`}>{cell(column.id, file)}</td>)}
+      </tr>
+      {notes.length > 0 && <tr className="plan-notes">
+        <td colSpan={visible.length}><ul className={file.problem ? "tag-warnings plan-blocked" : "tag-warnings"} aria-label={`Notes for ${file.source}`}>{notes.map((note) => <li key={note}>{note}</li>)}</ul></td>
+      </tr>}
+    </Fragment>;
+  };
   const tableStyle: CSSProperties = { width: total };
-  return <div className="plan-table-wrap">
+  const measure = () => {
+    const element = wrap.current;
+    if (element) setMoreRight(element.scrollWidth - element.clientWidth - element.scrollLeft > 1);
+  };
+  useLayoutEffect(() => {
+    const element = wrap.current;
+    if (!element) return;
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
+  return <div className="plan-table-frame" data-more-right={moreRight}>
+    {moreRight && <p className="plan-scroll-hint" role="note">More columns are off to the right: scroll sideways, drag a heading's edge to make a column narrower, or right-click a heading to hide some.</p>}
+    <div className="plan-table-wrap" ref={wrap} onScroll={measure}>
     <table className="analysis-table plan-table" style={tableStyle}>
       <colgroup>{visible.map((column) => <col key={column.id} style={{ width: widthOf(column.id) }} />)}</colgroup>
       <thead onContextMenu={(event) => { event.preventDefault(); setMenu({ x: event.clientX, y: event.clientY }); }}>
@@ -215,18 +251,14 @@ export function PlanTable({ files }: { files: PlanFile[] }) {
           />
         </th>)}</tr>
       </thead>
-      <tbody>{files.map((file) => {
-        const notes = [...(file.problem ? [file.problem] : []), ...(file.shortened ? ["Name shortened to fit Windows' path limit."] : []), ...(file.tags?.warnings ?? [])];
-        return [
-          <tr key={file.source} className={notes.length > 0 ? "plan-row has-notes" : "plan-row"}>
-            {visible.map((column) => <td key={column.id} className={`plan-cell plan-${column.id}`}>{cell(column.id, file)}</td>)}
-          </tr>,
-          notes.length > 0 && <tr key={`${file.source}:notes`} className="plan-notes">
-            <td colSpan={visible.length}><ul className={file.problem ? "tag-warnings plan-blocked" : "tag-warnings"} aria-label={`Notes for ${file.source}`}>{notes.map((note) => <li key={note}>{note}</li>)}</ul></td>
-          </tr>,
-        ];
-      })}</tbody>
+      {groups
+        ? groups.map((group) => <tbody key={group.key} className="plan-group">
+          <tr className="plan-group-row"><th scope="rowgroup" colSpan={visible.length}><div className="plan-group-head">{group.header}</div></th></tr>
+          {group.files.map(fileRows)}
+        </tbody>)
+        : <tbody>{files.map(fileRows)}</tbody>}
     </table>
+    </div>
     {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label="Columns" style={{ left: menu.x, top: menu.y }}>
       {PLAN_COLUMNS.map((column) => {
         const fixed = "fixed" in column || (column.id === "becomes" && !converting);

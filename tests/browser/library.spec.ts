@@ -22,7 +22,7 @@ test("search, formats, sorting and rapid changes show only current results", asy
   await search.fill("after");
   await search.fill("not-in-the-catalog");
   await search.fill("Morning Light 099999");
-  await expect(page.getByRole("status")).toContainText("1 tracks");
+  await expect(page.getByRole("status")).toContainText(/\b1 track matching/);
   await expect(page.getByTestId("track-row")).toHaveCount(1);
   await expect(page.getByTestId("track-row")).toContainText("Morning Light 099999");
   await page.getByRole("button", { name: "Clear search" }).click();

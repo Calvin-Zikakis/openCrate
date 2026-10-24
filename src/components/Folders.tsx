@@ -134,7 +134,7 @@ export function Folders({ admin, open, onChanged }: Props) {
     {!admin.persistent && <p className="settings-copy">This library is temporary and is discarded when the app closes.</p>}
     {folders.length === 0
       ? <p className="settings-copy">No folders yet. Add the folder that holds your music.</p>
-      : <ul className="folder-list">{folders.map((folder) => <li key={folder.id} className="folder-row">
+      : <ul className="folder-list">{folders.map((folder) => <li key={folder.id} className="folder-row folder-row-stacked">
         <div className="folder-text">
           <strong>{folder.label}</strong>
           <small title={folder.path}>{folder.path}</small>

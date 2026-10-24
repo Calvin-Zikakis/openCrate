@@ -55,7 +55,9 @@ account once setup is done.
    asks for the GitHub token. At the end macOS asks three things on behalf of Terminal: allow it to
    control System Events (Allow), to record the screen (Allow), and to use Accessibility (turn
    Terminal on in the System Settings page that opens; it asks for your administrator name and
-   password). Quit and reopen Terminal afterwards.
+   password). Quit and reopen Terminal afterwards. Screen recording is the one most often missed: it is under Privacy
+   and Security, Screen & System Audio Recording, and a stale entry for Terminal may need removing with `-`
+   and adding again with `+`.
 
 6. **Sign Claude Code in.** In Terminal, run `claude` once and follow the sign-in. Then type
    `/exit`.
@@ -90,7 +92,7 @@ account once setup is done.
   `open -n --env OPENCRATE_DATA=... openCrate.app`.
 - Imports from `~/Desktop/ocTest/Downloads` into `~/Desktop/ocTest/Music`, checks the editor,
   Clean up, duplicates and the rekordbox sync, and confirms each one in rekordbox by eye.
-- Clicks with `cliclick`, sends keys through System Events (`osascript`), takes window screenshots
+- Clicks with `cliclick` (the first click on a window that is not in front only brings it forward), sends keys through System Events (`osascript`), takes window screenshots
   with `screencapture -l`, and scrolls with a small CoreGraphics helper.
 - Writes what it finds to `docs/owner-notes.md`, fixes it, and commits to the working branch.
 

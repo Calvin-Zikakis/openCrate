@@ -41,6 +41,11 @@ interface Props {
   restoreScroll?: number;
   /** Changes when the rows should be read again in place, keeping the scroll position. */
   version?: number;
+  /** Told how many rows the list has each time a read finishes (a state setter: it is not a dependency of the read). */
+  onTotal?: (total: number) => void;
+  /** The empty-library message points here when it has somewhere to send you. */
+  onOpenSettings?: () => void;
+  onOpenImport?: () => void;
 }
 
 /** How close to the top or bottom edge a drag scrolls the list, and how fast. */
@@ -58,7 +63,7 @@ function dragPreview(data: DataTransfer, title: string, artist: string) {
   setTimeout(() => label.remove(), 0);
 }
 
-export function Library({ api, query, compact, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
+export function Library({ api, query, compact, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -104,6 +109,7 @@ export function Library({ api, query, compact, keyNotation = "rekordbox", select
       if (!controller.signal.aborted) {
         setPage(next);
         setPending(false);
+        onTotal?.(next.total);
         if (!restored.current) {
           restored.current = true;
           requestAnimationFrame(() => { if (scroll.current) scroll.current.scrollTop = restoreScroll; });
@@ -203,7 +209,7 @@ export function Library({ api, query, compact, keyNotation = "rekordbox", select
 
   return <section className="library-results" aria-label={`${query.view} results`} aria-busy={pending}>
     <div className="result-summary" role="status">
-      {pending ? "Loading..." : `${page.total.toLocaleString()} ${query.view}`}
+      {pending ? "Loading..." : `${page.total.toLocaleString()} ${page.total === 1 ? query.view.replace(/s$/, "") : query.view}`}
       <span> {query.search ? `matching "${query.search}"` : api.admin ? (api.admin.persistent ? "Your library" : "Demo database") : "Synthetic collection"}</span>
       {reorderable && page.total > 1 && <span className="crate-hint">{reorder?.remove
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
@@ -213,7 +219,10 @@ export function Library({ api, query, compact, keyNotation = "rekordbox", select
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"
       ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>This crate is empty</h2><p>Drag tracks from your library onto the crate's name in the sidebar.</p></div>
-      : <div className="empty-state"><Icon name="search" size={36} /><h2>No matches this time</h2><p>Try a different title, artist or release, or clear your filters.</p></div>)}
+      : !query.search && query.format === "all" && query.playlistId === null && query.artistId === null && query.releaseId === null && (onOpenSettings || onOpenImport)
+        ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>No music in your library yet</h2><p>Add a music folder in Settings, or bring in music from a download folder with Import.</p>
+          <div className="empty-actions">{onOpenSettings && <button className="secondary-button" onClick={onOpenSettings}>Open Settings</button>}{onOpenImport && <button className="secondary-button" onClick={onOpenImport}>Go to Import</button>}</div></div>
+        : <div className="empty-state"><Icon name="search" size={36} /><h2>No matches this time</h2><p>Try a different title, artist or release, or clear your filters.</p></div>)}
     <div ref={scroll} className="library-scroll" data-testid="library-scroll" role="region" tabIndex={0} aria-label="Scrollable library" onPointerDown={() => {
       focusCleanup.current?.();
       focusCleanup.current = null;

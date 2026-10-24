@@ -180,6 +180,7 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .secondary-button { background: var(--raised); padding: 12px 18px; border-radius: 6px; font-size: 12px; }
 .empty-state { text-align: center; padding: 50px 0; color: var(--secondary); }
 .empty-state h2 { color: var(--text); font-size: 22px; }
+.empty-actions { display: flex; justify-content: center; gap: 12px; margin-top: 16px; }
 .inline-error { color: var(--warn); background: #ffc8570c; padding: 10px; border-radius: 5px; font-size: 12px; }
 .inline-error button { text-decoration: underline; }
 .settings-dialog { color: var(--text); background: var(--panel); border: 1px solid rgb(var(--ink) / 0.102); border-radius: 16px; width: 510px; max-width: calc(100vw - 40px); max-height: calc(100vh - 50px); padding: 28px 0 0; box-shadow: 0 30px 100px #000a; }
@@ -236,6 +237,9 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .folder-text { flex: 1; min-width: 0; }
 .folder-text strong { display: block; font-size: 12px; font-weight: 500; }
 .folder-text small { display: block; margin-top: 4px; font-size: 11px; color: var(--secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Folder paths are long and the buttons beside them are many: the path gets the first line to itself and is never cut. */
+.folder-row-stacked .folder-text { flex-basis: 100%; }
+.folder-row-stacked .folder-text small { white-space: normal; overflow-wrap: anywhere; }
 .folder-badge { font-size: 10px; letter-spacing: 0.4px; padding: 4px 8px; border-radius: 99px; background: var(--raised); color: var(--secondary); white-space: nowrap; }
 .folder-badge.available { color: var(--ok); }
 .folder-badge.unavailable, .folder-badge.unverified { color: var(--warn); }
@@ -348,6 +352,18 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .art-collage-3, .art-collage-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 .art-collage-3 .art-image:first-child { grid-column: 1 / span 2; }
 .art-image { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
+.plan-table-frame { position: relative; }
+.plan-table-frame[data-more-right="true"]::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 36px; pointer-events: none; background: linear-gradient(to right, transparent, var(--panel)); }
+.import-view { margin: -4px 0 0; }
+.plan-group-row th { overflow: visible; text-overflow: clip; user-select: text; padding: 14px 0 6px; border-top: 1px solid var(--line); text-align: left; font-weight: 400; color: var(--text); white-space: normal; }
+.plan-group:first-of-type .plan-group-row th { border-top: none; }
+/* Kept in view while the table scrolls sideways. */
+.plan-group-head { position: sticky; left: 0; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 10px; max-width: min(100%, 720px); }
+.plan-group-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.plan-group-name strong { font-size: 13px; font-weight: 500; }
+.plan-group-name small { font-size: 11px; color: var(--secondary); }
+.plan-group-head .secondary-button { padding: 7px 12px; }
+.plan-scroll-hint { margin: 0 0 8px; font-size: 11px; color: var(--secondary); }
 .plan-table-wrap { overflow-x: auto; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
 .plan-table { table-layout: fixed; border-collapse: collapse; }
 .plan-table th { position: relative; user-select: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 12px; }
