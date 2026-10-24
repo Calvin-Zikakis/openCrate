@@ -121,34 +121,38 @@ fn new_track(candidate: Candidate) -> NewTrack {
 /// Write the chosen tracks, in the order given, to the stable XML file and remember them as
 /// offered. Only current candidates can be sent.
 pub fn send(service: &LibraryService, file_ids: &[i64], now_ms: i64) -> Result<SentDto, String> {
-    if file_ids.is_empty() {
+    let mut chosen: Vec<i64> = Vec::with_capacity(file_ids.len());
+    for id in file_ids {
+        if !chosen.contains(id) {
+            chosen.push(*id);
+        }
+    }
+    if chosen.is_empty() {
         return Err("Choose at least one track to send.".into());
     }
     let (found, _) = service
         .rekordbox_candidates()
         .map_err(|error| error.to_string())?;
-    let mut by_id: HashMap<i64, Candidate> = found
-        .into_iter()
+    let offerable: std::collections::HashSet<i64> = found
+        .iter()
         .filter(|candidate| !candidate.hidden)
-        .map(|candidate| (candidate.file_id, candidate))
+        .map(|candidate| candidate.file_id)
         .collect();
-    let mut tracks = Vec::with_capacity(file_ids.len());
-    for id in file_ids {
-        let candidate = by_id.remove(id).ok_or_else(|| {
-            "A chosen track is no longer new to rekordbox. Look again.".to_owned()
-        })?;
-        tracks.push(new_track(candidate));
+    if chosen.iter().any(|id| !offerable.contains(id)) {
+        return Err("A chosen track is no longer new to rekordbox. Look again.".into());
     }
+    // The state the file is made from and the offers shown change together; the file follows,
+    // and is made again from the state whenever anything changes, so a failed write heals.
     let mut state = load_state(service)?;
-    state.new = file_ids.to_vec();
-    save_state(service, &state)?;
-    let path = regenerate(service)?;
+    state.new.clone_from(&chosen);
+    let text = serde_json::to_string(&state).map_err(|error| error.to_string())?;
     service
-        .record_offers(file_ids.to_vec(), now_ms)
+        .record_offers_with_setting(STATE, text, chosen.clone(), now_ms)
         .map_err(|error| error.to_string())?;
+    let path = regenerate(service)?;
     Ok(SentDto {
         xml_path: path.to_string_lossy().into_owned(),
-        tracks: tracks.len(),
+        tracks: chosen.len(),
     })
 }
 
@@ -550,6 +554,10 @@ mod tests {
             !xml_path(&setup.service).exists(),
             "nothing is written for a refused send"
         );
+        let id = new_tracks(&setup.service).unwrap().tracks[0].file_id;
+        let sent = send(&setup.service, &[id, id], 1).unwrap();
+        assert_eq!(sent.tracks, 1, "a track named twice is sent once");
+        assert_eq!(read_back(&setup.service).tracks.len(), 1);
     }
 
     #[test]

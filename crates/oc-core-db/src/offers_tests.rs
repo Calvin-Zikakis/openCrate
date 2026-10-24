@@ -293,3 +293,31 @@ fn a_hidden_track_stays_listed_as_hidden_until_brought_back() {
     let (found, _) = library.service.rekordbox_candidates().unwrap();
     assert!(found.iter().all(|c| !c.hidden));
 }
+
+#[test]
+fn an_offer_and_its_setting_are_written_together() {
+    let library = library();
+    library.file("A/01 - Sent.aif", "Sent");
+    library.scan();
+    let (found, _) = library.service.rekordbox_candidates().unwrap();
+    let sent = found[0].file_id;
+    library
+        .service
+        .record_offers_with_setting("rekordbox_xml", "{\"new\":[1]}".into(), vec![sent], 77)
+        .unwrap();
+    assert_eq!(
+        library.service.setting("rekordbox_xml").unwrap().as_deref(),
+        Some("{\"new\":[1]}")
+    );
+    let (found, _) = library.service.rekordbox_candidates().unwrap();
+    assert_eq!(found[0].offered_ms, Some(77));
+    // A file that is not in the library makes the whole write fail: the setting stays as it was.
+    assert!(library
+        .service
+        .record_offers_with_setting("rekordbox_xml", "{\"new\":[2]}".into(), vec![999_999], 78)
+        .is_err());
+    assert_eq!(
+        library.service.setting("rekordbox_xml").unwrap().as_deref(),
+        Some("{\"new\":[1]}")
+    );
+}
