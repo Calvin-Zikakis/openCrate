@@ -612,3 +612,74 @@ fn live_copy_takes_every_write() {
         track_count(&location)
     );
 }
+
+/// Writes to the installed library itself, for checking in rekordbox by eye: a playlist named
+/// "openCrate check" holding a new synthetic track, retitled. Only on a test rekordbox. Backups go
+/// to `OPENCRATE_CHECK_BACKUPS`, from which the library can be restored afterwards.
+/// `OPENCRATE_CHECK_BACKUPS=... cargo test -p oc-rekordbox -- --ignored --nocapture live_installed_write`
+#[test]
+#[ignore = "writes to the installed rekordbox library; run by hand on a test install only"]
+fn live_installed_write() {
+    assert!(!rekordbox_running(), "quit rekordbox and its agent first");
+    let backups = PathBuf::from(
+        std::env::var("OPENCRATE_CHECK_BACKUPS").expect("set OPENCRATE_CHECK_BACKUPS"),
+    );
+    let installed = installed_library().unwrap();
+    let audio = backups.join("audio");
+    let file = wav(&audio.join("openCrate Check/01 - openCrate Check.wav"));
+    let before = track_count(&installed);
+    let done = add_to_playlist(
+        &installed,
+        &backups,
+        false,
+        NOW,
+        &Playlist::TopLevel("openCrate check".into()),
+        &[Member::File(file)],
+    )
+    .unwrap();
+    let content = members_of(&installed, &done.playlist)[0].clone();
+    set_fields(
+        &installed,
+        &backups,
+        false,
+        NOW + 1_000,
+        &[FieldEdit {
+            content,
+            field: TrackText::Title,
+            value: "openCrate Check (Edited)".into(),
+        }],
+    )
+    .unwrap();
+    eprintln!(
+        "wrote to the installed library: {before} -> {} tracks; backup before the first write: {}",
+        track_count(&installed),
+        done.backup.dir.display()
+    );
+}
+
+/// Puts a backup back into the installed library, with openCrate's own restore.
+/// `OPENCRATE_CHECK_BACKUPS=... OPENCRATE_CHECK_RESTORE=<backup folder> cargo test -p oc-rekordbox -- --ignored --nocapture live_installed_restore`
+#[test]
+#[ignore = "restores the installed rekordbox library; run by hand on a test install only"]
+fn live_installed_restore() {
+    let backups = PathBuf::from(
+        std::env::var("OPENCRATE_CHECK_BACKUPS").expect("set OPENCRATE_CHECK_BACKUPS"),
+    );
+    let backup = PathBuf::from(
+        std::env::var("OPENCRATE_CHECK_RESTORE").expect("set OPENCRATE_CHECK_RESTORE"),
+    );
+    let installed = installed_library().unwrap();
+    let saved = restore(
+        &backup,
+        &installed,
+        &backups,
+        rekordbox_running(),
+        NOW + 5_000,
+    )
+    .unwrap();
+    eprintln!(
+        "restored; {} tracks now; the library it replaced is kept at {}",
+        track_count(&installed),
+        saved.dir.display()
+    );
+}
