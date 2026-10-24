@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { fixCasing, removeJunk, removeNumberPrefix, tidySeparators } from "../library/cleanup";
+import { loadRecipes, saveRecipes, type Recipe } from "../library/recipes";
 import type { EditField, LibraryAdmin, TrackTags } from "../library/types";
 import { Icon } from "./Icon";
 
@@ -51,6 +52,12 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [left, setLeft] = useState<string[]>([]);
+  /** Saved recipes: typed values and cleanup rules to apply together. */
+  const [recipes, setRecipes] = useState<Recipe[]>(() => loadRecipes(localStorage));
+  /** The rules pressed in this editor, for saving as a recipe. */
+  const [applied, setApplied] = useState<string[]>([]);
+  const [naming, setNaming] = useState(false);
+  const [recipeName, setRecipeName] = useState("");
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -68,6 +75,7 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
 
   const applyRule = (rule: (typeof RULES)[number]) => {
     if (!tracks) return;
+    setApplied((before) => (before.includes(rule.id) ? before : [...before, rule.id]));
     setCleaned((before) => {
       const next = new Map(before);
       for (const track of tracks) {
@@ -135,6 +143,32 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
               onChange={(event) => setTyped((before) => ({ ...before, [field.id]: event.target.value }))} />
           </label>;
         })}</div>
+        {(recipes.length > 0 || naming || Object.keys(typed).length > 0 || applied.length > 0) && <div className="recipes">
+          {recipes.length > 0 && <label className="crate-pick">Recipe
+            <select aria-label="Apply a recipe" value="" onChange={(event) => {
+              const recipe = recipes.find((found) => found.name === event.target.value);
+              if (!recipe) return;
+              setTyped((before) => ({ ...before, ...recipe.values }));
+              for (const rule of RULES) if (recipe.rules.includes(rule.id)) applyRule(rule);
+            }}>
+              <option value="">Apply a recipe...</option>
+              {recipes.map((recipe) => <option key={recipe.name} value={recipe.name}>{recipe.name}</option>)}
+            </select>
+          </label>}
+          {!naming && (Object.keys(typed).length > 0 || applied.length > 0) && <button className="link-button" onClick={() => setNaming(true)}>Save as recipe...</button>}
+          {naming && <span className="recipe-name">
+            <input aria-label="Recipe name" value={recipeName} placeholder="Name" onChange={(event) => setRecipeName(event.target.value)} />
+            <button className="secondary-button" disabled={!recipeName.trim()} onClick={() => {
+              const recipe: Recipe = { name: recipeName.trim(), values: { ...typed }, rules: applied };
+              const next = [...recipes.filter((found) => found.name !== recipe.name), recipe];
+              setRecipes(next);
+              saveRecipes(localStorage, next);
+              setNaming(false);
+              setRecipeName("");
+            }}>Save</button>
+            <button className="link-button" onClick={() => setNaming(false)}>Cancel</button>
+          </span>}
+        </div>}
         <h3>Clean up</h3>
         <p className="settings-copy">{single ? "Each rule changes this track's own details." : "Each rule changes each track's own details."} What it would change is listed before you save.</p>
         <div className="cleanup-buttons">{RULES.map((rule) => <button key={rule.id} className="secondary-button" disabled={busy} onClick={() => applyRule(rule)}>{rule.label}</button>)}</div>

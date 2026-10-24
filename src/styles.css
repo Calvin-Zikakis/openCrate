@@ -485,3 +485,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-pick select { max-width: 150px; color: var(--text); background: var(--raised); border: 1px solid var(--line); font-size: 12px; }
 .comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 .comparison h4 { margin: 6px 0; font-size: 12px; }
+
+.recipes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0 10px; font-size: 11px; }
+.recipe-name { display: inline-flex; gap: 8px; align-items: center; }
+.recipe-name input { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font-size: 12px; }

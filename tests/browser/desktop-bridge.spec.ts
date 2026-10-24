@@ -1390,6 +1390,29 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toHaveCount(0);
 });
 
+test("editing: a recipe saves typed values and cleanup rules and applies them again", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0002").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Edit details..." }).click();
+  const editor = page.getByRole("dialog", { name: "Edit details" });
+  await editor.getByLabel("Genre").fill("Techno");
+  await editor.getByRole("button", { name: "Remove number prefixes" }).click();
+  await editor.getByRole("button", { name: "Save as recipe..." }).click();
+  await editor.getByLabel("Recipe name").fill("Techno import");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await page.keyboard.press("Escape");
+
+  await row("0004").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Edit details..." }).click();
+  const again = page.getByRole("dialog", { name: "Edit details" });
+  await again.getByLabel("Apply a recipe").selectOption("Techno import");
+  await expect(again.getByLabel("Genre")).toHaveValue("Techno");
+  await expect(again.getByRole("list", { name: "Cleanup changes" })).toContainText("Title: 04 - RUST TRACK 0004 -> RUST TRACK 0004");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("opencrate.editRecipes") ?? "[]"))).toEqual([{ name: "Techno import", values: { genre: "Techno" }, rules: ["numbers"] }]);
+});
+
 test("clean up: genres spelled alike are merged, and titles and artists are fixed after a look", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.goto("/");
