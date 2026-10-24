@@ -21,11 +21,14 @@ pub struct FileId {
     node: u64,
 }
 
-/// Identity of a file system object, compared by equality only. Without inode
-/// access in the standard library this is the canonical path of the object.
-#[cfg(not(unix))]
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FileId(PathBuf);
+/// Identity of a file system object, compared by equality only: the volume serial
+/// number and the file index, which hard links share.
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FileId {
+    volume: u64,
+    index: u64,
+}
 
 impl FileId {
     /// Does not follow a final symbolic link on Unix.
@@ -39,10 +42,15 @@ impl FileId {
         })
     }
 
-    #[cfg(not(unix))]
+    /// Opens the object to ask, so a final symbolic link is followed on Windows.
+    #[cfg(windows)]
     pub fn of(path: &Path) -> io::Result<Self> {
-        fs::symlink_metadata(path)?;
-        Ok(Self(fs::canonicalize(path)?))
+        let handle = winapi_util::Handle::from_path_any(path)?;
+        let information = winapi_util::file::information(&handle)?;
+        Ok(Self {
+            volume: information.volume_serial_number(),
+            index: information.file_index(),
+        })
     }
 
     /// The part that is stable across restarts, for storing beside a root. Device
@@ -52,9 +60,10 @@ impl FileId {
         Some(self.node.to_le_bytes().to_vec())
     }
 
-    #[cfg(not(unix))]
+    /// The NTFS file index survives restarts; the volume serial is left out to match Unix.
+    #[cfg(windows)]
     pub fn persistent_token(&self) -> Option<Vec<u8>> {
-        None
+        Some(self.index.to_le_bytes().to_vec())
     }
 }
 
@@ -482,11 +491,33 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    #[cfg(unix)]
     #[test]
     fn the_persistent_token_ignores_the_device() {
         let dir = tempdir().unwrap();
         let id = FileId::of(dir.path()).unwrap();
         assert_eq!(id.persistent_token().unwrap().len(), 8);
+    }
+
+    #[test]
+    fn hard_links_share_an_identity_and_a_replaced_folder_does_not() {
+        let dir = tempdir().unwrap();
+        let first = dir.path().join("staged.aif");
+        let second = dir.path().join("filed.aif");
+        touch(&first);
+        fs::hard_link(&first, &second).unwrap();
+        assert_eq!(FileId::of(&first).unwrap(), FileId::of(&second).unwrap());
+
+        let other = dir.path().join("other.aif");
+        touch(&other);
+        assert_ne!(FileId::of(&first).unwrap(), FileId::of(&other).unwrap());
+
+        // The folder is kept open meanwhile, so the file system cannot reuse its number.
+        let folder = dir.path().join("Music");
+        fs::create_dir(&folder).unwrap();
+        let before = FileId::of(&folder).unwrap().persistent_token();
+        let kept = dir.path().join("Music.unplugged");
+        fs::rename(&folder, &kept).unwrap();
+        fs::create_dir(&folder).unwrap();
+        assert_ne!(FileId::of(&folder).unwrap().persistent_token(), before);
     }
 }

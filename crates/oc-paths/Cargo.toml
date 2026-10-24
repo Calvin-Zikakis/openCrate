@@ -11,6 +11,10 @@ publish.workspace = true
 thiserror.workspace = true
 unicode-normalization.workspace = true
 
+# Safe access to the volume serial and file index, which the standard library keeps unstable.
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1.11"
+
 [dev-dependencies]
 tempfile.workspace = true
 
