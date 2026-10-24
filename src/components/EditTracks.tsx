@@ -99,9 +99,12 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
     try {
       const notes: string[] = [];
       if (typedChanges.length > 0) notes.push(...(await admin.editTracks(trackIds, typedChanges)).left);
-      for (const trackId of new Set(cleanedChanges.map((change) => change.trackId))) {
-        const changes = cleanedChanges.filter((change) => change.trackId === trackId).map(({ field, to }) => ({ field, value: to }));
-        notes.push(...(await admin.editTracks([trackId], changes)).left);
+      if (cleanedChanges.length > 0) {
+        const edits = [...new Set(cleanedChanges.map((change) => change.trackId))].map((trackId) => ({
+          trackId,
+          changes: cleanedChanges.filter((change) => change.trackId === trackId).map(({ field, to }) => ({ field, value: to })),
+        }));
+        notes.push(...(await admin.editEach(edits)).left);
       }
       onSaved();
       if (notes.length > 0) setLeft(notes);

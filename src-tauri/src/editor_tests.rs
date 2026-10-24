@@ -5,7 +5,9 @@ use oc_core_db::service::{LibraryService, ScanOptions};
 use oc_tag::fixtures::{aiff, write_tags};
 use oc_tag::TagInfo;
 
-use crate::editor::{edit_tracks, track_tags, FieldChange};
+use crate::editor::{
+    edit_each, edit_tracks, genres, rename_genres, track_tags, FieldChange, TrackEdit,
+};
 
 struct Setup {
     _data: tempfile::TempDir,
@@ -145,4 +147,75 @@ fn a_bad_value_or_field_is_refused_before_any_file_changes() {
         assert!(edit_tracks(&setup.service, &[ids["Night Drive"]], &[change]).is_err());
     }
     assert_eq!(fs::read(&setup.files[0]).unwrap(), before);
+}
+
+#[test]
+fn many_tracks_take_their_own_changes_in_one_pass() {
+    let setup = setup(&["01 - Night Drive", "02 - Soft Focus"]);
+    let ids = ids(&setup.service);
+    let edit = |title: &str, value: &str| TrackEdit {
+        track_id: ids[title],
+        changes: vec![FieldChange {
+            field: "title".into(),
+            value: value.into(),
+        }],
+    };
+    let done = edit_each(
+        &setup.service,
+        &[
+            edit("01 - Night Drive", "Night Drive"),
+            edit("02 - Soft Focus", "Soft Focus"),
+        ],
+    )
+    .unwrap();
+    assert_eq!(done.files, 2);
+    let after = self::ids(&setup.service);
+    assert!(
+        after.contains_key("Night Drive") && after.contains_key("Soft Focus"),
+        "{after:?}"
+    );
+}
+
+#[test]
+fn genres_spelled_alike_are_grouped_and_merged_into_one() {
+    let setup = setup(&["Night Drive", "Soft Focus", "Late Train"]);
+    let ids = ids(&setup.service);
+    edit_tracks(
+        &setup.service,
+        &[ids["Soft Focus"]],
+        &[FieldChange {
+            field: "genre".into(),
+            value: "house".into(),
+        }],
+    )
+    .unwrap();
+    edit_tracks(
+        &setup.service,
+        &[ids["Late Train"]],
+        &[FieldChange {
+            field: "genre".into(),
+            value: "Deep-House".into(),
+        }],
+    )
+    .unwrap();
+    let found = genres(&setup.service).unwrap();
+    assert_eq!(found.groups.len(), 1, "{:?}", found.groups);
+    let group = &found.groups[0];
+    assert_eq!(group.suggested, "House", "the commonest spelling");
+    assert_eq!(group.members, ["House", "house"]);
+    assert_eq!(group.tracks, 2);
+
+    let done = rename_genres(
+        &setup.service,
+        &["house".to_owned(), "Deep-House".to_owned()],
+        "House",
+    )
+    .unwrap();
+    assert_eq!(done.files, 2);
+    let found = genres(&setup.service).unwrap();
+    assert_eq!(found.genres.len(), 1);
+    assert_eq!(
+        (found.genres[0].name.as_str(), found.genres[0].tracks),
+        ("House", 3)
+    );
 }

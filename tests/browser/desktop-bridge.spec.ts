@@ -251,6 +251,27 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               if (!(window as any).__rbWriting) throw "rekordbox has a copy that would go, so it has to be told. Writing to rekordbox is off. Turn it on in Settings.";
               (window as any).__resolved = { keep: args?.keep, drop: args?.drop };
               return { archived: 1, merged: 1, archive: "/Users/dj/Music/openCrate archive/Music" };
+            case "library_genres": {
+              const renamed = (window as any).__genresMerged;
+              return renamed
+                ? { genres: [{ name: "Deep House", tracks: 5 }, { name: "Techno", tracks: 2 }], groups: [] }
+                : {
+                  genres: [{ name: "Deep House", tracks: 3 }, { name: "deep-house", tracks: 2 }, { name: "Techno", tracks: 2 }],
+                  groups: [{ suggested: "Deep House", members: ["Deep House", "deep-house"], tracks: 5 }],
+                };
+            }
+            case "library_rename_genres":
+              (window as any).__genresMerged = { from: args?.from, to: args?.to };
+              return { files: 2, left: [] };
+            case "library_track_names":
+              return [
+                { trackId: 1, title: "01 - Night Drive", artist: "Studio 001" },
+                { trackId: 2, title: "Soft Focus", artist: "Studio 001" },
+                { trackId: 3, title: "Studio 001 - Late Train", artist: "Unknown Artist" },
+              ];
+            case "library_edit_each":
+              (window as any).__editEach = args?.edits;
+              return { files: (args?.edits ?? []).length, left: [] };
             case "library_track_tags":
               return ((args?.trackIds ?? []) as number[]).map((id) => ({
                 trackId: id, title: `${String(id).padStart(2, "0")} - RUST TRACK ${String(id).padStart(4, "0")}`, artist: "Backend Artist",
@@ -1307,8 +1328,10 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   await expect(editor).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__edits)).toEqual([
     { trackIds: [2, 4], changes: [{ field: "genre", value: "Deep House" }] },
-    { trackIds: [2], changes: [{ field: "title", value: "Rust Track 0002" }] },
-    { trackIds: [4], changes: [{ field: "title", value: "Rust Track 0004" }] },
+  ]);
+  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([
+    { trackId: 2, changes: [{ field: "title", value: "Rust Track 0002" }] },
+    { trackId: 4, changes: [{ field: "title", value: "Rust Track 0004" }] },
   ]);
 
   // Shift-click takes a range; Cmd+I opens the editor for it.
@@ -1319,6 +1342,32 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toHaveCount(0);
+});
+
+test("clean up: genres spelled alike are merged, and titles and artists are fixed after a look", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const genres = page.getByRole("region", { name: "Genres" });
+  await expect(genres.getByRole("list", { name: "Genres spelled alike" })).toContainText("Deep House, deep-house");
+  await expect(genres.getByLabel("New name for Deep House, deep-house")).toHaveValue("Deep House");
+  await genres.getByRole("button", { name: "Merge" }).click();
+  await expect(genres.getByRole("status")).toContainText("2 files now have the genre Deep House.");
+  expect(await page.evaluate(() => (window as any).__genresMerged)).toEqual({ from: ["deep-house"], to: "Deep House" });
+  await expect(genres).toContainText("No genres are spelled two ways.");
+
+  const titles = page.getByRole("region", { name: "Titles and artists" });
+  await titles.getByRole("button", { name: "Check titles and artists" }).click();
+  const found = titles.getByRole("list", { name: "Proposed fixes" });
+  await expect(found).toContainText("Title: 01 - Night Drive -> Night Drive");
+  await expect(found).toContainText("Artist: Unknown Artist -> Studio 001");
+  await expect(found.getByRole("listitem")).toHaveCount(2);
+  await titles.getByRole("button", { name: "Clean up 2 tracks" }).click();
+  await expect(titles.getByRole("status")).toContainText("2 tracks were cleaned up.");
+  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([
+    { trackId: 1, changes: [{ field: "title", value: "Night Drive" }] },
+    { trackId: 3, changes: [{ field: "title", value: "Late Train" }, { field: "artist", value: "Studio 001" }] },
+  ]);
 });
 
 test("player: at the end of a track an unplayable next one is skipped", async ({ page }) => {

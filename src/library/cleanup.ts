@@ -54,3 +54,26 @@ export function tidySeparators(text: string): string {
     .replace(/\s{2,}/gu, " ")
     .trim();
 }
+
+/** What the library calls a track with no artist in its tags. */
+const NO_ARTIST = "Unknown Artist";
+
+export interface ProposedFix { field: "title" | "artist"; from: string; to: string }
+
+/** Every rule at once, for a track found in a library-wide check. An "Artist - Title" title is
+ * split only when the artist is not set, so a title that merely holds a dash stays. */
+export function proposeFixes(track: { trackId: number; title: string; artist: string }): ProposedFix[] {
+  let { title, artist } = track;
+  const unset = artist.trim() === "" || artist === NO_ARTIST;
+  const split = unset ? /^(.+?)\s+[-–]\s+(.+)$/u.exec(removeNumberPrefix(title)) : null;
+  if (split) {
+    artist = split[1]!;
+    title = split[2]!;
+  }
+  title = fixCasing(removeJunk(removeNumberPrefix(title)));
+  if (!unset || split) artist = fixCasing(removeJunk(tidySeparators(artist)));
+  const fixes: ProposedFix[] = [];
+  if (title !== track.title && title !== "") fixes.push({ field: "title", from: track.title, to: title });
+  if (artist !== track.artist && artist !== "") fixes.push({ field: "artist", from: track.artist, to: artist });
+  return fixes;
+}

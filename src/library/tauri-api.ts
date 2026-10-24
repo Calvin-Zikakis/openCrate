@@ -10,6 +10,7 @@ import {
   type LibraryItem,
   type LibraryPage,
   type LibraryQuery,
+  type EditedTracks,
   type LookupKeys,
   type MergeApplied,
   type MergeChange,
@@ -497,6 +498,12 @@ function toMergeApplied(value: unknown): MergeApplied {
   };
 }
 
+function toEdited(value: unknown): EditedTracks {
+  const what = "edit result";
+  if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
+  return { files: whole(value.files, what), left: value.left.map((item) => text(item, what)) };
+}
+
 function toRekordboxWrite(value: unknown): RekordboxWrite {
   const what = "rekordbox write";
   if (!isRecord(value) || !Array.isArray(value.leftOut)) throw new Error(`The library returned an unreadable ${what}.`);
@@ -695,12 +702,33 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
         };
       });
     },
-    editTracks: async (trackIds, changes) => {
-      const value: unknown = await invoke("library_edit_tracks", { trackIds, changes }).catch((error: unknown) => { throw failure(error); });
-      const what = "edit result";
-      if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
-      return { files: whole(value.files, what), left: value.left.map((item) => text(item, what)) };
+    editTracks: async (trackIds, changes) => toEdited(await invoke("library_edit_tracks", { trackIds, changes }).catch((error: unknown) => { throw failure(error); })),
+    editEach: async (edits) => toEdited(await invoke("library_edit_each", { edits }).catch((error: unknown) => { throw failure(error); })),
+    trackNames: async () => {
+      const value: unknown = await invoke("library_track_names").catch((error: unknown) => { throw failure(error); });
+      const what = "track names";
+      if (!Array.isArray(value)) throw new Error(`The library returned unreadable ${what}.`);
+      return value.map((item: unknown) => {
+        if (!isRecord(item)) throw new Error(`The library returned unreadable ${what}.`);
+        return { trackId: whole(item.trackId, what), title: text(item.title, what), artist: text(item.artist, what) };
+      });
     },
+    genres: async () => {
+      const value: unknown = await invoke("library_genres").catch((error: unknown) => { throw failure(error); });
+      const what = "genres";
+      if (!isRecord(value) || !Array.isArray(value.genres) || !Array.isArray(value.groups)) throw new Error(`The library returned unreadable ${what}.`);
+      return {
+        genres: value.genres.map((item: unknown) => {
+          if (!isRecord(item)) throw new Error(`The library returned unreadable ${what}.`);
+          return { name: text(item.name, what), tracks: whole(item.tracks, what) };
+        }),
+        groups: value.groups.map((item: unknown) => {
+          if (!isRecord(item) || !Array.isArray(item.members)) throw new Error(`The library returned unreadable ${what}.`);
+          return { suggested: text(item.suggested, what), members: item.members.map((member: unknown) => text(member, what)), tracks: whole(item.tracks, what) };
+        }),
+      };
+    },
+    renameGenres: async (from, to) => toEdited(await invoke("library_rename_genres", { from, to }).catch((error: unknown) => { throw failure(error); })),
     duplicateCopies: async (fileIds) => {
       const value: unknown = await invoke("library_duplicate_copies", { fileIds }).catch((error: unknown) => { throw failure(error); });
       const what = "duplicate copies";

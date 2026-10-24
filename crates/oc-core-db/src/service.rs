@@ -512,6 +512,46 @@ impl LibraryService {
         }))
     }
 
+    /// Every track with a present file: its id, title and artist, for library-wide cleanup.
+    pub fn track_names(&self) -> Result<Vec<(i64, String, String)>> {
+        let lease = self.pool.lease();
+        let mut statement = lease.connection().prepare(
+            "SELECT t.id, t.title, a.name FROM track t JOIN artist a ON a.id = t.artist_id \
+             WHERE EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id \
+             AND f.presence = 'present' AND f.lifecycle = 'active') ORDER BY t.id",
+        )?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Every genre tracks with a present file have, as spelled, with how many tracks, most first.
+    pub fn genres(&self) -> Result<Vec<(String, i64)>> {
+        let lease = self.pool.lease();
+        let mut statement = lease.connection().prepare(
+            "SELECT t.genre, COUNT(DISTINCT t.id) FROM track t \
+             WHERE t.genre <> '' AND EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id \
+             AND f.presence = 'present' AND f.lifecycle = 'active') \
+             GROUP BY t.genre ORDER BY COUNT(DISTINCT t.id) DESC, t.genre",
+        )?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The tracks whose genre is one of `genres`, exactly as spelled.
+    pub fn tracks_with_genres(&self, genres: &[String]) -> Result<Vec<i64>> {
+        let lease = self.pool.lease();
+        let mut statement = lease
+            .connection()
+            .prepare("SELECT id FROM track WHERE genre = ?1 ORDER BY id")?;
+        let mut ids = Vec::new();
+        for genre in genres {
+            for row in statement.query_map([genre], |row| row.get::<_, i64>(0))? {
+                ids.push(row?);
+            }
+        }
+        Ok(ids)
+    }
+
     /// Every present file of a track, with its music folder: what an edit to the track changes.
     pub fn track_files(&self, track_id: i64) -> Result<Vec<(i64, PathBuf)>> {
         let lease = self.pool.lease();

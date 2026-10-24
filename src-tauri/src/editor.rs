@@ -85,43 +85,53 @@ fn tag_of(field: &str) -> Option<TextTag> {
     })
 }
 
-/// Write `changes` into every file of every track in `track_ids`. Every field and number is
-/// checked before any file is touched; a file that cannot be rewritten is reported and the
-/// others still change.
-pub fn edit_tracks(
-    service: &LibraryService,
-    track_ids: &[i64],
-    changes: &[FieldChange],
-) -> Result<EditedDto, String> {
+/// Every field and number checked, before any file is touched.
+fn checked(changes: &[FieldChange]) -> Result<Vec<(TextTag, String)>, String> {
     let mut tags = Vec::with_capacity(changes.len());
     for change in changes {
         let tag = tag_of(&change.field)
             .ok_or_else(|| format!("{} is not a field the editor can change.", change.field))?;
         let value = change.value.trim().to_owned();
-        let number_ok = |max: u32| value.is_empty() || value.parse::<u32>().is_ok_and(|n| n <= max);
-        if tag == TextTag::Year && !number_ok(9999) {
+        let number_ok = value.is_empty() || value.parse::<u32>().is_ok_and(|n| n <= 9999);
+        if tag == TextTag::Year && !number_ok {
             return Err(format!("\"{value}\" is not a year."));
         }
-        if tag == TextTag::TrackNumber && !number_ok(9999) {
+        if tag == TextTag::TrackNumber && !number_ok {
             return Err(format!("\"{value}\" is not a track number."));
         }
         tags.push((tag, value));
     }
-    if tags.is_empty() {
-        return Ok(EditedDto {
-            files: 0,
-            left: Vec::new(),
-        });
+    Ok(tags)
+}
+
+/// One track and the changes for it alone.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackEdit {
+    pub track_id: i64,
+    pub changes: Vec<FieldChange>,
+}
+
+/// Write each track's own changes into its files, then read the folders again once. Every edit
+/// is checked before any file is touched; a file that cannot be rewritten is reported and the
+/// others still change.
+pub fn edit_each(service: &LibraryService, edits: &[TrackEdit]) -> Result<EditedDto, String> {
+    let mut planned = Vec::with_capacity(edits.len());
+    for edit in edits {
+        let tags = checked(&edit.changes)?;
+        if !tags.is_empty() {
+            planned.push((edit.track_id, tags));
+        }
     }
     let mut files = 0;
     let mut left = Vec::new();
     let mut roots = Vec::new();
-    for &track_id in track_ids {
+    for (track_id, tags) in &planned {
         for (root_id, path) in service
-            .track_files(track_id)
+            .track_files(*track_id)
             .map_err(|error| error.to_string())?
         {
-            match oc_tag::rewrite_tags(&path, &tags) {
+            match oc_tag::rewrite_tags(&path, tags) {
                 Ok(()) => {
                     files += 1;
                     if !roots.contains(&root_id) {
@@ -138,4 +148,137 @@ pub fn edit_tracks(
             .map_err(|error| error.to_string())?;
     }
     Ok(EditedDto { files, left })
+}
+
+/// Write the same `changes` into every file of every track in `track_ids`.
+pub fn edit_tracks(
+    service: &LibraryService,
+    track_ids: &[i64],
+    changes: &[FieldChange],
+) -> Result<EditedDto, String> {
+    checked(changes)?;
+    let edits: Vec<TrackEdit> = track_ids
+        .iter()
+        .map(|&track_id| TrackEdit {
+            track_id,
+            changes: changes.to_vec(),
+        })
+        .collect();
+    edit_each(service, &edits)
+}
+
+/// A track's title and artist, for checking the whole library against the cleanup rules.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackNameDto {
+    pub track_id: i64,
+    pub title: String,
+    pub artist: String,
+}
+
+pub fn track_names(service: &LibraryService) -> Result<Vec<TrackNameDto>, String> {
+    Ok(service
+        .track_names()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|(track_id, title, artist)| TrackNameDto {
+            track_id,
+            title,
+            artist,
+        })
+        .collect())
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreDto {
+    pub name: String,
+    pub tracks: i64,
+}
+
+/// Genres spelled alike, and the spelling suggested for all of them.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreGroupDto {
+    pub suggested: String,
+    pub members: Vec<String>,
+    pub tracks: i64,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenresDto {
+    pub genres: Vec<GenreDto>,
+    pub groups: Vec<GenreGroupDto>,
+}
+
+/// Genres alike when they match ignoring case, spaces and punctuation: "Deep House",
+/// "deep-house" and "`DeepHouse`".
+fn genre_key(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Every genre with its track count, and the groups spelled alike. A group's suggestion is its
+/// commonest spelling; on a tie, one that is not all lower case.
+pub fn genres(service: &LibraryService) -> Result<GenresDto, String> {
+    let counted = service.genres().map_err(|error| error.to_string())?;
+    let mut groups: std::collections::BTreeMap<String, Vec<(String, i64)>> =
+        std::collections::BTreeMap::new();
+    for (name, tracks) in &counted {
+        groups
+            .entry(genre_key(name))
+            .or_default()
+            .push((name.clone(), *tracks));
+    }
+    let mut alike: Vec<GenreGroupDto> = groups
+        .into_values()
+        .filter(|members| members.len() > 1)
+        .map(|mut members| {
+            members.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            let suggested = members
+                .iter()
+                .max_by_key(|(name, tracks)| (*tracks, *name != name.to_lowercase()))
+                .map(|(name, _)| name.clone())
+                .unwrap_or_default();
+            GenreGroupDto {
+                suggested,
+                tracks: members.iter().map(|(_, tracks)| tracks).sum(),
+                members: members.into_iter().map(|(name, _)| name).collect(),
+            }
+        })
+        .collect();
+    alike.sort_by(|a, b| {
+        b.tracks
+            .cmp(&a.tracks)
+            .then_with(|| a.suggested.cmp(&b.suggested))
+    });
+    Ok(GenresDto {
+        genres: counted
+            .into_iter()
+            .map(|(name, tracks)| GenreDto { name, tracks })
+            .collect(),
+        groups: alike,
+    })
+}
+
+/// Give every track with one of the genres in `from` the genre `to`.
+pub fn rename_genres(
+    service: &LibraryService,
+    from: &[String],
+    to: &str,
+) -> Result<EditedDto, String> {
+    let track_ids = service
+        .tracks_with_genres(from)
+        .map_err(|error| error.to_string())?;
+    edit_tracks(
+        service,
+        &track_ids,
+        &[FieldChange {
+            field: "genre".into(),
+            value: to.to_owned(),
+        }],
+    )
 }

@@ -263,10 +263,11 @@ fn catalog_file(
     )?;
     let disc = i64::from(tags.disc_number.unwrap_or(1));
     let number = i64::from(tags.track_number.unwrap_or(0));
+    let genre = tags.genre.as_deref().map_or("", str::trim);
     let track_id = if let Some(track_id) = file.track_id {
         connection.execute(
             "UPDATE track SET release_id = ?2, artist_id = ?3, disc_no = ?4, track_no = ?5, \
-             title = ?6, title_key = ?7, artist_key = ?8, duration_ms = ?9 WHERE id = ?1",
+             title = ?6, title_key = ?7, artist_key = ?8, duration_ms = ?9, genre = ?10 WHERE id = ?1",
             params![
                 track_id,
                 release_id,
@@ -276,7 +277,8 @@ fn catalog_file(
                 title,
                 sort_key(title),
                 sort_key(track_artist),
-                duration_ms
+                duration_ms,
+                genre
             ],
         )?;
         connection.execute("DELETE FROM track_fts WHERE rowid = ?1", [track_id])?;
@@ -285,7 +287,7 @@ fn catalog_file(
     } else {
         connection.execute(
             "INSERT INTO track (release_id, artist_id, disc_no, track_no, title, title_key, \
-             artist_key, duration_ms, added_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             artist_key, duration_ms, added_ms, genre) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 release_id,
                 artist_id,
@@ -295,7 +297,8 @@ fn catalog_file(
                 sort_key(title),
                 sort_key(track_artist),
                 duration_ms,
-                now_ms
+                now_ms,
+                genre
             ],
         )?;
         let track_id = connection.last_insert_rowid();

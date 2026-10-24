@@ -430,6 +430,12 @@ export interface EditedTracks {
   left: string[];
 }
 
+export interface GenreCount { name: string; tracks: number }
+/** Genres spelled alike, and the spelling suggested for all of them. */
+export interface GenreGroup { suggested: string; members: string[]; tracks: number }
+export interface Genres { genres: GenreCount[]; groups: GenreGroup[] }
+export interface TrackName { trackId: number; title: string; artist: string }
+
 /** What tidying a folder did. */
 export interface TidiedFolder {
   folder: string;
@@ -569,6 +575,14 @@ export interface LibraryAdmin {
   trackTags(trackIds: number[]): Promise<TrackTags[]>;
   /** Write changes into every file of the chosen tracks; an empty value clears a field. */
   editTracks(trackIds: number[], changes: { field: EditField; value: string }[]): Promise<EditedTracks>;
+  /** Each track's own changes, written in one pass. */
+  editEach(edits: { trackId: number; changes: { field: EditField; value: string }[] }[]): Promise<EditedTracks>;
+  /** Every track's title and artist, for checking them against the cleanup rules. */
+  trackNames(): Promise<TrackName[]>;
+  /** Genres with their track counts, and the ones spelled alike. */
+  genres(): Promise<Genres>;
+  /** Give every track with one of the genres `from` the genre `to`. */
+  renameGenres(from: string[], to: string): Promise<EditedTracks>;
   /** Move a folder the check names to its tidy name; rekordbox follows the files it uses. */
   tidyFolder(rootId: number, folder: string): Promise<TidiedFolder>;
   folderLayout(): Promise<FolderLayout>;

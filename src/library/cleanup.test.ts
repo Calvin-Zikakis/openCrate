@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixCasing, removeJunk, removeNumberPrefix, tidySeparators } from "./cleanup";
+import { fixCasing, proposeFixes, removeJunk, removeNumberPrefix, tidySeparators } from "./cleanup";
 
 describe("cleanup rules for track details", () => {
   it("removes a track number left at the front of a title", () => {
@@ -38,5 +38,18 @@ describe("cleanup rules for track details", () => {
     expect(tidySeparators("Studio 001;Guest")).toBe("Studio 001, Guest");
     expect(tidySeparators(" Studio 001 ; Guest ")).toBe("Studio 001, Guest");
     expect(tidySeparators("Studio 001, Guest")).toBe("Studio 001, Guest");
+  });
+
+  it("proposes each track's fixes, splitting an artist out of the title when none is set", () => {
+    expect(proposeFixes({ trackId: 1, title: "01 - NIGHT DRIVE", artist: "Studio 001;" })).toEqual([
+      { field: "title", from: "01 - NIGHT DRIVE", to: "Night Drive" },
+      { field: "artist", from: "Studio 001;", to: "Studio 001" },
+    ]);
+    expect(proposeFixes({ trackId: 2, title: "Studio 001 - Soft Focus", artist: "Unknown Artist" })).toEqual([
+      { field: "title", from: "Studio 001 - Soft Focus", to: "Soft Focus" },
+      { field: "artist", from: "Unknown Artist", to: "Studio 001" },
+    ]);
+    // A title with a dash and a real artist is left alone.
+    expect(proposeFixes({ trackId: 3, title: "Night Drive - Dub", artist: "Studio 001" })).toEqual([]);
   });
 });

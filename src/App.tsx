@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { ArtistArtwork, Artwork } from "./components/Artwork";
 import { Icon, type IconName } from "./components/Icon";
 import { Analysis } from "./components/Analysis";
+import { CleanUp } from "./components/CleanUp";
 import { EditTracks } from "./components/EditTracks";
 import { Downloads } from "./components/Downloads";
 import { FolderLayout } from "./components/FolderLayout";
@@ -58,13 +59,14 @@ function closesOutside(close: () => void) {
   };
 }
 
-type Screen = View | "import" | "sync";
+type Screen = View | "import" | "sync" | "cleanup";
 const NAV: { screen: Screen; name: string; icon: IconName }[] = [
   { screen: "tracks", name: "Tracks", icon: "tracks" },
   { screen: "releases", name: "Releases", icon: "releases" },
   { screen: "artists", name: "Artists", icon: "artists" },
   { screen: "import", name: "Import", icon: "import" },
   { screen: "sync", name: "rekordbox", icon: "sync" },
+  { screen: "cleanup", name: "Clean up", icon: "clean" },
 ];
 
 /** One line under the title saying what the page holds. */
@@ -157,7 +159,7 @@ export function App({ api }: { api: LibraryApi }) {
     setScreen(next); setFocus(null); setPlaylist(null); setCrate(null); setSearch(""); setFormat("all"); setSort("recent");
   };
   const query = useMemo(() => ({
-    ...DEFAULT_QUERY, view: screen === "import" || screen === "sync" ? "tracks" as const : screen,
+    ...DEFAULT_QUERY, view: screen === "import" || screen === "sync" || screen === "cleanup" ? "tracks" as const : screen,
     search, sort, format: screen === "tracks" ? format : "all" as const,
     artistId: focus?.kind === "artists" ? focus.id : null,
     releaseId: focus?.kind === "releases" ? focus.id : null,
@@ -203,7 +205,7 @@ export function App({ api }: { api: LibraryApi }) {
   const openItem = (item: LibraryItem) => {
     setFocus(item); setScreen("tracks"); setSearch(""); setFormat("all");
   };
-  const isLibrary = screen !== "import" && screen !== "sync";
+  const isLibrary = screen !== "import" && screen !== "sync" && screen !== "cleanup";
   const selectionSet = useMemo(() => new Set(selection), [selection]);
   // A new list starts with nothing chosen.
   useEffect(() => { setSelection([]); }, [query]);
@@ -263,7 +265,7 @@ export function App({ api }: { api: LibraryApi }) {
             <div className="view-options">{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="recent">Recently added</option><option value="title">Title</option><option value="artist">Artist</option>{screen === "tracks" && <option value="bpm">BPM</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label></div>
           </div>
           <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} selection={selectionSet} onSelectionChange={setSelection} onEdit={api.admin ? setEditing : undefined} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restoreScroll} version={crateVersion} />
-        </> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "import" && api.admin ? <Import admin={api.admin} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : "rekordbox"}</h1><p>{screen === "import" ? "Watching download folders needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}
+        </> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "cleanup" && api.admin ? <CleanUp admin={api.admin} onChanged={refreshLibrary} /> : screen === "import" && api.admin ? <Import admin={api.admin} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : screen === "cleanup" ? "clean" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : screen === "cleanup" ? "Clean up" : "rekordbox"}</h1><p>{screen === "import" ? "Watching download folders needs a library on disk. This demo has none." : screen === "cleanup" ? "Cleaning up needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}
       </main>
     </div>
     {editing && api.admin && <EditTracks admin={api.admin} trackIds={editing} onClose={() => setEditing(null)} onSaved={refreshLibrary} />}

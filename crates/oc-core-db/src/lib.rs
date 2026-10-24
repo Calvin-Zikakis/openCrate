@@ -58,6 +58,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/015_rekordbox_hidden.sql"),
     include_str!("schema/016_waveform_format.sql"),
     include_str!("schema/017_merge_base.sql"),
+    include_str!("schema/018_track_genre.sql"),
 ];
 
 #[derive(Debug, Error)]

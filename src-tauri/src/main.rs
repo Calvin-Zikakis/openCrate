@@ -502,6 +502,51 @@ async fn library_edit_tracks(
     .map_err(|error| error.to_string())?
 }
 
+/// Each track's own changes, written in one pass.
+#[tauri::command]
+async fn library_edit_each(
+    state: State<'_, AppState>,
+    edits: Vec<editor::TrackEdit>,
+) -> Result<editor::EditedDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::edit_each(&service, &edits))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Every track's title and artist, for checking them against the cleanup rules.
+#[tauri::command]
+async fn library_track_names(
+    state: State<'_, AppState>,
+) -> Result<Vec<editor::TrackNameDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::track_names(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Genres with their track counts, and the ones spelled alike.
+#[tauri::command]
+async fn library_genres(state: State<'_, AppState>) -> Result<editor::GenresDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::genres(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Give every track with one of the genres `from` the genre `to`.
+#[tauri::command]
+async fn library_rename_genres(
+    state: State<'_, AppState>,
+    from: Vec<String>,
+    to: String,
+) -> Result<editor::EditedDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::rename_genres(&service, &from, &to))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Which lookup keys are saved, by their last four characters only.
 #[tauri::command]
 async fn lookup_keys(state: State<'_, AppState>) -> Result<lookup::KeysDto, String> {
@@ -1177,6 +1222,10 @@ fn main() -> Result<(), tauri::Error> {
             lookup_keys,
             library_track_tags,
             library_edit_tracks,
+            library_edit_each,
+            library_track_names,
+            library_genres,
+            library_rename_genres,
             library_duplicate_copies,
             library_resolve_duplicate,
             lookup_set_key,

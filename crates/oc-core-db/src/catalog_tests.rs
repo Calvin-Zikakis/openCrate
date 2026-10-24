@@ -922,3 +922,46 @@ fn benchmark_scan_9000_files() {
         .len();
     eprintln!("database {} KiB (WAL not checkpointed)", size / 1024);
 }
+
+#[test]
+fn genres_are_counted_by_how_each_track_spells_them() {
+    let fixture = fixture();
+    let root = fixture
+        .service
+        .add_root(fixture.folder.path(), "Library")
+        .unwrap();
+    let with_genre = |title: &str, genre: &str| TagInfo {
+        genre: Some(genre.into()),
+        ..tags(title, "Studio 001", "Genres", 1)
+    };
+    put(
+        fixture.folder.path(),
+        "g/1.aif",
+        &aiff(1),
+        Some(&with_genre("One", "Deep House")),
+    );
+    put(
+        fixture.folder.path(),
+        "g/2.aif",
+        &aiff(1),
+        Some(&with_genre("Two", "Deep House")),
+    );
+    put(
+        fixture.folder.path(),
+        "g/3.aif",
+        &aiff(1),
+        Some(&with_genre("Three", "deep-house ")),
+    );
+    scan(&fixture, root);
+    let genres = fixture.service.genres().unwrap();
+    assert!(genres.contains(&("Deep House".to_owned(), 2)), "{genres:?}");
+    assert!(
+        genres.contains(&("deep-house".to_owned(), 1)),
+        "trimmed: {genres:?}"
+    );
+    let ids = fixture
+        .service
+        .tracks_with_genres(&["deep-house".to_owned()])
+        .unwrap();
+    assert_eq!(ids.len(), 1);
+}

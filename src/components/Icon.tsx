@@ -15,6 +15,7 @@ const paths = {
   volume: "m11 4-6 5H2v6h3l6 5zM16 8a6 6 0 0 1 0 8M19 4a11 11 0 0 1 0 16",
   next: "m5 5 10 7-10 7zM19 5v14",
   queue: "M3 6h13M3 12h13M3 18h8M16 15v6l5-3z",
+  clean: "M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z",
 } as const;
 
 export type IconName = keyof typeof paths;
