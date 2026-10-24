@@ -115,6 +115,20 @@ export async function readLibraryMode(invoke: Invoke): Promise<LibraryMode | nul
   return (await readLibraryStatus(invoke)).mode;
 }
 
+/** A query as the Rust commands take it: no format filter is `null`, never "all". */
+function toWire(query: LibraryQuery) {
+  return {
+    view: query.view,
+    search: query.search,
+    sort: query.sort,
+    format: query.format === "all" ? null : query.format,
+    artistId: query.artistId,
+    releaseId: query.releaseId,
+    playlistId: query.playlistId,
+    crateId: query.crateId,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -716,7 +730,7 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     },
     editTracks: async (trackIds, changes) => toEdited(await invoke("library_edit_tracks", { trackIds, changes }).catch((error: unknown) => { throw failure(error); })),
     exportTracks: async (query, format, name) => {
-      const value: unknown = await invoke("library_export", { query, format, name }).catch((error: unknown) => { throw failure(error); });
+      const value: unknown = await invoke("library_export", { query: toWire(query), format, name }).catch((error: unknown) => { throw failure(error); });
       if (value === null) return null;
       const what = "export";
       if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
@@ -972,16 +986,7 @@ export class TauriLibraryApi implements LibraryApi {
     if (!Number.isInteger(start) || start < 0 || !Number.isInteger(count) || count < 1 || count > MAX_WINDOW) {
       return Promise.reject(new Error(`Request a non-negative start and 1-${MAX_WINDOW} rows.`));
     }
-    const wire = {
-      view: query.view,
-      search: query.search,
-      sort: query.sort,
-      format: query.format === "all" ? null : query.format,
-      artistId: query.artistId,
-      releaseId: query.releaseId,
-      playlistId: query.playlistId,
-      crateId: query.crateId,
-    };
+    const wire = toWire(query);
     return new Promise<LibraryPage>((resolve, reject) => {
       const abort = () => reject(new DOMException("Request cancelled", "AbortError"));
       signal.addEventListener("abort", abort, { once: true });

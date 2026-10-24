@@ -85,6 +85,10 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
       (window as any).__TAURI_INTERNALS__ = {
         convertFileSrc: (path: string, protocol: string) => `/__${protocol}/${encodeURIComponent(path)}`,
         invoke: async (command: string, args?: Record<string, any>) => {
+          // As serde does in the host: a query's format is one of the formats or null.
+          if (args?.query && !(args.query.format === null || ["AIFF", "MP3", "FLAC"].includes(args.query.format))) {
+            throw `invalid args \`query\` for command \`${command}\`: unknown variant \`${args.query.format}\``;
+          }
           calls.push({ command, args });
           switch (command) {
             case "library_mode":
