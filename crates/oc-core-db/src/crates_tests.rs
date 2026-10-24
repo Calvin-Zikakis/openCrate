@@ -262,3 +262,37 @@ fn comparing_two_crates_says_what_they_share_and_what_only_one_holds() {
     assert_eq!(found.only_first, [ids[0]]);
     assert_eq!(found.only_second, [ids[5]]);
 }
+
+#[test]
+fn custom_fields_are_kept_per_track_in_the_library_and_an_empty_value_removes_one() {
+    let (_data, service, ids) = library(6);
+    assert_eq!(
+        service.custom_fields(&[ids[0], ids[1]]).unwrap(),
+        Vec::<(i64, String, String)>::new()
+    );
+    service
+        .set_custom_field(&[ids[0], ids[1]], " Energy ", " 7 ")
+        .unwrap();
+    service.set_custom_field(&[ids[0]], "Mood", "late").unwrap();
+    let mut found = service.custom_fields(&[ids[0], ids[1]]).unwrap();
+    found.sort();
+    let mut expected = vec![
+        (ids[0], "Energy".to_owned(), "7".to_owned()),
+        (ids[0], "Mood".to_owned(), "late".to_owned()),
+        (ids[1], "Energy".to_owned(), "7".to_owned()),
+    ];
+    expected.sort();
+    assert_eq!(found, expected);
+    service
+        .set_custom_field(&[ids[0], ids[1]], "Energy", "  ")
+        .unwrap();
+    assert_eq!(
+        service.custom_fields(&[ids[0], ids[1]]).unwrap(),
+        [(ids[0], "Mood".to_owned(), "late".to_owned())]
+    );
+    assert!(
+        service.set_custom_field(&[ids[0]], " ", "x").is_err(),
+        "a field needs a name"
+    );
+    assert_eq!(service.custom_field_names().unwrap(), ["Mood"]);
+}

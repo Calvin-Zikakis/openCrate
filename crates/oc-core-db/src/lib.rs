@@ -4,6 +4,7 @@ pub mod catalog;
 pub mod crates;
 pub mod downloads;
 pub mod edits;
+pub mod fields;
 pub mod health;
 pub mod library;
 pub mod matching;
@@ -61,6 +62,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/017_merge_base.sql"),
     include_str!("schema/018_track_genre.sql"),
     include_str!("schema/019_edit_history.sql"),
+    include_str!("schema/020_track_field.sql"),
 ];
 
 #[derive(Debug, Error)]

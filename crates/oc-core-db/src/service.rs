@@ -533,6 +533,23 @@ impl LibraryService {
         }))
     }
 
+    /// The owner's custom fields on tracks: (track, name, value).
+    pub fn custom_fields(&self, track_ids: &[i64]) -> Result<Vec<(i64, String, String)>> {
+        crate::fields::fields_of(self.pool.lease().connection(), track_ids)
+    }
+
+    /// Every custom field name in use, most used first.
+    pub fn custom_field_names(&self) -> Result<Vec<String>> {
+        crate::fields::names(self.pool.lease().connection())
+    }
+
+    /// Set one custom field on tracks; an empty value removes it.
+    pub fn set_custom_field(&self, track_ids: &[i64], name: &str, value: &str) -> Result<()> {
+        let (ids, name, value) = (track_ids.to_vec(), name.to_owned(), value.to_owned());
+        self.writer
+            .run(move |database| database.set_field(&ids, &name, &value))?
+    }
+
     /// Remember one save of the track editor.
     pub fn record_edits(&self, items: Vec<crate::edits::EditItem>) -> Result<i64> {
         self.writer

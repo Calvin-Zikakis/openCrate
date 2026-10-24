@@ -489,3 +489,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .recipes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0 10px; font-size: 11px; }
 .recipe-name { display: inline-flex; gap: 8px; align-items: center; }
 .recipe-name input { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font-size: 12px; }
+
+.custom-fields { display: grid; gap: 10px; margin-bottom: 8px; }
+.custom-add { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.custom-add input { padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--raised); color: var(--text); font-size: 12px; min-width: 0; }

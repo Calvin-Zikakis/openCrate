@@ -304,6 +304,22 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               const a = crateById(args?.first).order; const b = crateById(args?.second).order;
               return { both: a.filter((id: number) => b.includes(id)).map(name), onlyFirst: a.filter((id: number) => !b.includes(id)).map(name), onlySecond: b.filter((id: number) => !a.includes(id)).map(name) };
             }
+            case "library_custom_fields": {
+              const store = ((window as any).__custom ??= []) as { trackId: number; name: string; value: string }[];
+              const ids = (args?.trackIds ?? []) as number[];
+              return { fields: store.filter((field) => ids.includes(field.trackId)), names: [...new Set(store.map((field) => field.name))] };
+            }
+            case "library_set_custom_field": {
+              const store = ((window as any).__custom ??= []) as { trackId: number; name: string; value: string }[];
+              const name = String(args?.name).trim(); const value = String(args?.value).trim();
+              if (!name) throw "a custom field needs a short, plain name";
+              for (const trackId of (args?.trackIds ?? []) as number[]) {
+                const at = store.findIndex((field) => field.trackId === trackId && field.name === name);
+                if (at >= 0) store.splice(at, 1);
+                if (value) store.push({ trackId, name, value });
+              }
+              return null;
+            }
             case "library_edit_history": {
               const undone = (window as any).__undone ?? 0;
               const all = [
@@ -1388,6 +1404,34 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toHaveCount(0);
+});
+
+test("editing: custom fields are kept per track and shared across a selection", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0002").click();
+  await row("0004").click({ modifiers: ["ControlOrMeta"] });
+  await page.keyboard.press("ControlOrMeta+KeyI");
+  const editor = page.getByRole("dialog", { name: "Edit 2 tracks" });
+  const fields = editor.getByRole("group", { name: "Your fields" });
+  await fields.getByLabel("New field name").fill("Energy");
+  await fields.getByLabel("New field value").fill("7");
+  await fields.getByRole("button", { name: "Add" }).click();
+  await expect(fields.getByLabel("Energy value")).toHaveValue("7");
+  await page.keyboard.press("Escape");
+
+  await row("0004").click();
+  await page.keyboard.press("ControlOrMeta+KeyI");
+  const one = page.getByRole("dialog", { name: "Edit details" });
+  await one.getByRole("group", { name: "Your fields" }).getByLabel("Energy value").fill("9");
+  await one.getByRole("group", { name: "Your fields" }).getByLabel("Energy value").blur();
+  await page.keyboard.press("Escape");
+  await row("0002").click();
+  await row("0004").click({ modifiers: ["ControlOrMeta"] });
+  await page.keyboard.press("ControlOrMeta+KeyI");
+  await expect(page.getByRole("dialog", { name: "Edit 2 tracks" }).getByLabel("Energy value")).toHaveAttribute("placeholder", "Several values");
+  expect(await page.evaluate(() => (window as any).__custom)).toEqual([{ trackId: 2, name: "Energy", value: "7" }, { trackId: 4, name: "Energy", value: "9" }]);
 });
 
 test("editing: a recipe saves typed values and cleanup rules and applies them again", async ({ page }) => {

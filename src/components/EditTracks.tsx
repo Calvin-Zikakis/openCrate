@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fixCasing, removeJunk, removeNumberPrefix, tidySeparators } from "../library/cleanup";
 import { loadRecipes, saveRecipes, type Recipe } from "../library/recipes";
-import type { EditField, LibraryAdmin, TrackTags } from "../library/types";
+import type { CustomFields, EditField, LibraryAdmin, TrackTags } from "../library/types";
 import { Icon } from "./Icon";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -58,10 +58,15 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
   const [applied, setApplied] = useState<string[]>([]);
   const [naming, setNaming] = useState(false);
   const [recipeName, setRecipeName] = useState("");
+  /** The owner's own fields on these tracks, kept in openCrate rather than in the files. */
+  const [custom, setCustom] = useState<CustomFields | null>(null);
+  const [newField, setNewField] = useState({ name: "", value: "" });
+  const [customError, setCustomError] = useState("");
 
   useEffect(() => {
     dialog.current?.showModal();
     admin.trackTags(trackIds).then(setTracks, (reason: unknown) => setError(message(reason)));
+    admin.customFields(trackIds).then(setCustom, () => setCustom({ fields: [], names: [] }));
   }, [admin, trackIds]);
 
   const single = trackIds.length === 1;
@@ -126,6 +131,23 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
 
   const label = (field: EditField) => FIELDS.find((found) => found.id === field)?.label ?? field;
 
+  /** A custom field's value when every chosen track has the same one; "" when none has it. */
+  const customShared = (name: string): string | null => {
+    const values = trackIds.map((id) => custom?.fields.find((field) => field.trackId === id && field.name === name)?.value ?? "");
+    return values.every((value) => value === values[0]) ? values[0]! : null;
+  };
+  const customNames = [...new Set((custom?.fields ?? []).map((field) => field.name))];
+  const setField = async (name: string, value: string) => {
+    setCustomError("");
+    try {
+      await admin.setCustomField(trackIds, name, value);
+      setCustom(await admin.customFields(trackIds));
+      onSaved();
+    } catch (reason) {
+      setCustomError(message(reason));
+    }
+  };
+
   return <dialog ref={dialog} className="settings-dialog editor-dialog" aria-labelledby="editor-title" onCancel={onClose}>
     <div className="dialog-heading">
       <div><h2 id="editor-title">{single ? "Edit details" : `Edit ${trackIds.length} tracks`}</h2></div>
@@ -169,6 +191,24 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
             <button className="link-button" onClick={() => setNaming(false)}>Cancel</button>
           </span>}
         </div>}
+        <h3>Your fields</h3>
+        <p className="settings-copy">Fields of your own, such as an energy or a mood. They are kept in openCrate, not in the files, and are saved as you type them.</p>
+        <div className="custom-fields" role="group" aria-label="Your fields">
+          {customNames.map((name) => {
+            const shared = customShared(name);
+            return <label key={name} className="editor-field"><span>{name}</span>
+              <input defaultValue={shared ?? ""} placeholder={shared === null ? "Several values" : ""} aria-label={`${name} value`}
+                onBlur={(event) => { if (event.target.value !== (shared ?? "")) void setField(name, event.target.value); }} />
+            </label>;
+          })}
+          <div className="custom-add">
+            <input list="custom-field-names" aria-label="New field name" placeholder="Field" value={newField.name} onChange={(event) => setNewField({ ...newField, name: event.target.value })} />
+            <datalist id="custom-field-names">{(custom?.names ?? []).filter((name) => !customNames.includes(name)).map((name) => <option key={name} value={name} />)}</datalist>
+            <input aria-label="New field value" placeholder="Value" value={newField.value} onChange={(event) => setNewField({ ...newField, value: event.target.value })} />
+            <button className="secondary-button" disabled={!newField.name.trim() || !newField.value.trim()} onClick={() => { void setField(newField.name, newField.value); setNewField({ name: "", value: "" }); }}>Add</button>
+          </div>
+          {customError && <p role="alert" className="inline-error">{customError}</p>}
+        </div>
         <h3>Clean up</h3>
         <p className="settings-copy">{single ? "Each rule changes this track's own details." : "Each rule changes each track's own details."} What it would change is listed before you save.</p>
         <div className="cleanup-buttons">{RULES.map((rule) => <button key={rule.id} className="secondary-button" disabled={busy} onClick={() => applyRule(rule)}>{rule.label}</button>)}</div>

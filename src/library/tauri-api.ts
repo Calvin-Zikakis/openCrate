@@ -751,6 +751,19 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     },
     removeReleaseArt: async (releaseId) => toArtChanged(await invoke("library_remove_release_art", { releaseId }).catch((error: unknown) => { throw failure(error); })),
     editEach: async (edits) => toEdited(await invoke("library_edit_each", { edits }).catch((error: unknown) => { throw failure(error); })),
+    customFields: async (trackIds) => {
+      const value: unknown = await invoke("library_custom_fields", { trackIds }).catch((error: unknown) => { throw failure(error); });
+      const what = "custom fields";
+      if (!isRecord(value) || !Array.isArray(value.fields) || !Array.isArray(value.names)) throw new Error(`The library returned unreadable ${what}.`);
+      return {
+        fields: value.fields.map((item: unknown) => {
+          if (!isRecord(item)) throw new Error(`The library returned unreadable ${what}.`);
+          return { trackId: whole(item.trackId, what), name: text(item.name, what), value: text(item.value, what) };
+        }),
+        names: value.names.map((name: unknown) => text(name, what)),
+      };
+    },
+    setCustomField: async (trackIds, name, value) => { await invoke("library_set_custom_field", { trackIds, name, value }).catch((error: unknown) => { throw failure(error); }); },
     editHistory: async () => {
       const value: unknown = await invoke("library_edit_history").catch((error: unknown) => { throw failure(error); });
       const what = "edit history";

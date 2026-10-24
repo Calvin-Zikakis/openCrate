@@ -734,6 +734,36 @@ async fn library_compare_crates(
         .map_err(|error| error.to_string())?
 }
 
+/// The owner's custom fields on tracks, and every name in use.
+#[tauri::command]
+async fn library_custom_fields(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+) -> Result<editor::CustomFieldsDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::custom_fields(&service, &track_ids))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Set one custom field on tracks; an empty value removes it.
+#[tauri::command]
+async fn library_set_custom_field(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+    name: String,
+    value: String,
+) -> Result<(), String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        service
+            .set_custom_field(&track_ids, &name, &value)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Which lookup keys are saved, by their last four characters only.
 #[tauri::command]
 async fn lookup_keys(state: State<'_, AppState>) -> Result<lookup::KeysDto, String> {
@@ -1410,6 +1440,8 @@ fn main() -> Result<(), tauri::Error> {
             library_track_tags,
             library_edit_tracks,
             library_edit_each,
+            library_custom_fields,
+            library_set_custom_field,
             library_merge_crates,
             library_sort_crate,
             library_compare_crates,

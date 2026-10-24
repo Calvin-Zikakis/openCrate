@@ -392,3 +392,40 @@ pub fn rename_genres(
         }],
     )
 }
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomFieldDto {
+    pub track_id: i64,
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomFieldsDto {
+    pub fields: Vec<CustomFieldDto>,
+    /// Every name in use across the library, most used first, to offer.
+    pub names: Vec<String>,
+}
+
+pub fn custom_fields(
+    service: &LibraryService,
+    track_ids: &[i64],
+) -> Result<CustomFieldsDto, String> {
+    Ok(CustomFieldsDto {
+        fields: service
+            .custom_fields(track_ids)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|(track_id, name, value)| CustomFieldDto {
+                track_id,
+                name,
+                value,
+            })
+            .collect(),
+        names: service
+            .custom_field_names()
+            .map_err(|error| error.to_string())?,
+    })
+}
