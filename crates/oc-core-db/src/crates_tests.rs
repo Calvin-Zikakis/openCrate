@@ -190,3 +190,75 @@ fn arranging_a_large_library_is_quick_enough_for_a_drag() {
         [recent[150], recent[3], recent[0]]
     );
 }
+
+#[test]
+fn merging_appends_the_other_crates_tracks_once_and_can_remove_them() {
+    let (_data, service, ids) = library(10);
+    let a = service.create_crate("A").unwrap();
+    let b = service.create_crate("B").unwrap();
+    service
+        .add_to_crate(a, vec![ids[0], ids[1], ids[2]])
+        .unwrap();
+    service
+        .add_to_crate(b, vec![ids[2], ids[5], ids[4]])
+        .unwrap();
+    let added = service.merge_crates(a, vec![b], true).unwrap();
+    assert_eq!(added, 2, "the track both held is not added again");
+    assert_eq!(
+        in_crate(&service, a),
+        [ids[0], ids[1], ids[2], ids[5], ids[4]]
+    );
+    assert_eq!(
+        service.crates().unwrap().len(),
+        1,
+        "the merged crate is removed"
+    );
+    assert!(
+        service.merge_crates(a, vec![a], false).is_err(),
+        "a crate is not merged into itself"
+    );
+}
+
+#[test]
+fn a_crate_can_be_sorted_in_place_by_any_library_order() {
+    let (_data, service, ids) = library(12);
+    let a = service.create_crate("A").unwrap();
+    service
+        .add_to_crate(a, vec![ids[9], ids[2], ids[7], ids[4]])
+        .unwrap();
+    for sort in [Sort::Title, Sort::Artist, Sort::Bpm, Sort::Recent] {
+        service.sort_crate(a, sort).unwrap();
+        let mut query = LibraryQuery::new(View::Tracks);
+        query.crate_id = Some(a);
+        query.sort = sort;
+        let expected: Vec<i64> = service
+            .read_page(&query, 0, 200)
+            .unwrap()
+            .items
+            .iter()
+            .map(|item| item.id)
+            .collect();
+        assert_eq!(in_crate(&service, a), expected, "{sort:?}");
+    }
+    assert!(
+        service.sort_crate(a, Sort::Crate).is_err(),
+        "a crate's own order is not a sort"
+    );
+}
+
+#[test]
+fn comparing_two_crates_says_what_they_share_and_what_only_one_holds() {
+    let (_data, service, ids) = library(10);
+    let a = service.create_crate("A").unwrap();
+    let b = service.create_crate("B").unwrap();
+    service
+        .add_to_crate(a, vec![ids[0], ids[1], ids[2]])
+        .unwrap();
+    service
+        .add_to_crate(b, vec![ids[2], ids[1], ids[5]])
+        .unwrap();
+    let found = service.compare_crates(a, b).unwrap();
+    assert_eq!(found.both, [ids[1], ids[2]], "in A's order");
+    assert_eq!(found.only_first, [ids[0]]);
+    assert_eq!(found.only_second, [ids[5]]);
+}

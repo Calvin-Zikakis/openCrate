@@ -212,6 +212,32 @@ impl Database {
     }
 }
 
+impl Database {
+    /// Put a crate in `order`. Ids not in the crate are ignored; members not in `order` keep
+    /// their relative order at the end.
+    pub fn set_crate_order(&mut self, crate_id: i64, order: &[i64]) -> Result<Vec<i64>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        exists(&transaction, crate_id)?;
+        let current = crate_tracks(&transaction, crate_id)?;
+        let mut arranged: Vec<i64> = order
+            .iter()
+            .copied()
+            .filter(|id| current.contains(id))
+            .collect();
+        let rest: Vec<i64> = current
+            .iter()
+            .copied()
+            .filter(|id| !arranged.contains(id))
+            .collect();
+        arranged.extend(rest);
+        write_order(&transaction, crate_id, &arranged)?;
+        transaction.commit()?;
+        Ok(arranged)
+    }
+}
+
 /// The order after moving `moving` before `before`. Pure, so the rule is easy to test.
 #[must_use]
 pub fn moved(current: &[i64], moving: &[i64], before: Option<i64>) -> Vec<i64> {

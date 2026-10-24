@@ -15,7 +15,7 @@ use crate::catalog::{pending_tag_reads, pending_tag_total, read_tags, CatalogOut
 use crate::downloads::{
     imported_names, is_reachable, list_watch_folders, top_level_names, watch_baseline, WatchFolder,
 };
-use crate::library::{read_playlists, LibraryPage, LibraryQuery, PlaylistRow};
+use crate::library::{read_playlists, LibraryPage, LibraryQuery, PlaylistRow, Sort, View};
 use crate::mirror::{
     alias_suggestions, mirrors, parse_alias, read_export, read_track_analysis, source_path,
     AliasSuggestion, MirrorInfo, MirrorOutcome, MirrorSource, SourceKind, TrackAnalysis,
@@ -53,6 +53,14 @@ pub struct ScanProgress {
 }
 
 /// A registered folder with how many files it holds and how many are missing.
+/// Two crates side by side.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CrateComparison {
+    pub both: Vec<i64>,
+    pub only_first: Vec<i64>,
+    pub only_second: Vec<i64>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RootInfo {
     pub root: Root,
@@ -773,6 +781,63 @@ impl LibraryService {
     ) -> Result<Vec<i64>> {
         self.writer
             .run(move |database| database.move_in_crate(crate_id, &track_ids, before))?
+    }
+
+    /// Add every track of the crates `from` to the end of `into`, each once, and remove the
+    /// crates `from` when `remove` is set. Returns how many tracks were added.
+    pub fn merge_crates(&self, into: i64, from: Vec<i64>, remove: bool) -> Result<usize> {
+        if from.contains(&into) {
+            return Err(Error::InvalidStoredValue(
+                "a crate cannot be merged into itself",
+            ));
+        }
+        let mut added = 0;
+        for crate_id in from {
+            let tracks = crate::crates::crate_tracks(self.pool.lease().connection(), crate_id)?;
+            added += self.add_to_crate(into, tracks)?;
+            if remove {
+                self.delete_crate(crate_id)?;
+            }
+        }
+        Ok(added)
+    }
+
+    /// Put a crate in one of the library's orders, for good.
+    pub fn sort_crate(&self, crate_id: i64, sort: Sort) -> Result<Vec<i64>> {
+        if matches!(sort, Sort::Crate | Sort::Playlist) {
+            return Err(Error::InvalidStoredValue(
+                "that is not an order to sort a crate by",
+            ));
+        }
+        let mut query = LibraryQuery::new(View::Tracks);
+        query.crate_id = Some(crate_id);
+        query.sort = sort;
+        let mut order = Vec::new();
+        loop {
+            let page = self.read_page(&query, order.len(), crate::library::MAX_WINDOW)?;
+            if page.items.is_empty() {
+                break;
+            }
+            order.extend(page.items.iter().map(|item| item.id));
+            if order.len() as u64 >= page.total {
+                break;
+            }
+        }
+        self.writer
+            .run(move |database| database.set_crate_order(crate_id, &order))?
+    }
+
+    /// What two crates share and what only one holds, each list in the first crate's order
+    /// (the second's for its own tracks).
+    pub fn compare_crates(&self, first: i64, second: i64) -> Result<CrateComparison> {
+        let lease = self.pool.lease();
+        let a = crate::crates::crate_tracks(lease.connection(), first)?;
+        let b = crate::crates::crate_tracks(lease.connection(), second)?;
+        Ok(CrateComparison {
+            both: a.iter().copied().filter(|id| b.contains(id)).collect(),
+            only_first: a.iter().copied().filter(|id| !b.contains(id)).collect(),
+            only_second: b.iter().copied().filter(|id| !a.contains(id)).collect(),
+        })
     }
 
     /// Every download folder.

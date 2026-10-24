@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { proposeFixes, type ProposedFix } from "../library/cleanup";
-import type { EditBatch, Genres, LibraryAdmin, MissingArt } from "../library/types";
+import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, Sort } from "../library/types";
 import { Icon } from "./Icon";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -27,6 +27,7 @@ export function CleanUp({ admin, onChanged }: Props) {
     <GenresCard admin={admin} onChanged={onChanged} />
     <TitlesCard admin={admin} onChanged={onChanged} />
     <ArtCard admin={admin} onChanged={onChanged} />
+    <CratesCard admin={admin} onChanged={onChanged} />
   </div>;
 }
 
@@ -271,5 +272,91 @@ function HistoryCard({ admin, onChanged }: Props) {
       <ol className="history-list" aria-label="Saves">{history.slice(0, 10).map((batch) => <li key={batch.id}>{describe(batch)}</li>)}</ol>
       <button className="secondary-button" disabled={busy} onClick={() => void undo()}>{`Undo: ${describe(history[0]!)}`}</button>
     </>}
+  </section>;
+}
+
+const ORDERS: { sort: Sort; label: string }[] = [
+  { sort: "title", label: "Title" }, { sort: "artist", label: "Artist" }, { sort: "bpm", label: "BPM" }, { sort: "recent", label: "Recently added" },
+];
+
+function CratesCard({ admin, onChanged }: Props) {
+  const [crates, setCrates] = useState<CrateInfo[]>([]);
+  const [first, setFirst] = useState<number | null>(null);
+  const [second, setSecond] = useState<number | null>(null);
+  const [remove, setRemove] = useState(true);
+  const [order, setOrder] = useState<Sort>("title");
+  const [comparison, setComparison] = useState<CrateComparison | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const found = await admin.crates();
+      setCrates(found);
+      setFirst((current) => current ?? found[0]?.id ?? null);
+      setSecond((current) => current ?? found[1]?.id ?? null);
+    } catch (reason) {
+      setError(message(reason));
+    }
+  }, [admin]);
+  useEffect(() => { void load(); }, [load]);
+
+  const act = async (work: () => Promise<string>) => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      setNote(await work());
+      await load();
+      onChanged();
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const name = (id: number | null) => crates.find((found) => found.id === id)?.name ?? "";
+  const picker = (label: string, value: number | null, set: (id: number) => void) => <label className="crate-pick">{label}
+    <select value={value ?? ""} onChange={(event) => set(Number(event.target.value))}>{crates.map((found) => <option key={found.id} value={found.id}>{found.name}</option>)}</select>
+  </label>;
+
+  if (crates.length === 0) return null;
+  return <section className="sync-card" role="region" aria-label="Crates">
+    <h2>Crates</h2>
+    <p className="settings-copy">Merge one crate into another, sort a crate for good, or see what two crates share. Crates are openCrate's own; rekordbox is not changed.</p>
+    <div className="crate-tools">
+      <div className="crate-tool">
+        <h3>Sort</h3>
+        {picker("Crate", first, setFirst)}
+        <label className="crate-pick">Order<select value={order} onChange={(event) => setOrder(event.target.value as Sort)}>{ORDERS.map((item) => <option key={item.sort} value={item.sort}>{item.label}</option>)}</select></label>
+        <button className="secondary-button" disabled={busy || first === null} onClick={() => void act(async () => { await admin.sortCrate(first!, order); return `${name(first)} is now in ${ORDERS.find((item) => item.sort === order)?.label.toLowerCase()} order.`; })}>Sort crate</button>
+      </div>
+      {crates.length > 1 && <div className="crate-tool">
+        <h3>Merge</h3>
+        {picker("From", second, setSecond)}
+        {picker("Into", first, setFirst)}
+        <label className="crate-pick"><input type="checkbox" checked={remove} onChange={(event) => setRemove(event.target.checked)} />Remove the merged crate</label>
+        <button className="secondary-button" disabled={busy || first === null || second === null || first === second} onClick={() => void act(async () => {
+          const added = await admin.mergeCrates(first!, [second!], remove);
+          return `${plural(added, "track", "tracks")} added to ${name(first)}${remove ? `; ${name(second)} removed` : ""}.`;
+        })}>Merge</button>
+      </div>}
+      {crates.length > 1 && <div className="crate-tool">
+        <h3>Compare</h3>
+        {picker("First", first, setFirst)}
+        {picker("Second", second, setSecond)}
+        <button className="secondary-button" disabled={busy || first === null || second === null || first === second} onClick={() => void act(async () => { setComparison(await admin.compareCrates(first!, second!)); return ""; })}>Compare</button>
+      </div>}
+    </div>
+    {error && <p role="alert" className="inline-error">{error}</p>}
+    {note && <p role="status" className="settings-copy">{note}</p>}
+    {comparison && <div className="comparison" role="region" aria-label="Comparison">
+      {([["In both", comparison.both], [`Only in ${name(first)}`, comparison.onlyFirst], [`Only in ${name(second)}`, comparison.onlySecond]] as const).map(([title, tracks]) => <div key={title}>
+        <h4>{`${title} (${tracks.length})`}</h4>
+        <ul className="check-list">{tracks.slice(0, 50).map((track) => <li key={track.trackId}><strong>{track.title}</strong> <small>{track.artist}</small></li>)}</ul>
+        {tracks.length > 50 && <p className="settings-copy">{`And ${tracks.length - 50} more.`}</p>}
+      </div>)}
+    </div>}
   </section>;
 }

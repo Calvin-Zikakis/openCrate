@@ -686,6 +686,54 @@ async fn library_undo_last_edit(state: State<'_, AppState>) -> Result<editor::Ed
         .map_err(|error| error.to_string())?
 }
 
+/// Add every track of the crates `from` to `into`, each once, removing `from` when asked.
+#[tauri::command]
+async fn library_merge_crates(
+    state: State<'_, AppState>,
+    into: i64,
+    from: Vec<i64>,
+    remove: bool,
+) -> Result<usize, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        service
+            .merge_crates(into, from, remove)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Put a crate in one of the library's orders, for good.
+#[tauri::command]
+async fn library_sort_crate(
+    state: State<'_, AppState>,
+    crate_id: i64,
+    sort: ipc::SortDto,
+) -> Result<Vec<i64>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        service
+            .sort_crate(crate_id, sort.to_sort())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// What two crates share and what only one holds, each track named.
+#[tauri::command]
+async fn library_compare_crates(
+    state: State<'_, AppState>,
+    first: i64,
+    second: i64,
+) -> Result<crates::ComparisonDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || crates::compare(&service, first, second))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Which lookup keys are saved, by their last four characters only.
 #[tauri::command]
 async fn lookup_keys(state: State<'_, AppState>) -> Result<lookup::KeysDto, String> {
@@ -1362,6 +1410,9 @@ fn main() -> Result<(), tauri::Error> {
             library_track_tags,
             library_edit_tracks,
             library_edit_each,
+            library_merge_crates,
+            library_sort_crate,
+            library_compare_crates,
             library_edit_history,
             library_undo_last_edit,
             library_export,

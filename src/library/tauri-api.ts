@@ -721,6 +721,21 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
       return { path: text(value.path, what), tracks: whole(value.tracks, what), withoutFile: whole(value.withoutFile, what) };
     },
+    mergeCrates: async (into, from, remove) => {
+      const value: unknown = await invoke("library_merge_crates", { into, from, remove }).catch((error: unknown) => { throw failure(error); });
+      return whole(value, "merge");
+    },
+    sortCrate: async (crateId, sort) => { await invoke("library_sort_crate", { crateId, sort }).catch((error: unknown) => { throw failure(error); }); },
+    compareCrates: async (first, second) => {
+      const value: unknown = await invoke("library_compare_crates", { first, second }).catch((error: unknown) => { throw failure(error); });
+      const what = "crate comparison";
+      if (!isRecord(value) || !Array.isArray(value.both) || !Array.isArray(value.onlyFirst) || !Array.isArray(value.onlySecond)) throw new Error(`The library returned an unreadable ${what}.`);
+      const named = (items: unknown[]) => items.map((item) => {
+        if (!isRecord(item)) throw new Error(`The library returned an unreadable ${what}.`);
+        return { trackId: whole(item.trackId, what), title: text(item.title, what), artist: text(item.artist, what) };
+      });
+      return { both: named(value.both), onlyFirst: named(value.onlyFirst), onlySecond: named(value.onlySecond) };
+    },
     releasesWithoutArt: async () => {
       const value: unknown = await invoke("library_releases_without_art").catch((error: unknown) => { throw failure(error); });
       const what = "releases without art";

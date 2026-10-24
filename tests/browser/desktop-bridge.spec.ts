@@ -289,6 +289,21 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return { files: 2, left: [] };
             case "library_remove_release_art":
               return { files: 2, left: [] };
+            case "library_merge_crates": {
+              const into = crateById(args?.into);
+              let added = 0;
+              for (const id of args?.from ?? []) { for (const track of crateById(id).order) if (!into.order.includes(track)) { into.order.push(track); added += 1; } if (args?.remove) crateList.splice(crateList.indexOf(crateById(id)), 1); }
+              return added;
+            }
+            case "library_sort_crate":
+              crateById(args?.crateId).order.sort((a: number, b: number) => a - b);
+              (window as any).__sorted = { crateId: args?.crateId, sort: args?.sort };
+              return crateById(args?.crateId).order;
+            case "library_compare_crates": {
+              const name = (id: number) => ({ trackId: id, title: `Rust Track ${String(id).padStart(4, "0")}`, artist: "Backend Artist" });
+              const a = crateById(args?.first).order; const b = crateById(args?.second).order;
+              return { both: a.filter((id: number) => b.includes(id)).map(name), onlyFirst: a.filter((id: number) => !b.includes(id)).map(name), onlySecond: b.filter((id: number) => !a.includes(id)).map(name) };
+            }
             case "library_edit_history": {
               const undone = (window as any).__undone ?? 0;
               const all = [
@@ -1445,6 +1460,36 @@ test("a release page can choose, find or remove its cover", async ({ page }) => 
   await cover.getByRole("button", { name: "Choose cover..." }).click();
   const sent = (await calls(page)).filter((call) => /release_art/.test(call.command)).map((call) => [call.command, call.args.releaseId]);
   expect(sent).toEqual([["library_remove_release_art", 1], ["library_set_release_art", 1]]);
+});
+
+test("clean up: crates are compared, sorted and merged", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const crates = page.getByRole("navigation", { name: "Crates" });
+  for (const [name, tracks] of [["Warm-up", ["0003", "0001", "0002"]], ["Peak", ["0002", "0005"]]] as const) {
+    await crates.getByRole("button", { name: "New crate" }).click();
+    await crates.getByRole("textbox", { name: "New crate name" }).fill(name);
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Tracks", exact: true }).click();
+    for (const n of tracks) await page.getByRole("button", { name: new RegExp(`Rust Track ${n},`) }).dragTo(crates.getByRole("button", { name: new RegExp(name) }));
+  }
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const card = page.getByRole("region", { name: "Crates" });
+  await card.getByLabel("First").selectOption({ label: "Warm-up" });
+  await card.getByLabel("Second").selectOption({ label: "Peak" });
+  await card.getByRole("button", { name: "Compare" }).click();
+  const comparison = card.getByRole("region", { name: "Comparison" });
+  await expect(comparison.getByRole("heading", { name: "In both (1)" })).toBeVisible();
+  await expect(comparison.getByRole("heading", { name: "Only in Warm-up (2)" })).toBeVisible();
+  await expect(comparison.getByRole("heading", { name: "Only in Peak (1)" })).toBeVisible();
+  await card.getByLabel("Order").selectOption("bpm");
+  await card.getByRole("button", { name: "Sort crate" }).click();
+  await expect(card.getByRole("status")).toContainText("Warm-up is now in bpm order.");
+  expect(await page.evaluate(() => (window as any).__sorted)).toEqual({ crateId: 1, sort: "bpm" });
+  await card.getByLabel("From").selectOption({ label: "Peak" });
+  await card.getByRole("button", { name: "Merge" }).click();
+  await expect(card.getByRole("status")).toContainText("1 track added to Warm-up; Peak removed.");
+  await expect(crates.getByRole("button", { name: /Peak/ })).toHaveCount(0);
 });
 
 test("clean up: the newest save is undone and the list moves on", async ({ page }) => {

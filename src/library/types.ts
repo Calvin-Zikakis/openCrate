@@ -454,6 +454,10 @@ export interface ArtChanged { files: number; left: string[] }
 export type ExportFormat = "m3u8" | "csv";
 export interface Exported { path: string; tracks: number; withoutFile: number }
 
+export interface NamedTrack { trackId: number; title: string; artist: string }
+/** Two crates side by side. */
+export interface CrateComparison { both: NamedTrack[]; onlyFirst: NamedTrack[]; onlySecond: NamedTrack[] }
+
 /** What tidying a folder did. */
 export interface TidiedFolder {
   folder: string;
@@ -609,6 +613,12 @@ export interface LibraryAdmin {
   renameGenres(from: string[], to: string): Promise<EditedTracks>;
   /** Export the tracks a query lists to a file the owner picks (null when cancelled). */
   exportTracks(query: LibraryQuery, format: ExportFormat, name: string): Promise<Exported | null>;
+  /** Add every track of the crates `from` to `into`, each once; remove `from` when asked. Returns how many were added. */
+  mergeCrates(into: number, from: number[], remove: boolean): Promise<number>;
+  /** Put a crate in one of the library's orders, for good. */
+  sortCrate(crateId: number, sort: Sort): Promise<void>;
+  /** What two crates share and what only one holds. */
+  compareCrates(first: number, second: number): Promise<CrateComparison>;
   /** Releases whose files carry no picture. */
   releasesWithoutArt(): Promise<MissingArt[]>;
   /** Give a release a cover from beside its files, the Cover Art Archive, or the system picker (null when cancelled). */
