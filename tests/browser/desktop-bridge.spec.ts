@@ -1104,6 +1104,17 @@ test("import all: a review lists doubtful tags, then every finished release is i
   await expect(imported.getByText("Second Light", { exact: true })).toBeVisible();
 });
 
+test("import all: releases already there are brought in together, without a preview each", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await openImportWithFolders(page);
+  const older = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: "Already there when you added the folder" }) });
+  await older.getByRole("button", { name: "Import all 1 release already there..." }).click();
+  await older.getByRole("region", { name: "Before importing" }).getByRole("button", { name: /^Import \d+ files?$/ }).click();
+  await expect(older.getByText(/now in your music folder/)).toBeVisible();
+  const imports = (await calls(page)).filter((call) => call.command === "library_import_release").map((call) => call.args.name);
+  expect(imports).toEqual(["Old Favourites"]);
+});
+
 test("import all: a lookup on request suggests values, and only ticked files send them", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.addInitScript(() => { (window as any).__twoReady = true; });

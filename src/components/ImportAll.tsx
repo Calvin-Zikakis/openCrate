@@ -61,10 +61,12 @@ interface Props {
   options: ImportOptions;
   /** Brings new files into the lists: a scan of the music folder, then a refresh. */
   rescan: (rootId: number) => Promise<void>;
+  /** The button's words; by default "Import all N finished releases...". */
+  label?: (count: number) => string;
 }
 
 /** Import every finished release at once, after a look at what will happen. */
-export function ImportAll({ admin, releases, rootId, options, rescan }: Props) {
+export function ImportAll({ admin, releases, rootId, options, rescan, label }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
   const [lookups, setLookups] = useState<Record<string, Lookup>>({});
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
@@ -130,7 +132,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan }: Props) {
   if (releases.length === 0 && stage.kind === "idle") return null;
   return <div className="import-all">
     {(stage.kind === "idle" || stage.kind === "finished") && releases.length > 0 &&
-      <button className="import-button" disabled={rootId === null} onClick={() => void check()}>{`Import all ${plural(releases.length, "finished release", "finished releases")}...`}</button>}
+      <button className="import-button" disabled={rootId === null} onClick={() => void check()}>{label ? label(releases.length) : `Import all ${plural(releases.length, "finished release", "finished releases")}...`}</button>}
     {stage.kind === "checking" && <p className="settings-copy" role="status">{`Reading the tags of release ${stage.done + 1} of ${stage.total}...`}</p>}
     {stage.kind === "review" && <Review stage={stage} lookups={lookups} unticked={unticked}
       onToggle={(source) => setUnticked((before) => { const next = new Set(before); if (next.has(source)) next.delete(source); else next.add(source); return next; })}

@@ -270,7 +270,9 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     </div>}
     {older.length > 0 && <div className="sync-card">
       <h2>Already there when you added the folder</h2>
-      <p className="settings-copy">These are not picked up on their own. They stay out of the way until you choose to bring them in.</p>
+      <p className="settings-copy">These are not picked up on their own. They stay out of the way until you choose to bring them in, one at a time or all together.</p>
+      <ImportAll admin={admin} releases={older.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan}
+        label={(count) => `Import all ${count} ${count === 1 ? "release" : "releases"} already there...`} />
       <ul className="folder-list">{older.map(row)}</ul>
     </div>}
   </div>;
