@@ -50,6 +50,8 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
   const [typed, setTyped] = useState<Partial<Record<EditField, string>>>({});
   /** Values a cleanup rule changed, per track. */
   const [cleaned, setCleaned] = useState<Map<number, Partial<Record<EditField, string>>>>(new Map());
+  /** What the last rule or recipe did, when the fields alone do not show it. */
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [left, setLeft] = useState<string[]>([]);
@@ -76,33 +78,53 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
     const first = valueOf(tracks[0]!, field);
     return tracks.every((track) => valueOf(track, field) === first) ? first : null;
   };
-  /** What a track holds for a field now, counting what was typed and cleaned. */
-  const current = (track: TrackTags, field: EditField) => typed[field] ?? cleaned.get(track.trackId)?.[field] ?? valueOf(track, field);
 
-  const applyRule = (rule: (typeof RULES)[number]) => {
-    if (!tracks) return;
-    setApplied((before) => (before.includes(rule.id) ? before : [...before, rule.id]));
-    setCleaned((before) => {
-      const next = new Map(before);
+  /** Run rules in order, each on what the one before left. A field typed in (`typing`, which a
+   * recipe passes before its values reach state) is the typed value's, so rules leave it.
+   * Returns a note naming the rules that found nothing to change. */
+  const applyRules = (rules: (typeof RULES)[number][], typing: Partial<Record<EditField, string>> = typed): string => {
+    if (!tracks) return "";
+    setApplied((before) => [...before, ...rules.map((rule) => rule.id).filter((id) => !before.includes(id))]);
+    const next = new Map(cleaned);
+    const idle: string[] = [];
+    for (const rule of rules) {
+      let changedAny = false;
       for (const track of tracks) {
         for (const field of rule.fields) {
-          if (typed[field] !== undefined) continue;
-          const now = current(track, field);
+          if (typing[field] !== undefined) continue;
+          const now = next.get(track.trackId)?.[field] ?? valueOf(track, field);
           const changed = rule.apply(now);
-          if (changed !== now) next.set(track.trackId, { ...next.get(track.trackId), [field]: changed });
+          if (changed === now) continue;
+          next.set(track.trackId, { ...next.get(track.trackId), [field]: changed });
+          changedAny = true;
         }
       }
-      return next;
-    });
+      if (!changedAny) idle.push(rule.label);
+    }
+    setCleaned(next);
+    return idle.length > 0 ? `${idle.join(", ")}: nothing to change.` : "";
+  };
+
+  const saveRecipe = () => {
+    const name = recipeName.trim();
+    if (!name) return;
+    const recipe: Recipe = { name, values: { ...typed }, rules: applied };
+    const next = [...recipes.filter((found) => found.name !== name), recipe];
+    setRecipes(next);
+    saveRecipes(localStorage, next);
+    setNaming(false);
+    setRecipeName("");
+    setNote(`Saved the recipe "${name}".`);
   };
 
   const typedChanges = Object.entries(typed)
     .filter(([field, value]) => value !== (shared(field as EditField) ?? undefined))
     .map(([field, value]) => ({ field: field as EditField, value: value ?? "" }));
+  // A field typed in after a rule ran saves what was typed, not what the rule made.
   const cleanedChanges = [...cleaned.entries()].flatMap(([trackId, fields]) => {
     const track = tracks?.find((found) => found.trackId === trackId);
     return Object.entries(fields)
-      .filter(([field, value]) => track && value !== valueOf(track, field as EditField))
+      .filter(([field, value]) => track && typed[field as EditField] === undefined && value !== valueOf(track, field as EditField))
       .map(([field, value]) => ({ trackId, title: track?.title ?? "", field: field as EditField, from: track ? valueOf(track, field as EditField) : "", to: value ?? "" }));
   });
   const nothing = typedChanges.length === 0 && cleanedChanges.length === 0;
@@ -110,9 +132,13 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
   const save = async () => {
     setBusy(true);
     setError("");
+    let wrote = false;
     try {
       const notes: string[] = [];
-      if (typedChanges.length > 0) notes.push(...(await admin.editTracks(trackIds, typedChanges)).left);
+      if (typedChanges.length > 0) {
+        notes.push(...(await admin.editTracks(trackIds, typedChanges)).left);
+        wrote = true;
+      }
       if (cleanedChanges.length > 0) {
         const edits = [...new Set(cleanedChanges.map((change) => change.trackId))].map((trackId) => ({
           trackId,
@@ -124,6 +150,8 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
       if (notes.length > 0) setLeft(notes);
       else onClose();
     } catch (reason) {
+      // The typed values may be in the files already; the list should show them.
+      if (wrote) onSaved();
       setError(message(reason));
     } finally {
       setBusy(false);
@@ -163,7 +191,19 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
             <span>{field.label}</span>
             <input {...PLAIN_TEXT} value={typed[field.id] ?? common ?? ""} inputMode={field.numeric ? "numeric" : undefined}
               placeholder={common === null ? "Several values" : ""}
-              onChange={(event) => setTyped((before) => ({ ...before, [field.id]: event.target.value }))} />
+              onChange={(event) => {
+                const value = event.target.value;
+                setTyped((before) => {
+                  // Emptied again on a field the tracks differ in: back to "Several values",
+                  // not a blank written over every one of them.
+                  if (value === "" && common === null) {
+                    const rest = { ...before };
+                    delete rest[field.id];
+                    return rest;
+                  }
+                  return { ...before, [field.id]: value };
+                });
+              }} />
           </label>;
         })}</div>
         {(recipes.length > 0 || naming || Object.keys(typed).length > 0 || applied.length > 0) && <div className="recipes">
@@ -171,8 +211,10 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
             <select aria-label="Apply a recipe" value="" onChange={(event) => {
               const recipe = recipes.find((found) => found.name === event.target.value);
               if (!recipe) return;
-              setTyped((before) => ({ ...before, ...recipe.values }));
-              for (const rule of RULES) if (recipe.rules.includes(rule.id)) applyRule(rule);
+              const typing = { ...typed, ...recipe.values };
+              setTyped(typing);
+              const idle = applyRules(recipe.rules.flatMap((id) => RULES.filter((rule) => rule.id === id)), typing);
+              setNote(`Applied "${recipe.name}".${idle ? ` ${idle}` : ""}`);
             }}>
               <option value="">Apply a recipe...</option>
               {recipes.map((recipe) => <option key={recipe.name} value={recipe.name}>{recipe.name}</option>)}
@@ -180,15 +222,9 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
           </label>}
           {!naming && (Object.keys(typed).length > 0 || applied.length > 0) && <button className="link-button" onClick={() => setNaming(true)}>Save as recipe...</button>}
           {naming && <span className="recipe-name">
-            <input {...PLAIN_TEXT} aria-label="Recipe name" value={recipeName} placeholder="Name" onChange={(event) => setRecipeName(event.target.value)} />
-            <button className="secondary-button" disabled={!recipeName.trim()} onClick={() => {
-              const recipe: Recipe = { name: recipeName.trim(), values: { ...typed }, rules: applied };
-              const next = [...recipes.filter((found) => found.name !== recipe.name), recipe];
-              setRecipes(next);
-              saveRecipes(localStorage, next);
-              setNaming(false);
-              setRecipeName("");
-            }}>Save</button>
+            <input {...PLAIN_TEXT} autoFocus aria-label="Recipe name" value={recipeName} placeholder="Name" onChange={(event) => setRecipeName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") saveRecipe(); }} />
+            <button className="secondary-button" disabled={!recipeName.trim()} onClick={saveRecipe}>Save</button>
             <button className="link-button" onClick={() => setNaming(false)}>Cancel</button>
           </span>}
         </div>}
@@ -212,7 +248,8 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
         </div>
         <h3>Clean up</h3>
         <p className="settings-copy">{single ? "Each rule changes this track's own details." : "Each rule changes each track's own details."} What it would change is listed before you save.</p>
-        <div className="cleanup-buttons">{RULES.map((rule) => <button key={rule.id} className="secondary-button" disabled={busy} onClick={() => applyRule(rule)}>{rule.label}</button>)}</div>
+        <div className="cleanup-buttons">{RULES.map((rule) => <button key={rule.id} className="secondary-button" disabled={busy} onClick={() => setNote(applyRules([rule]))}>{rule.label}</button>)}</div>
+        {note && <p className="settings-copy" role="status">{note}</p>}
         {cleanedChanges.length > 0 && <ul className="cleanup-changes" aria-label="Cleanup changes">{cleanedChanges.map((change) => <li key={`${change.trackId}:${change.field}`}>
           <strong>{change.title || "Untitled"}</strong><small>{`${label(change.field)}: ${change.from || "(empty)"} -> ${change.to || "(empty)"}`}</small>
         </li>)}</ul>}

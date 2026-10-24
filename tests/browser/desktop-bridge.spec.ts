@@ -1590,8 +1590,10 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
   await editor.getByLabel("Genre").fill("Techno");
   await editor.getByRole("button", { name: "Remove number prefixes" }).click();
   await editor.getByRole("button", { name: "Save as recipe..." }).click();
-  await editor.getByLabel("Recipe name").fill("Techno import");
-  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.getByLabel("Recipe name")).toBeFocused();
+  await page.keyboard.type("Techno import");
+  await page.keyboard.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText('Saved the recipe "Techno import".');
   await page.keyboard.press("Escape");
 
   await row("0004").click({ button: "right" });
@@ -1601,6 +1603,37 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
   await expect(again.getByLabel("Genre")).toHaveValue("Techno");
   await expect(again.getByRole("list", { name: "Cleanup changes" })).toContainText("Title: 04 - RUST TRACK 0004 -> RUST TRACK 0004");
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("opencrate.editRecipes") ?? "[]"))).toEqual([{ name: "Techno import", values: { genre: "Techno" }, rules: ["numbers"] }]);
+});
+
+test("editing: emptied fields, typing over a rule and a recipe's rules in order save what was meant", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("opencrate.editRecipes", JSON.stringify([{ name: "Both", values: {}, rules: ["numbers", "casing"] }])));
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0002").click();
+  await row("0004").click({ modifiers: ["ControlOrMeta"] });
+  await page.keyboard.press("ControlOrMeta+KeyI");
+  const editor = page.getByRole("dialog", { name: "Edit 2 tracks" });
+  // Typing into "Several values" and emptying it again leaves the titles alone.
+  await editor.getByLabel("Title").fill("x");
+  await editor.getByLabel("Title").fill("");
+  await expect(editor.getByLabel("Title")).toHaveAttribute("placeholder", "Several values");
+  await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await editor.getByRole("button", { name: "Tidy separators" }).click();
+  await expect(editor.getByRole("status")).toHaveText("Tidy separators: nothing to change.");
+
+  // Both rules of the recipe reach the title, the second working on what the first left.
+  await editor.getByLabel("Apply a recipe").selectOption("Both");
+  const preview = editor.getByRole("list", { name: "Cleanup changes" });
+  await expect(preview).toContainText("Title: 04 - RUST TRACK 0004 -> Rust Track 0004");
+  await expect(editor.getByRole("status")).toHaveText('Applied "Both".');
+  // A title typed afterwards is what gets saved, for both tracks.
+  await editor.getByLabel("Title").fill("Typed");
+  await expect(preview).toHaveCount(0);
+  await editor.getByRole("button", { name: "Save 1 change" }).click();
+  await expect(editor).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__edits)).toEqual([{ trackIds: [2, 4], changes: [{ field: "title", value: "Typed" }] }]);
+  expect(await page.evaluate(() => (window as any).__editEach ?? null)).toBeNull();
 });
 
 test("clean up: genres spelled alike are merged, and titles and artists are fixed after a look", async ({ page }) => {
