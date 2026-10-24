@@ -402,7 +402,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-confirm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; color: var(--warn); padding: 6px 12px; }
 .track-row[draggable="true"] { cursor: grab; }
 .crate-hint { color: var(--secondary); margin-left: 10px; }
-.sidebar-lists { flex: 1; min-height: 0; margin-top: 10px; padding-top: 2px; border-top: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
+/* Room for the crate heading and a few crates however short the window. */
+.sidebar-lists { flex: 1; min-height: 120px; margin-top: 10px; padding-top: 2px; border-top: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
 .sidebar-lists .playlist-tree { flex: none; min-height: auto; overflow: visible; }
 .sidebar > * { flex-shrink: 0; }
 .sidebar > .sidebar-lists { flex-shrink: 1; }

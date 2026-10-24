@@ -2034,6 +2034,16 @@ test("arrange: dragging in Tracks switches to Custom order and keeps the move", 
   await expect(page.getByRole("option", { name: "Custom order" })).toBeAttached();
 });
 
+test("sidebar: in a short window the crates keep room of their own", async ({ page }) => {
+  await page.setViewportSize({ width: 1300, height: 600 });
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const crates = page.getByRole("navigation", { name: "Crates" });
+  await expect(crates.getByRole("button", { name: "New crate" })).toBeInViewport();
+  const box = await page.locator(".sidebar-lists").boundingBox();
+  expect(box && box.height).toBeGreaterThanOrEqual(119);
+});
+
 test("sidebar: crates are as wide as the navigation, and the width can be dragged and is remembered", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 850 });
   await stubBridge(page, "managed");
