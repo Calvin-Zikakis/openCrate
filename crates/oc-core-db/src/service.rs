@@ -510,6 +510,35 @@ impl LibraryService {
         crate::health::copy_of(self.pool.lease().connection(), file_id)
     }
 
+    /// Files openCrate moved inside a music folder take their new paths; see
+    /// [`crate::Database::files_moved`].
+    pub fn files_moved(&self, root_id: i64, moved: Vec<(i64, Vec<Vec<u8>>)>) -> Result<()> {
+        self.writer
+            .run(move |database| database.files_moved(root_id, &moved))?
+    }
+
+    /// The track a library file belongs to, if any.
+    pub fn track_of_file(&self, file_id: i64) -> Result<Option<i64>> {
+        Ok(self
+            .pool
+            .lease()
+            .connection()
+            .query_row(
+                "SELECT track_id FROM file WHERE id = ?1",
+                [file_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
+    /// Copies of a duplicate archived out of the music folders leave the library; see
+    /// [`crate::Database::forget_archived`].
+    pub fn forget_archived(&self, kept: i64, archived: Vec<i64>) -> Result<()> {
+        self.writer
+            .run(move |database| database.forget_archived(kept, &archived))?
+    }
+
     /// rekordbox's id for a library file, when the last direct read matched it.
     pub fn rekordbox_file_key(&self, file_id: i64) -> Result<Option<String>> {
         crate::offers::rekordbox_file_key(self.pool.lease().connection(), file_id)

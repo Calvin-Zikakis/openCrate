@@ -833,7 +833,7 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
         copies: value.copies.map((copy: unknown) => {
           if (!isRecord(copy)) throw new Error(`The library returned unreadable ${what}.`);
           return {
-            fileId: whole(copy.fileId, what), path: text(copy.path, what), format: text(copy.format, what),
+            fileId: whole(copy.fileId, what), path: text(copy.path, what), rootLabel: text(copy.rootLabel ?? "", what), format: text(copy.format, what),
             inRekordbox: flag(copy.inRekordbox, what), analysed: flag(copy.analysed, what), cues: whole(copy.cues, what), playlists: whole(copy.playlists, what),
           };
         }),

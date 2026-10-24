@@ -171,6 +171,40 @@ fn load_existing(connection: &Connection, root_id: i64) -> Result<HashMap<Vec<u8
 }
 
 impl Database {
+    /// Files openCrate itself moved inside their music folder (tidying a folder's name): each
+    /// row takes its new path, so the next scan finds the same file there, with its track, crate
+    /// places and history, instead of a new file beside a missing one.
+    pub fn files_moved(&mut self, root_id: i64, moved: &[(i64, Vec<Vec<u8>>)]) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let profile = transaction.query_row(
+            "SELECT name_profile FROM library_root WHERE id = ?1",
+            [root_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        let profile =
+            NameProfile::parse(&profile).ok_or(Error::InvalidStoredValue("name profile"))?;
+        for (file_id, components) in moved {
+            let path = RelPath::from_components(components, Flavor::Posix)
+                .map_err(|_| Error::InvalidStoredValue("moved path"))?;
+            // A row already at the new path (a file missing there) keeps it; the scan then sorts
+            // the two out as it would any file it finds.
+            transaction.execute(
+                "UPDATE OR IGNORE file SET path_raw = ?3, path_key = ?4 \
+                 WHERE id = ?1 AND root_id = ?2",
+                params![
+                    file_id,
+                    root_id,
+                    path.as_stored(),
+                    profile.key(&path).as_bytes()
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn apply_scan(
         &mut self,
         root_id: i64,

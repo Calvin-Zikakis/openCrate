@@ -136,7 +136,7 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
               <fieldset className="copy-choice"><legend className="sr-only">Copy to keep</legend>
                 {resolving.copies.copies.map((copy) => <label key={copy.fileId}>
                   <input type="radio" name={`keep-${item.title}`} checked={resolving.keep === copy.fileId} onChange={() => setResolving({ ...resolving, keep: copy.fileId })} />
-                  <span><code>{copy.path}</code><small>{facts(copy)}</small></span>
+                  <span><code>{new Set(resolving.copies!.copies.map((other) => other.rootLabel)).size > 1 ? `${copy.rootLabel}: ` : ""}{copy.path}</code><small>{facts(copy)}</small></span>
                 </label>)}
               </fieldset>
               <div className="warning-actions">

@@ -130,12 +130,34 @@ fn with_writing_off_a_folder_rekordbox_uses_is_left_alone() {
 #[test]
 fn a_folder_rekordbox_does_not_use_is_tidied_without_writing_to_it() {
     let setup = setup(&[SOFT], false);
+    let file_id = setup
+        .service
+        .files_below(setup.root, "Studio 001;")
+        .unwrap()[0]
+        .0;
+    let track = setup.service.track_of_file(file_id).unwrap().unwrap();
+    let crate_id = setup.service.create_crate("Warm-up").unwrap();
+    setup.service.add_to_crate(crate_id, vec![track]).unwrap();
+
     let done = tidy_folder(&setup.service, &setup.probe, setup.root, "Studio 001;").unwrap();
     assert_eq!((done.moved, done.relocated), (1, 0));
     assert!(setup
         .music
         .join("Studio 001/Between Spaces/01 - Soft Focus.aif")
         .is_file());
+    // The library follows the move: the same file and track, not a new one beside a missing one.
+    assert_eq!(
+        setup.service.file_location(file_id).unwrap().unwrap().1,
+        setup
+            .music
+            .join("Studio 001/Between Spaces/01 - Soft Focus.aif")
+    );
+    assert_eq!(setup.service.track_of_file(file_id).unwrap(), Some(track));
+    assert_eq!(setup.service.roots().unwrap()[0].missing, 0);
+    assert_eq!(
+        setup.service.crate_track_ids(crate_id).unwrap(),
+        vec![track]
+    );
 }
 
 #[test]
@@ -228,6 +250,42 @@ fn copies_say_what_rekordbox_has_and_one_to_keep_is_suggested() {
 }
 
 #[test]
+fn with_nothing_else_between_them_the_copy_rekordbox_has_is_suggested() {
+    // rekordbox has one copy, not analysed: format, bitrate and cues are the same. Either way
+    // round, the suggestion is the copy it has, not merely the older file.
+    for held in [FIRST, SECOND] {
+        let setup = setup(&[FIRST, SECOND], false);
+        let location = setup.probe.location.clone().unwrap();
+        fixture::point_at_audio(&location, 0, &rekordbox_form(&setup.music.join(held)), 2).unwrap();
+        fixture::set_tempo(&location, 0, 0).unwrap();
+        for path in [FIRST, SECOND] {
+            oc_tag::rewrite_tags(
+                &setup.music.join(path),
+                &[(oc_tag::TextTag::Title, "Soft Focus".into())],
+            )
+            .unwrap();
+        }
+        setup
+            .service
+            .scan_root(setup.root, &ScanOptions::default())
+            .unwrap();
+        let ids = setup.service.check_health().unwrap().duplicates[0]
+            .file_ids
+            .clone();
+        let found = duplicate_copies(&setup.service, &setup.probe, &ids).unwrap();
+        let kept = id_of(&setup, &ids, held);
+        let copy = found
+            .copies
+            .iter()
+            .find(|copy| copy.file_id == kept)
+            .unwrap();
+        assert!(copy.in_rekordbox && !copy.analysed, "{copy:?}");
+        assert_eq!(found.suggested, Some(kept), "rekordbox has {held}");
+        assert!(found.copies.iter().all(|copy| copy.root_label == "Music"));
+    }
+}
+
+#[test]
 fn a_duplicate_both_sides_have_is_merged_in_rekordbox_and_the_extra_file_archived() {
     let (setup, ids) = duplicates(true);
     crate::rekordbox_write::set_enabled(&setup.service, &setup.probe, true).unwrap();
@@ -271,9 +329,40 @@ fn a_copy_rekordbox_uses_is_not_dropped_without_writing_or_for_one_it_lacks() {
 fn a_copy_rekordbox_does_not_have_is_archived_without_writing_to_it() {
     let (setup, ids) = duplicates(false);
     let (first, second) = (id_of(&setup, &ids, FIRST), id_of(&setup, &ids, SECOND));
+    let tracks = || {
+        setup
+            .service
+            .read_page(
+                &oc_core_db::library::LibraryQuery::new(oc_core_db::library::View::Tracks),
+                0,
+                50,
+            )
+            .unwrap()
+            .total
+    };
+    let tracks_before = tracks();
+    // The copy that goes is in a crate; the crate keeps the recording through the kept copy.
+    let dropped_track = setup.service.track_of_file(second).unwrap().unwrap();
+    let kept_track = setup.service.track_of_file(first).unwrap().unwrap();
+    assert_ne!(dropped_track, kept_track, "each copy is its own track");
+    let crate_id = setup.service.create_crate("Warm-up").unwrap();
+    setup
+        .service
+        .add_to_crate(crate_id, vec![dropped_track])
+        .unwrap();
+
     let done = resolve_duplicate(&setup.service, &setup.probe, first, &[second]).unwrap();
     assert_eq!((done.archived, done.merged), (1, 0));
     assert!(!setup.music.join(SECOND).exists());
+    // The library forgets the archived copy: not missing, and no track left without a file.
+    assert_eq!(setup.service.file_location(second).unwrap(), None);
+    let folder = setup.service.roots().unwrap().remove(0);
+    assert_eq!(folder.missing, 0);
+    assert_eq!(tracks(), tracks_before - 1);
+    assert_eq!(
+        setup.service.crate_track_ids(crate_id).unwrap(),
+        vec![kept_track]
+    );
 }
 
 #[test]

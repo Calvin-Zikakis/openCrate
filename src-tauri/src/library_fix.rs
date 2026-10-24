@@ -31,6 +31,7 @@ pub struct TidiedDto {
 }
 
 struct Move {
+    file_id: i64,
     from: PathBuf,
     to: PathBuf,
     /// rekordbox's id for the file, when it uses it.
@@ -65,6 +66,8 @@ pub fn tidy_folder(
     let depth = folder.split('/').count() - 1;
     let mut left = Vec::new();
     let mut moves = Vec::new();
+    // Each file's path inside the music folder once moved, for the library to follow.
+    let mut renamed = std::collections::HashMap::new();
     let mut old_folder = None;
     for (file_id, components) in service.files_below(root_id, folder).map_err(failed)? {
         let Some((_, from)) = service.file_location(file_id).map_err(failed)? else {
@@ -80,6 +83,11 @@ pub fn tidy_folder(
         };
         let mut to = music.clone();
         let mut old = music;
+        let mut relative = components.clone();
+        if let Some(name) = relative.get_mut(depth) {
+            *name = oc_paths::os_str_to_bytes(std::ffi::OsStr::new(&untidy.suggested));
+        }
+        renamed.insert(file_id, relative);
         for (index, part) in components.iter().enumerate() {
             let part = oc_paths::bytes_to_os_string(part).map_err(|error| error.to_string())?;
             if index == depth {
@@ -93,7 +101,12 @@ pub fn tidy_folder(
         }
         old_folder.get_or_insert(old);
         let key = service.rekordbox_file_key(file_id).map_err(failed)?;
-        moves.push(Move { from, to, key });
+        moves.push(Move {
+            file_id,
+            from,
+            to,
+            key,
+        });
     }
 
     let location = if moves.iter().any(|planned| planned.key.is_some()) {
@@ -153,6 +166,14 @@ pub fn tidy_folder(
         remove_empty(old);
     }
     service
+        .files_moved(
+            root_id,
+            done.iter()
+                .filter_map(|moved| Some((moved.file_id, renamed.remove(&moved.file_id)?)))
+                .collect(),
+        )
+        .map_err(failed)?;
+    service
         .scan_root(root_id, &ScanOptions::default())
         .map_err(failed)?;
     if !relocations.is_empty() {
@@ -178,6 +199,8 @@ pub struct CopyDto {
     pub file_id: i64,
     /// Inside the music folder.
     pub path: String,
+    /// The music folder it is in, so copies with the same path in two folders can be told apart.
+    pub root_label: String,
     /// "AIFF", or "MP3, 320 kbps".
     pub format: String,
     pub in_rekordbox: bool,
@@ -229,7 +252,8 @@ fn copies(
 
 /// The copies of one recording, read against a fresh read of rekordbox. The rule: the copy
 /// rekordbox has analysed, then the one with the most cues, then lossless over lossy, then the
-/// higher bitrate. When more than one copy has cues, the owner chooses.
+/// higher bitrate; when all that is equal, the copy rekordbox has, so its entry stays as it is.
+/// When more than one copy has cues, the owner chooses.
 pub fn duplicate_copies(
     service: &LibraryService,
     probe: &Probe,
@@ -237,6 +261,12 @@ pub fn duplicate_copies(
 ) -> Result<CopiesDto, String> {
     reading_fresh(service, probe)?;
     let found = copies(service, file_ids)?;
+    let labels: std::collections::HashMap<i64, String> = service
+        .roots()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|info| (info.root.id, info.root.label))
+        .collect();
     let with_cues = found.iter().filter(|copy| copy.cues > 0).count();
     let rank = |copy: &oc_core_db::health::Copy| {
         (
@@ -244,6 +274,7 @@ pub fn duplicate_copies(
             copy.cues,
             LOSSLESS.contains(&copy.container.as_str()),
             copy.bitrate_kbps.unwrap_or(0),
+            copy.rb_key.is_some(),
             std::cmp::Reverse(copy.file_id),
         )
     };
@@ -271,6 +302,7 @@ pub fn duplicate_copies(
                     .map(|part| String::from_utf8_lossy(part).into_owned())
                     .collect::<Vec<_>>()
                     .join("/"),
+                root_label: labels.get(&copy.root_id).cloned().unwrap_or_default(),
                 format: match copy.bitrate_kbps {
                     Some(rate) if !LOSSLESS.contains(&copy.container.as_str()) => {
                         format!("{}, {rate} kbps", copy.container)
@@ -359,6 +391,7 @@ pub fn resolve_duplicate(
         }
         archive_root.get_or_insert(archive);
         moves.push(Move {
+            file_id: copy.file_id,
             from,
             to,
             key: copy.rb_key.clone(),
@@ -405,6 +438,11 @@ pub fn resolve_duplicate(
             return Err(format!("{error} The archived files were put back."));
         }
     }
+    // The archived copies are out of the music folders now; the library forgets them rather
+    // than a scan calling them missing.
+    service
+        .forget_archived(keep, dropped.iter().map(|copy| copy.file_id).collect())
+        .map_err(|error| error.to_string())?;
     let mut roots = vec![kept.root_id];
     roots.extend(dropped.iter().map(|copy| copy.root_id));
     roots.dedup();

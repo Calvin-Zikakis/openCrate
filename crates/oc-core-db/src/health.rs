@@ -284,3 +284,59 @@ pub fn copy_of(connection: &Connection, file_id: i64) -> Result<Option<Copy>> {
         playlists,
     }))
 }
+
+impl crate::Database {
+    /// Copies of a duplicate moved out to the archive leave the library: their file rows go, and
+    /// a track left with no file goes too, after its crate places and own fields pass to the
+    /// kept copy's track (where that track does not have them already). The next scan would
+    /// otherwise call them missing, and the track would stay listed with no file.
+    pub fn forget_archived(&mut self, kept: i64, archived: &[i64]) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let kept_track: Option<i64> =
+            transaction.query_row("SELECT track_id FROM file WHERE id = ?1", [kept], |row| {
+                row.get(0)
+            })?;
+        for &file_id in archived {
+            let track: Option<i64> = transaction.query_row(
+                "SELECT track_id FROM file WHERE id = ?1",
+                [file_id],
+                |row| row.get(0),
+            )?;
+            transaction.execute(
+                "UPDATE rb_track SET match_status = 'unmapped', match_kind = NULL, root_id = NULL, \
+                 file_id = NULL WHERE file_id = ?1",
+                [file_id],
+            )?;
+            transaction.execute("DELETE FROM file WHERE id = ?1", [file_id])?;
+            let Some(track) = track else { continue };
+            let still_filed: bool = transaction.query_row(
+                "SELECT EXISTS (SELECT 1 FROM file WHERE track_id = ?1)",
+                [track],
+                |row| row.get(0),
+            )?;
+            if still_filed {
+                continue;
+            }
+            if let Some(kept_track) = kept_track.filter(|kept_track| *kept_track != track) {
+                transaction.execute(
+                    "UPDATE crate_item SET track_id = ?2 WHERE track_id = ?1 AND NOT EXISTS \
+                     (SELECT 1 FROM crate_item other WHERE other.crate_id = crate_item.crate_id \
+                      AND other.track_id = ?2)",
+                    [track, kept_track],
+                )?;
+                transaction.execute(
+                    "UPDATE track_field SET track_id = ?2 WHERE track_id = ?1 AND NOT EXISTS \
+                     (SELECT 1 FROM track_field other WHERE other.track_id = ?2 \
+                      AND other.name = track_field.name)",
+                    [track, kept_track],
+                )?;
+            }
+            transaction.execute("DELETE FROM track_fts WHERE rowid = ?1", [track])?;
+            transaction.execute("DELETE FROM track WHERE id = ?1", [track])?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+}

@@ -399,6 +399,8 @@ export type PlayerAction = "play" | "pause" | "stop" | "status" | "seek" | "volu
 export interface DuplicateCopy {
   fileId: number;
   path: string;
+  /** The music folder it is in. */
+  rootLabel: string;
   format: string;
   inRekordbox: boolean;
   analysed: boolean;

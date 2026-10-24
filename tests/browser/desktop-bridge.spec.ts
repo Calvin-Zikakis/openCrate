@@ -248,8 +248,8 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return {
                 suggested: 11, note: null,
                 copies: [
-                  { fileId: 11, path: "Studio 001/Between Spaces/02 - Soft Focus.aif", format: "AIFF", inRekordbox: true, analysed: true, cues: 4, playlists: 2 },
-                  { fileId: 12, path: "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif", format: "MP3, 320 kbps", inRekordbox: true, analysed: true, cues: 0, playlists: 1 },
+                  { fileId: 11, path: "Studio 001/Between Spaces/02 - Soft Focus.aif", rootLabel: "Music", format: "AIFF", inRekordbox: true, analysed: true, cues: 4, playlists: 2 },
+                  { fileId: 12, path: (window as any).__twoFolders ? "Studio 001/Between Spaces/02 - Soft Focus.aif" : "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif", rootLabel: (window as any).__twoFolders ? "Music2" : "Music", format: "MP3, 320 kbps", inRekordbox: true, analysed: true, cues: 0, playlists: 1 },
                 ],
               };
             case "library_resolve_duplicate":
@@ -1302,6 +1302,11 @@ test("library check: copies in different music folders say which folder each is 
   const results = dialog.getByRole("region", { name: "Library check results" });
   const copies = results.locator("li li");
   await expect(copies).toHaveText(["Music: Studio 001/Between Spaces/02 - Soft Focus.aif", "Music2: Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"]);
+  // The choice of copy to keep names the folder too; the same path in both is otherwise the same.
+  await results.getByRole("button", { name: "Resolve Soft Focus" }).click();
+  const panel = results.getByRole("region", { name: "Which Soft Focus to keep?" });
+  await expect(panel.getByRole("radio", { name: /^Music: Studio 001\/Between Spaces/ })).toBeChecked();
+  await expect(panel.getByRole("radio", { name: /^Music2: Studio 001\/Between Spaces/ })).not.toBeChecked();
 });
 
 test("library check: a duplicate is resolved by keeping the analysed copy, after a look at each", async ({ page }) => {
@@ -1318,6 +1323,8 @@ test("library check: a duplicate is resolved by keeping the analysed copy, after
   await expect(first).toBeChecked();
   await expect(panel).toContainText("AIFF, in rekordbox, analysed, 4 cues, in 2 playlists");
   await expect(panel).toContainText("MP3, 320 kbps, in rekordbox, analysed, in 1 playlist");
+  // One music folder: no folder names, just the paths.
+  await expect(panel).not.toContainText("Music: ");
   await panel.getByRole("button", { name: "Keep this copy" }).click();
   await expect(results.getByRole("status")).toContainText("1 copy moved to /Users/dj/Music/openCrate archive/Music; 1 merged into the kept copy in rekordbox.");
   expect(await page.evaluate(() => (window as any).__resolved)).toEqual({ keep: 11, drop: [12] });
