@@ -27,6 +27,10 @@ const RULES: { id: string; label: string; fields: EditField[]; apply: (value: st
   { id: "separators", label: "Tidy separators", fields: ["artist", "albumArtist"], apply: tidySeparators },
 ];
 
+/** What a recipe keeps and applies: never a track number, which belongs to one track alone. */
+const recipeValues = (values: Partial<Record<EditField, string>>) =>
+  Object.fromEntries(Object.entries(values).filter(([field]) => field !== "track")) as Partial<Record<EditField, string>>;
+
 const valueOf = (tags: TrackTags, field: EditField): string => {
   const value = tags[field];
   return value === null ? "" : String(value);
@@ -108,7 +112,7 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
   const saveRecipe = () => {
     const name = recipeName.trim();
     if (!name) return;
-    const recipe: Recipe = { name, values: { ...typed }, rules: applied };
+    const recipe: Recipe = { name, values: recipeValues(typed), rules: applied };
     const next = [...recipes.filter((found) => found.name !== name), recipe];
     setRecipes(next);
     saveRecipes(localStorage, next);
@@ -132,26 +136,30 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
   const save = async () => {
     setBusy(true);
     setError("");
-    let wrote = false;
     try {
-      const notes: string[] = [];
-      if (typedChanges.length > 0) {
-        notes.push(...(await admin.editTracks(trackIds, typedChanges)).left);
-        wrote = true;
-      }
-      if (cleanedChanges.length > 0) {
-        const edits = [...new Set(cleanedChanges.map((change) => change.trackId))].map((trackId) => ({
+      // One call, so the save is one entry in Recent changes and one Undo puts all of it back.
+      const edits = trackIds
+        .map((trackId) => ({
           trackId,
-          changes: cleanedChanges.filter((change) => change.trackId === trackId).map(({ field, to }) => ({ field, value: to })),
-        }));
-        notes.push(...(await admin.editEach(edits)).left);
-      }
+          changes: [...typedChanges, ...cleanedChanges.filter((change) => change.trackId === trackId).map(({ field, to }) => ({ field, value: to }))],
+        }))
+        .filter((edit) => edit.changes.length > 0);
+      const done = await admin.editEach(edits);
       onSaved();
-      if (notes.length > 0) setLeft(notes);
-      else onClose();
+      if (done.left.length === 0) {
+        onClose();
+        return;
+      }
+      // Some files changed and some did not: show what the files hold now, so a second Save
+      // starts from there rather than from the values the editor opened with.
+      setLeft(done.left);
+      setTyped({});
+      setCleaned(new Map());
+      setNote("");
+      setTracks(await admin.trackTags(trackIds));
     } catch (reason) {
-      // The typed values may be in the files already; the list should show them.
-      if (wrote) onSaved();
+      // Files may have changed before the failure; the list should show what they hold.
+      onSaved();
       setError(message(reason));
     } finally {
       setBusy(false);
@@ -196,7 +204,7 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
                 setTyped((before) => {
                   // Emptied again on a field the tracks differ in: back to "Several values",
                   // not a blank written over every one of them.
-                  if (value === "" && common === null) {
+                  if (value.trim() === "" && common === null) {
                     const rest = { ...before };
                     delete rest[field.id];
                     return rest;
@@ -211,7 +219,7 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
             <select aria-label="Apply a recipe" value="" onChange={(event) => {
               const recipe = recipes.find((found) => found.name === event.target.value);
               if (!recipe) return;
-              const typing = { ...typed, ...recipe.values };
+              const typing = { ...typed, ...recipeValues(recipe.values) };
               setTyped(typing);
               const idle = applyRules(recipe.rules.flatMap((id) => RULES.filter((rule) => rule.id === id)), typing);
               setNote(`Applied "${recipe.name}".${idle ? ` ${idle}` : ""}`);

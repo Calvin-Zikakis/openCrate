@@ -624,8 +624,10 @@ export interface LibraryAdmin {
   setCustomField(trackIds: number[], name: string, value: string): Promise<void>;
   /** Every save of the track editor, newest first. */
   editHistory(): Promise<EditBatch[]>;
-  /** Put back what the files held before the newest save. */
-  undoLastEdit(): Promise<EditedTracks>;
+  /** Put back what the files held before the newest save, `id` (refused when a newer one exists). */
+  undoLastEdit(id: number): Promise<EditedTracks>;
+  /** Drop a save that cannot be undone, so the ones before it can be. */
+  forgetEdit(id: number): Promise<void>;
   /** Every track's title and artist, for checking them against the cleanup rules. */
   trackNames(): Promise<TrackName[]>;
   /** Genres with their track counts, and the ones spelled alike. */

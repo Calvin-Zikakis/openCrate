@@ -282,6 +282,8 @@ function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  /** The save the last undo could not finish, which the owner may give up on. */
+  const [stuck, setStuck] = useState<number | null>(null);
 
   // Only the newest read is shown: two reads close together may answer out of order.
   const reads = useRef(0);
@@ -290,21 +292,40 @@ function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
     try {
       const found = await admin.editHistory();
       if (read === reads.current) setHistory(found);
+      return found;
     } catch (reason) {
       setError(message(reason));
+      return null;
     }
   }, [admin]);
   useEffect(() => { void load(); }, [load, saves]);
 
-  const undo = async () => {
+  const undo = async (id: number) => {
+    setBusy(true);
+    setError("");
+    setStuck(null);
+    try {
+      const done = await admin.undoLastEdit(id);
+      setNote(`${plural(done.files, "file is", "files are")} back as before.${leftOut(done.left)}`);
+      // The button stays off until the list says what the next undo would be.
+      const found = await load();
+      if (found?.[0]?.id === id) setStuck(id);
+      onChanged();
+    } catch (reason) {
+      setError(message(reason));
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const forget = async (id: number) => {
     setBusy(true);
     setError("");
     try {
-      const done = await admin.undoLastEdit();
-      setNote(`${plural(done.files, "file is", "files are")} back as before.${leftOut(done.left)}`);
-      // The button stays off until the list says what the next undo would be.
+      await admin.forgetEdit(id);
+      setStuck(null);
+      setNote("That change is no longer in the list; the files keep what they hold now.");
       await load();
-      onChanged();
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -321,7 +342,11 @@ function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
     {history && history.length === 0 && <p className="settings-copy">No changes yet.</p>}
     {history && history.length > 0 && <>
       <ol className="history-list" aria-label="Saves">{history.slice(0, 10).map((batch) => <li key={batch.id}>{describe(batch)}</li>)}</ol>
-      <button className="secondary-button" disabled={busy} onClick={() => void undo()}>{`Undo: ${describe(history[0]!)}`}</button>
+      <div className="warning-actions">
+        <button className="secondary-button" disabled={busy} onClick={() => void undo(history[0]!.id)}>{`Undo: ${describe(history[0]!)}`}</button>
+        {stuck === history[0]!.id && <button className="link-button" disabled={busy} onClick={() => void forget(history[0]!.id)}>Forget this change</button>}
+      </div>
+      {stuck === history[0]!.id && <p className="settings-copy">Part of this change could not be put back. Undo tries that part again; Forget this change drops it from the list so earlier changes can be undone.</p>}
     </>}
   </section>;
 }

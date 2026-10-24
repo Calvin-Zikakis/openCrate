@@ -33,7 +33,8 @@ pub struct WalkReport {
     pub links_skipped: Vec<Vec<u8>>,
     /// Directories that could not be listed completely.
     pub unlisted_dirs: Vec<DirPath>,
-    /// Names that cannot be stored as path components, and `AppleDouble` `._` files.
+    /// Names that cannot be stored as path components, `AppleDouble` `._` files, and openCrate's
+    /// own working files and folders (`.opencrate-...`: a copy being retagged, the staging area).
     pub names_skipped: usize,
     pub entries_seen: usize,
     pub cancelled: bool,
@@ -128,7 +129,10 @@ pub fn walk_root(root: &Path, options: &WalkOptions<'_>) -> io::Result<WalkRepor
             };
             report.entries_seen += 1;
             let name = os_str_to_bytes(&entry.file_name());
-            if name.starts_with(b"._") || check_component(&name, Flavor::HOST).is_err() {
+            if name.starts_with(b"._")
+                || name.starts_with(b".opencrate")
+                || check_component(&name, Flavor::HOST).is_err()
+            {
                 report.names_skipped += 1;
                 continue;
             }
@@ -296,9 +300,13 @@ mod tests {
         let root = tempdir().unwrap();
         write(root.path().join("._Track.mp3"), b"junk").unwrap();
         write(root.path().join("Track.mp3"), b"real").unwrap();
+        // A copy the tag writer had not yet renamed into place, and a staging folder.
+        write(root.path().join(".opencrate-retag-1-0-Track.mp3"), b"copy").unwrap();
+        fs::create_dir(root.path().join(".opencrate-staging")).unwrap();
+        write(root.path().join(".opencrate-staging/New.mp3"), b"staged").unwrap();
         let report = walk_root(root.path(), &WalkOptions::default()).unwrap();
         assert_eq!(names(&report), ["Track.mp3"]);
-        assert_eq!(report.names_skipped, 1);
+        assert_eq!(report.names_skipped, 3);
     }
 
     #[cfg(unix)]

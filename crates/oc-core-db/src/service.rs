@@ -610,9 +610,15 @@ impl LibraryService {
         self.writer.run(Database::last_edits)?
     }
 
-    /// Drop an undone save from the history.
+    /// Drop a save from the history: undone, or one the owner gave up on.
     pub fn forget_edits(&self, id: i64) -> Result<()> {
         self.writer.run(move |database| database.forget_edits(id))?
+    }
+
+    /// Drop the fields of a save that are put back or never can be; an empty save goes too.
+    pub fn forget_edit_items(&self, id: i64, items: Vec<(i64, String)>) -> Result<()> {
+        self.writer
+            .run(move |database| database.forget_edit_items(id, &items))?
     }
 
     /// Every track with a present file: its id, title and artist, for library-wide cleanup.

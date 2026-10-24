@@ -677,11 +677,24 @@ async fn library_edit_history(
         .map_err(|error| error.to_string())?
 }
 
-/// Put back what the files held before the newest save of the track editor.
+/// Put back what the files held before the newest save of the track editor, `id` being the
+/// save the page offered.
 #[tauri::command]
-async fn library_undo_last_edit(state: State<'_, AppState>) -> Result<editor::EditedDto, String> {
+async fn library_undo_last_edit(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<editor::EditedDto, String> {
     let service = state.library()?;
-    tauri::async_runtime::spawn_blocking(move || editor::undo_last(&service))
+    tauri::async_runtime::spawn_blocking(move || editor::undo_last(&service, id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Drop a save of the track editor that cannot be undone.
+#[tauri::command]
+async fn library_forget_edit(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::forget_edit(&service, id))
         .await
         .map_err(|error| error.to_string())?
 }
@@ -1487,6 +1500,7 @@ fn main() -> Result<(), tauri::Error> {
             library_compare_crates,
             library_edit_history,
             library_undo_last_edit,
+            library_forget_edit,
             library_export,
             library_releases_without_art,
             library_set_release_art,

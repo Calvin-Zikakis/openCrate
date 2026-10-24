@@ -799,7 +799,8 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
         return { id: whole(item.id, what), savedMs: whole(item.savedMs, what), tracks: whole(item.tracks, what), fields: item.fields.map((field: unknown) => text(field, what)) };
       });
     },
-    undoLastEdit: async () => toEdited(await invoke("library_undo_last_edit").catch((error: unknown) => { throw failure(error); })),
+    undoLastEdit: async (id) => toEdited(await invoke("library_undo_last_edit", { id }).catch((error: unknown) => { throw failure(error); })),
+    forgetEdit: async (id) => { await invoke("library_forget_edit", { id }).catch((error: unknown) => { throw failure(error); }); },
     trackNames: async () => {
       const value: unknown = await invoke("library_track_names").catch((error: unknown) => { throw failure(error); });
       const what = "track names";

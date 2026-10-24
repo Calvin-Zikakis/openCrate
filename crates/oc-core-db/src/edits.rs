@@ -114,6 +114,25 @@ impl Database {
         Ok(Some((id, items)))
     }
 
+    /// Drop some fields of a save, each `(track_id, field)`, once they are put back or can never
+    /// be; the save goes too when nothing of it is left.
+    pub fn forget_edit_items(&mut self, id: i64, items: &[(i64, String)]) -> Result<()> {
+        let transaction = self.connection.transaction()?;
+        for (track_id, field) in items {
+            transaction.execute(
+                "DELETE FROM edit_history_item WHERE history_id = ?1 AND track_id = ?2 AND field = ?3",
+                params![id, track_id, field],
+            )?;
+        }
+        transaction.execute(
+            "DELETE FROM edit_history WHERE id = ?1 AND NOT EXISTS \
+             (SELECT 1 FROM edit_history_item i WHERE i.history_id = ?1)",
+            [id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     /// Drop a save from the history, once it has been undone.
     pub fn forget_edits(&mut self, id: i64) -> Result<()> {
         let transaction = self.connection.transaction()?;

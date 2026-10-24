@@ -281,6 +281,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               ];
             case "library_edit_each":
               (window as any).__editEach = args?.edits;
+              if ((window as any).__editLeft) return { files: 1, left: ["/Music/04.aif: Permission denied"] };
               return { files: (args?.edits ?? []).length, left: [] };
             case "library_export":
               (window as any).__exports = [...((window as any).__exports ?? []), { query: args?.query, format: args?.format, name: args?.name }];
@@ -340,8 +341,14 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return [...renamed, ...all].slice(undone);
             }
             case "library_undo_last_edit":
+              (window as any).__undoIds = [...((window as any).__undoIds ?? []), args?.id];
+              if ((window as any).__undoStuck) return { files: 0, left: ["/Music/a.aif: Permission denied"] };
               (window as any).__undone = ((window as any).__undone ?? 0) + 1;
               return { files: 1, left: [] };
+            case "library_forget_edit":
+              (window as any).__forgot = args?.id;
+              (window as any).__undone = ((window as any).__undone ?? 0) + 1;
+              return null;
             case "library_track_tags":
               return ((args?.trackIds ?? []) as number[]).map((id) => ({
                 trackId: id, title: `${String(id).padStart(2, "0")} - RUST TRACK ${String(id).padStart(4, "0")}`, artist: "Backend Artist",
@@ -1534,12 +1541,11 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   await expect(preview).toContainText("Title: 04 - RUST TRACK 0004 -> Rust Track 0004");
   await editor.getByRole("button", { name: "Save 3 changes" }).click();
   await expect(editor).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).__edits)).toEqual([
-    { trackIds: [2, 4], changes: [{ field: "genre", value: "Deep House" }] },
-  ]);
+  // Typed values and cleanup go in one call: one save, one Undo.
+  expect(await page.evaluate(() => (window as any).__edits ?? null)).toBeNull();
   expect(await page.evaluate(() => (window as any).__editEach)).toEqual([
-    { trackId: 2, changes: [{ field: "title", value: "Rust Track 0002" }] },
-    { trackId: 4, changes: [{ field: "title", value: "Rust Track 0004" }] },
+    { trackId: 2, changes: [{ field: "genre", value: "Deep House" }, { field: "title", value: "Rust Track 0002" }] },
+    { trackId: 4, changes: [{ field: "genre", value: "Deep House" }, { field: "title", value: "Rust Track 0004" }] },
   ]);
 
   // Shift-click takes a range; Cmd+I opens the editor for it.
@@ -1606,7 +1612,7 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
 });
 
 test("editing: emptied fields, typing over a rule and a recipe's rules in order save what was meant", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("opencrate.editRecipes", JSON.stringify([{ name: "Both", values: {}, rules: ["numbers", "casing"] }])));
+  await page.addInitScript(() => localStorage.setItem("opencrate.editRecipes", JSON.stringify([{ name: "Both", values: { track: "5" }, rules: ["numbers", "casing"] }])));
   await stubBridge(page, "managed");
   await page.goto("/");
   const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
@@ -1617,6 +1623,8 @@ test("editing: emptied fields, typing over a rule and a recipe's rules in order 
   // Typing into "Several values" and emptying it again leaves the titles alone.
   await editor.getByLabel("Title").fill("x");
   await editor.getByLabel("Title").fill("");
+  await editor.getByLabel("Title").fill("   ");
+  await expect(editor.getByLabel("Title")).toHaveValue("");
   await expect(editor.getByLabel("Title")).toHaveAttribute("placeholder", "Several values");
   await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await editor.getByRole("button", { name: "Tidy separators" }).click();
@@ -1630,10 +1638,23 @@ test("editing: emptied fields, typing over a rule and a recipe's rules in order 
   // A title typed afterwards is what gets saved, for both tracks.
   await editor.getByLabel("Title").fill("Typed");
   await expect(preview).toHaveCount(0);
+  // The recipe's track number is not written onto both tracks.
   await editor.getByRole("button", { name: "Save 1 change" }).click();
   await expect(editor).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).__edits)).toEqual([{ trackIds: [2, 4], changes: [{ field: "title", value: "Typed" }] }]);
-  expect(await page.evaluate(() => (window as any).__editEach ?? null)).toBeNull();
+  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([
+    { trackId: 2, changes: [{ field: "title", value: "Typed" }] },
+    { trackId: 4, changes: [{ field: "title", value: "Typed" }] },
+  ]);
+
+  // When a file is left, the editor starts again from what the files hold.
+  await page.evaluate(() => { (window as any).__editLeft = true; });
+  await page.keyboard.press("ControlOrMeta+KeyI");
+  const again = page.getByRole("dialog", { name: "Edit 2 tracks" });
+  await again.getByLabel("Genre").fill("Dub");
+  await again.getByRole("button", { name: "Save 1 change" }).click();
+  await expect(again.getByRole("alert")).toContainText("Permission denied");
+  await expect(again.getByLabel("Genre")).toHaveValue("House");
+  await expect(again.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 });
 
 test("clean up: genres spelled alike are merged, and titles and artists are fixed after a look", async ({ page }) => {
@@ -1843,6 +1864,25 @@ test("clean up: the newest save is undone and the list moves on", async ({ page 
   await expect(recent.getByRole("button", { name: /^Undo: genre, label of 2 tracks/ })).toBeVisible();
   await recent.getByRole("button", { name: /^Undo: genre, label of 2 tracks/ }).click();
   await expect(recent).toContainText("No changes yet.");
+  // Each undo names the save it means.
+  expect(await page.evaluate(() => (window as any).__undoIds)).toEqual([2, 1]);
+});
+
+test("clean up: a change that cannot be put back can be forgotten, so earlier ones can be undone", async ({ page }) => {
+  await page.addInitScript(() => { (window as any).__undoStuck = true; });
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const recent = page.getByRole("region", { name: "Recent changes" });
+  await expect(recent.getByRole("button", { name: "Forget this change" })).toHaveCount(0);
+  await recent.getByRole("button", { name: /^Undo: title of 1 track/ }).click();
+  await expect(recent.getByRole("status")).toContainText("0 files are back as before.");
+  await expect(recent).toContainText("Part of this change could not be put back.");
+  await recent.getByRole("button", { name: "Forget this change" }).click();
+  await expect(recent.getByRole("status")).toContainText("That change is no longer in the list");
+  expect(await page.evaluate(() => (window as any).__forgot)).toBe(2);
+  await expect(recent.getByRole("button", { name: /^Undo: genre, label of 2 tracks/ })).toBeVisible();
+  await expect(recent.getByRole("button", { name: "Forget this change" })).toHaveCount(0);
 });
 
 test("clean up: releases without a cover are listed and filled from beside their files", async ({ page }) => {

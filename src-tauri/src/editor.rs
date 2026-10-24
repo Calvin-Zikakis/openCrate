@@ -38,7 +38,7 @@ pub fn track_tags(
             continue;
         };
         let tags = oc_tag::read_file(path)
-            .map_err(|error| error.to_string())?
+            .map_err(|error| format!("{}: {error}", path.display()))?
             .tags;
         found.push(TrackTagsDto {
             track_id,
@@ -93,7 +93,10 @@ fn checked(changes: &[FieldChange]) -> Result<Vec<(TextTag, String)>, String> {
         let tag = tag_of(&change.field)
             .ok_or_else(|| format!("{} is not a field the editor can change.", change.field))?;
         let value = change.value.trim().to_owned();
-        let number_ok = value.is_empty() || value.parse::<u32>().is_ok_and(|n| n <= 9999);
+        // Digits only ("+12" parses, and means nothing in a tag), and never 0.
+        let number_ok = value.is_empty()
+            || (value.bytes().all(|byte| byte.is_ascii_digit())
+                && value.parse::<u32>().is_ok_and(|n| (1..=9999).contains(&n)));
         if tag == TextTag::Year && !number_ok {
             return Err(format!("\"{value}\" is not a year."));
         }
@@ -127,6 +130,26 @@ const fn field_name(tag: TextTag) -> &'static str {
     }
 }
 
+/// A field's name inside a sentence.
+const fn field_words(tag: TextTag) -> &'static str {
+    match tag {
+        TextTag::AlbumArtist => "album artist",
+        TextTag::TrackNumber => "track number",
+        other => field_name(other),
+    }
+}
+
+/// Whether a file still holds what a save wrote: numbers by value ("07" was written as 7).
+fn holds(tags: &oc_tag::TagInfo, tag: TextTag, written: &str) -> bool {
+    let held = value_of(tags, tag);
+    match tag {
+        TextTag::Year | TextTag::TrackNumber => {
+            held.parse::<u32>().ok() == written.parse::<u32>().ok()
+        }
+        _ => held == written,
+    }
+}
+
 /// What a file holds for a tag, as text; empty when unset.
 fn value_of(tags: &oc_tag::TagInfo, tag: TextTag) -> String {
     match tag {
@@ -142,6 +165,15 @@ fn value_of(tags: &oc_tag::TagInfo, tag: TextTag) -> String {
     .unwrap_or_default()
 }
 
+/// What a write did.
+struct Written {
+    files: usize,
+    /// Files left as they were, and why.
+    left: Vec<String>,
+    /// Tracks with a file left as it was.
+    failed: Vec<i64>,
+}
+
 /// Write each track's own changes into its files, then read the folders again once. Every edit
 /// is checked before any file is touched; a file that cannot be rewritten is reported and the
 /// others still change. What each track's first file held before is remembered, so the save
@@ -150,7 +182,7 @@ fn write_each(
     service: &LibraryService,
     edits: &[TrackEdit],
     remember: bool,
-) -> Result<EditedDto, String> {
+) -> Result<Written, String> {
     let mut planned = Vec::with_capacity(edits.len());
     for edit in edits {
         let tags = checked(&edit.changes)?;
@@ -160,6 +192,7 @@ fn write_each(
     }
     let mut files = 0;
     let mut left = Vec::new();
+    let mut failed = Vec::new();
     let mut roots = Vec::new();
     let mut history = Vec::new();
     for (track_id, tags) in &planned {
@@ -180,7 +213,12 @@ fn write_each(
                         roots.push(*root_id);
                     }
                 }
-                Err(error) => left.push(format!("{}: {error}", path.display())),
+                Err(error) => {
+                    left.push(format!("{}: {error}", path.display()));
+                    if !failed.contains(track_id) {
+                        failed.push(*track_id);
+                    }
+                }
             }
         }
         if let (true, Some(before)) = (written && remember, before) {
@@ -194,22 +232,32 @@ fn write_each(
             }
         }
     }
-    for root_id in roots {
-        service
-            .scan_root(root_id, &ScanOptions::default())
-            .map_err(|error| error.to_string())?;
-    }
+    // Remembered before the folders are read again: the files have changed either way, so a
+    // failed read must not leave the change with no undo.
     if !history.is_empty() {
         service
             .record_edits(history)
             .map_err(|error| error.to_string())?;
     }
-    Ok(EditedDto { files, left })
+    for root_id in roots {
+        service
+            .scan_root(root_id, &ScanOptions::default())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(Written {
+        files,
+        left,
+        failed,
+    })
 }
 
 /// Write each track's own changes into its files; the save is remembered so it can be undone.
 pub fn edit_each(service: &LibraryService, edits: &[TrackEdit]) -> Result<EditedDto, String> {
-    write_each(service, edits, true)
+    let done = write_each(service, edits, true)?;
+    Ok(EditedDto {
+        files: done.files,
+        left: done.left,
+    })
 }
 
 /// One save of the editor, as the page lists it.
@@ -237,35 +285,99 @@ pub fn edit_history(service: &LibraryService) -> Result<Vec<EditBatchDto>, Strin
         .collect())
 }
 
-/// Put back what the files held before the newest save, and forget that save.
-pub fn undo_last(service: &LibraryService) -> Result<EditedDto, String> {
+/// Put back what the files held before the newest save, which must be `expected` (the one the
+/// page offered). A field changed again since that save keeps its newer value, and is named.
+/// What is put back, or never can be, leaves the save; a field whose file could not be
+/// rewritten (unreachable, locked) stays, so the undo can be tried again.
+pub fn undo_last(service: &LibraryService, expected: i64) -> Result<EditedDto, String> {
     let (id, items) = service
         .last_edits()
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "There is nothing to undo.".to_owned())?;
+    if id != expected {
+        return Err(
+            "A newer change was saved after this list was read, so nothing was undone. The list \
+             now shows it."
+                .to_owned(),
+        );
+    }
+    let mut tracks: Vec<i64> = items.iter().map(|item| item.track_id).collect();
+    tracks.dedup();
     let mut edits: Vec<TrackEdit> = Vec::new();
-    for item in items {
-        let change = FieldChange {
-            field: item.field,
-            value: item.before,
+    let mut planned: Vec<(i64, String)> = Vec::new();
+    let mut settled: Vec<(i64, String)> = Vec::new();
+    let mut left = Vec::new();
+    for track_id in tracks {
+        let files = service
+            .track_files(track_id)
+            .map_err(|error| error.to_string())?;
+        let Some((_, path)) = files.first() else {
+            left.push("A track of this save has no file openCrate can reach now.".to_owned());
+            continue;
         };
-        match edits.iter_mut().find(|edit| edit.track_id == item.track_id) {
-            Some(edit) => edit.changes.push(change),
-            None => edits.push(TrackEdit {
-                track_id: item.track_id,
-                changes: vec![change],
-            }),
+        let now = match oc_tag::read_file(path) {
+            Ok(info) => info.tags,
+            Err(error) => {
+                left.push(format!("{}: {error}", path.display()));
+                continue;
+            }
+        };
+        let mut changes = Vec::new();
+        for item in items.iter().filter(|item| item.track_id == track_id) {
+            let key = (track_id, item.field.clone());
+            let Some(tag) = tag_of(&item.field) else {
+                settled.push(key);
+                continue;
+            };
+            if !holds(&now, tag, &item.after) {
+                left.push(format!(
+                    "{}: its {} was changed after that save (now \"{}\"), so it was kept",
+                    path.display(),
+                    field_words(tag),
+                    value_of(&now, tag)
+                ));
+                settled.push(key);
+                continue;
+            }
+            let change = FieldChange {
+                field: item.field.clone(),
+                value: item.before.clone(),
+            };
+            if let Err(why) = checked(std::slice::from_ref(&change)) {
+                left.push(format!(
+                    "{}: the {} it held before cannot be written back: {why}",
+                    path.display(),
+                    field_words(tag)
+                ));
+                settled.push(key);
+                continue;
+            }
+            changes.push(change);
+            planned.push(key);
+        }
+        if !changes.is_empty() {
+            edits.push(TrackEdit { track_id, changes });
         }
     }
     let done = write_each(service, &edits, false)?;
-    // A file that could not be put back (unreachable, locked) keeps the save in the history, so
-    // the undo can be tried again; putting back the files that did change once more is harmless.
-    if done.left.is_empty() {
-        service
-            .forget_edits(id)
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(done)
+    settled.extend(
+        planned
+            .into_iter()
+            .filter(|(track_id, _)| !done.failed.contains(track_id)),
+    );
+    service
+        .forget_edit_items(id, settled)
+        .map_err(|error| error.to_string())?;
+    left.extend(done.left);
+    Ok(EditedDto {
+        files: done.files,
+        left,
+    })
+}
+
+/// Give up on a save that cannot be undone, so the ones before it can be.
+pub fn forget_edit(service: &LibraryService, id: i64) -> Result<(), String> {
+    service.forget_edits(id).map_err(|error| error.to_string())
 }
 
 /// Write the same `changes` into every file of every track in `track_ids`.

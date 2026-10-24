@@ -275,19 +275,24 @@ fn retag_copy(path: &Path, copy: &Path, changes: &[(TextTag, String)]) -> Result
 fn clear(path: &Path, cleared: &[TextTag]) -> Result<(), ReadError> {
     let mut tagged = read_whole(path)?;
     describe_every_picture(&mut tagged);
-    let Some(tag) = tagged.primary_tag_mut() else {
-        return Ok(());
-    };
-    for field in cleared {
-        match field {
-            TextTag::Title => tag.remove_title(),
-            TextTag::Artist => tag.remove_artist(),
-            TextTag::Album => tag.remove_album(),
-            TextTag::Year => tag.remove_year(),
-            TextTag::Label => tag.remove_key(&ItemKey::Label),
-            TextTag::AlbumArtist => tag.remove_key(&ItemKey::AlbumArtist),
-            TextTag::Genre => tag.remove_genre(),
-            TextTag::TrackNumber => tag.remove_track(),
+    // Reading fills a field missing from the main tag from any other (an MP3's ID3v1, an AIFF's
+    // text chunks), so a cleared field goes from every tag or it comes back.
+    let kinds: Vec<TagType> = tagged.tags().iter().map(Tag::tag_type).collect();
+    for kind in kinds {
+        let Some(tag) = tagged.tag_mut(kind) else {
+            continue;
+        };
+        for field in cleared {
+            match field {
+                TextTag::Title => tag.remove_title(),
+                TextTag::Artist => tag.remove_artist(),
+                TextTag::Album => tag.remove_album(),
+                TextTag::Year => tag.remove_year(),
+                TextTag::Label => tag.remove_key(&ItemKey::Label),
+                TextTag::AlbumArtist => tag.remove_key(&ItemKey::AlbumArtist),
+                TextTag::Genre => tag.remove_genre(),
+                TextTag::TrackNumber => tag.remove_track(),
+            }
         }
     }
     let mut options = WriteOptions::default();
@@ -384,6 +389,41 @@ mod tests {
         let tags = read_file(&path).unwrap().tags;
         assert_eq!((tags.genre, tags.track_number), (None, None));
         assert!(rewrite_tags(&path, &[(TextTag::TrackNumber, "seven".into())]).is_err());
+    }
+
+    #[test]
+    fn a_cleared_field_does_not_come_back_from_an_id3v1_tag() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("c.mp3");
+        fs::write(&path, mp3(40)).unwrap();
+        rewrite_tags(&path, &[(TextTag::Genre, "Dub Techno".into())]).unwrap();
+        // An ID3v1 tag at the end, as many downloads carry: title "Old", genre 18 (Techno).
+        let mut v1 = b"TAG".to_vec();
+        for (text, width) in [("Old", 30), ("", 30), ("", 30), ("1999", 4), ("", 30)] {
+            let mut field = text.as_bytes().to_vec();
+            field.resize(width, 0);
+            v1.extend(field);
+        }
+        v1.push(18);
+        let mut bytes = fs::read(&path).unwrap();
+        bytes.extend(v1);
+        fs::write(&path, bytes).unwrap();
+
+        rewrite_tags(
+            &path,
+            &[
+                (TextTag::Genre, String::new()),
+                (TextTag::Year, String::new()),
+            ],
+        )
+        .unwrap();
+        let tags = read_file(&path).unwrap().tags;
+        assert_eq!((tags.genre, tags.year), (None, None));
+        assert_eq!(
+            tags.title.as_deref(),
+            Some("Old"),
+            "fields not cleared stay"
+        );
     }
 
     #[test]
