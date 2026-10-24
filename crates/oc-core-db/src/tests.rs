@@ -551,3 +551,30 @@ fn process_helper() {
         _ => panic!("unknown child action"),
     }
 }
+
+#[test]
+fn a_library_at_v21_forgets_year_and_label_agreed_on_release_values() {
+    let directory = tempdir().unwrap();
+    Database::open(directory.path()).unwrap().close().unwrap();
+    {
+        let connection = Connection::open(directory.path().join(DATABASE_NAME)).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO merge_base (rb_key, field, value, agreed_ms) VALUES
+                     (1, 'year', '2019', 1), (1, 'label', 'Old', 1), (1, 'title', 'Kept', 1);
+                 PRAGMA user_version = 21;",
+            )
+            .unwrap();
+    }
+    let database = Database::open(directory.path()).unwrap();
+    let reader = database.reader().unwrap();
+    assert_eq!(schema_version(&reader).unwrap(), latest());
+    let left: Vec<String> = reader
+        .prepare("SELECT field FROM merge_base ORDER BY field")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(left, ["title"]);
+}

@@ -129,7 +129,8 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
       await rescan(rootId);
     }
     setStage({ kind: "finished", filed, skipped, failed });
-    onFinished?.();
+    // A run that filed something was already followed by a rescan, which reads the rest again.
+    if (filed === 0) onFinished?.();
   };
 
   if (releases.length === 0 && stage.kind === "idle") return null;

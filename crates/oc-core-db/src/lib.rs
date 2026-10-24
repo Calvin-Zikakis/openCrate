@@ -64,6 +64,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/019_edit_history.sql"),
     include_str!("schema/020_track_field.sql"),
     include_str!("schema/021_track_year_label.sql"),
+    include_str!("schema/022_forget_release_agreement.sql"),
 ];
 
 #[derive(Debug, Error)]
