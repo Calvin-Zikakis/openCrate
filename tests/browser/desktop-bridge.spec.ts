@@ -269,6 +269,10 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 { trackId: 1, title: "01 - Night Drive", artist: "Studio 001" },
                 { trackId: 2, title: "Soft Focus", artist: "Studio 001" },
                 { trackId: 3, title: "Studio 001 - Late Train", artist: "Unknown Artist" },
+                ...((window as any).__moreNames ? [
+                  { trackId: 4, title: "MAINTAIN", artist: "Studio 001" },
+                  { trackId: 5, title: "01 - Night Drive", artist: "Studio 001" },
+                ] : []),
               ];
             case "library_edit_each":
               (window as any).__editEach = args?.edits;
@@ -1595,6 +1599,26 @@ test("clean up: genres spelled alike are merged, and titles and artists are fixe
     { trackId: 1, changes: [{ field: "title", value: "Night Drive" }] },
     { trackId: 3, changes: [{ field: "title", value: "Late Train" }, { field: "artist", value: "Studio 001" }] },
   ]);
+});
+
+test("clean up: a change of capitals alone starts unticked, and the same fix on two tracks is one row", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__moreNames = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const titles = page.getByRole("region", { name: "Titles and artists" });
+  await titles.getByRole("button", { name: "Check titles and artists" }).click();
+  const found = titles.getByRole("list", { name: "Proposed fixes" });
+  await expect(found.getByRole("listitem")).toHaveCount(3);
+  const night = found.getByRole("listitem").filter({ hasText: "Title: 01 - Night Drive -> Night Drive" });
+  await expect(night).toContainText("2 tracks");
+  await expect(night.getByRole("checkbox")).toBeChecked();
+  const caps = found.getByRole("listitem").filter({ hasText: "Title: MAINTAIN -> Maintain" });
+  await expect(caps.getByRole("checkbox")).not.toBeChecked();
+  await expect(titles).toContainText("1 suggestion only changes capitals and starts unticked");
+  await titles.getByRole("button", { name: "Clean up 3 tracks" }).click();
+  const sent = await page.evaluate(() => (window as any).__editEach as { trackId: number }[]);
+  expect(sent.map((edit) => edit.trackId).sort()).toEqual([1, 3, 5]);
 });
 
 test("a crate is exported as an M3U8 or CSV to a file the owner picks", async ({ page }) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixCasing, proposeFixes, removeJunk, removeNumberPrefix, tidySeparators } from "./cleanup";
+import { fixCasing, onlyCasing, proposeFixes, removeJunk, removeNumberPrefix, tidySeparators } from "./cleanup";
 
 describe("cleanup rules for track details", () => {
   it("removes a track number left at the front of a title", () => {
@@ -19,9 +19,18 @@ describe("cleanup rules for track details", () => {
     expect(fixCasing("night drive")).toBe("Night Drive");
     expect(fixCasing("DJ SHADOW - VIP EDIT")).toBe("DJ Shadow - VIP Edit");
     // Mixed case is someone's choice and stays.
-    expect(fixCasing("deadmau5")).toBe("Deadmau5");
+    // A word with digits in it is a name and keeps its case.
+    expect(fixCasing("deadmau5")).toBe("deadmau5");
+    expect(fixCasing("EH2EH")).toBe("EH2EH");
+    expect(fixCasing("ST NICK B2B")).toBe("St Nick B2B");
     expect(fixCasing("iPhone Song")).toBe("iPhone Song");
     expect(fixCasing("Night Drive")).toBe("Night Drive");
+  });
+
+  it("tells a change of capitals alone from one that changes the words", () => {
+    expect(onlyCasing({ field: "artist", from: "FSHR", to: "Fshr" })).toBe(true);
+    expect(onlyCasing({ field: "title", from: "B2. Paradigma", to: "Paradigma" })).toBe(false);
+    expect(onlyCasing({ field: "title", from: "Same", to: "Same" })).toBe(false);
   });
 
   it("removes links and promo text", () => {

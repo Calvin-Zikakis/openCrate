@@ -14,7 +14,7 @@ const UPPER = new Set(["DJ", "MC", "VIP", "EP", "LP", "UK", "USA", "NYC", "II", 
 const SMALL = new Set(["a", "an", "and", "at", "by", "for", "in", "of", "on", "or", "the", "to", "vs", "x"]);
 
 /** ALL CAPS or all lower case becomes Title Case; a value that mixes cases is someone's choice
- * and stays as it is. */
+ * and stays as it is. A word holding digits ("EH2EH", "deadmau5") is a name and keeps its case. */
 export function fixCasing(text: string): string {
   const letters = text.replace(/[^\p{L}]/gu, "");
   if (letters === "") return text;
@@ -23,6 +23,7 @@ export function fixCasing(text: string): string {
   if (!allUpper && !allLower) return text;
   let first = true;
   return text.replace(/[\p{L}\p{N}']+/gu, (word) => {
+    if (/\p{N}/u.test(word)) { first = false; return word; }
     const upper = word.toUpperCase();
     const result = UPPER.has(upper) ? upper
       : !first && SMALL.has(word.toLowerCase()) ? word.toLowerCase()
@@ -59,6 +60,9 @@ export function tidySeparators(text: string): string {
 const NO_ARTIST = "Unknown Artist";
 
 export interface ProposedFix { field: "title" | "artist"; from: string; to: string }
+
+/** Only the capitals change: in DJ music "FSHR" or "mo wrights" is often how the artist writes it. */
+export const onlyCasing = (fix: ProposedFix) => fix.from !== fix.to && fix.from.toLowerCase() === fix.to.toLowerCase();
 
 /** Every rule at once, for a track found in a library-wide check. An "Artist - Title" title is
  * split only when the artist is not set, so a title that merely holds a dash stays. */

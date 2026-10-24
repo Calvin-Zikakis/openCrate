@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { proposeFixes, type ProposedFix } from "../library/cleanup";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { onlyCasing, proposeFixes, type ProposedFix } from "../library/cleanup";
 import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, Sort } from "../library/types";
 import { Icon } from "./Icon";
 
@@ -110,8 +110,10 @@ function TitlesCard({ admin, onChanged }: Props) {
     setNote("");
     try {
       const names = await admin.trackNames();
-      setFound(names.map((track) => ({ trackId: track.trackId, fixes: proposeFixes(track) })).filter((track) => track.fixes.length > 0));
-      setUnticked(new Set());
+      const next = names.map((track) => ({ trackId: track.trackId, fixes: proposeFixes(track) })).filter((track) => track.fixes.length > 0);
+      setFound(next);
+      // A change of capitals alone waits for a tick: those are often how an artist writes a name.
+      setUnticked(new Set(next.filter((track) => track.fixes.every(onlyCasing)).map((track) => track.trackId)));
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -134,12 +136,25 @@ function TitlesCard({ admin, onChanged }: Props) {
       setBusy(false);
     }
   };
-  const toggle = (trackId: number) => setUnticked((before) => {
+  const ticked = found ? found.length - unticked.size : 0;
+  /** The same fix on several tracks (copies in two music folders, say) is one row. */
+  const groups = useMemo(() => {
+    const byFix = new Map<string, { trackIds: number[]; fixes: ProposedFix[] }>();
+    for (const track of found ?? []) {
+      const key = JSON.stringify(track.fixes);
+      const group = byFix.get(key);
+      if (group) group.trackIds.push(track.trackId);
+      else byFix.set(key, { trackIds: [track.trackId], fixes: track.fixes });
+    }
+    return [...byFix.values()];
+  }, [found]);
+  const toggleGroup = (trackIds: number[]) => setUnticked((before) => {
     const next = new Set(before);
-    if (!next.delete(trackId)) next.add(trackId);
+    const on = trackIds.every((id) => !before.has(id));
+    for (const id of trackIds) if (on) next.add(id); else next.delete(id);
     return next;
   });
-  const ticked = found ? found.length - unticked.size : 0;
+  const casingOnly = groups.filter((group) => group.fixes.every(onlyCasing)).length;
 
   return <section className="sync-card" role="region" aria-label="Titles and artists">
     <h2>Titles and artists</h2>
@@ -153,13 +168,14 @@ function TitlesCard({ admin, onChanged }: Props) {
         <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set())}>Tick all</button>
         <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(found.map((track) => track.trackId)))}>Untick all</button>
       </div>
-      <ul className="folder-list" aria-label="Proposed fixes">{found.slice(0, DRAWN).map((track) => <li key={track.trackId} className="merge-row">
+      {casingOnly > 0 && <p className="settings-copy">{`${plural(casingOnly, "suggestion only changes", "suggestions only change")} capitals and ${casingOnly === 1 ? "starts" : "start"} unticked: all capitals or all lower case is often how an artist writes a name.`}</p>}
+      <ul className="folder-list" aria-label="Proposed fixes">{groups.slice(0, DRAWN).map((group) => <li key={group.trackIds.join(",")} className="merge-row">
         <label className="send-row">
-          <input type="checkbox" checked={!unticked.has(track.trackId)} onChange={() => toggle(track.trackId)} aria-label={track.fixes.map((fix) => fix.from).join(", ")} />
-          <span className="folder-text">{track.fixes.map((fix) => <small key={fix.field}>{`${fix.field === "title" ? "Title" : "Artist"}: ${fix.from} -> ${fix.to}`}</small>)}</span>
+          <input type="checkbox" checked={group.trackIds.every((id) => !unticked.has(id))} onChange={() => toggleGroup(group.trackIds)} aria-label={group.fixes.map((fix) => fix.from).join(", ")} />
+          <span className="folder-text">{group.fixes.map((fix) => <small key={fix.field}>{`${fix.field === "title" ? "Title" : "Artist"}: ${fix.from} -> ${fix.to}`}</small>)}{group.trackIds.length > 1 && <small>{`${group.trackIds.length} tracks`}</small>}</span>
         </label>
       </li>)}</ul>
-      {found.length > DRAWN && <p className="settings-copy">{`And ${found.length - DRAWN} more, included while ticked.`}</p>}
+      {groups.length > DRAWN && <p className="settings-copy">{`And ${groups.length - DRAWN} more, included while ticked.`}</p>}
       <button className="import-button" disabled={busy || ticked === 0} onClick={() => void apply()}>{busy ? "Cleaning up..." : `Clean up ${plural(ticked, "track", "tracks")}`}</button>
     </>}
   </section>;
