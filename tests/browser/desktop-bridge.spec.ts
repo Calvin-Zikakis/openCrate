@@ -2042,6 +2042,11 @@ test("sidebar: in a short window the crates keep room of their own", async ({ pa
   await expect(crates.getByRole("button", { name: "New crate" })).toBeInViewport();
   const box = await page.locator(".sidebar-lists").boundingBox();
   expect(box && box.height).toBeGreaterThanOrEqual(119);
+  // Nothing of the sidebar is drawn over the player.
+  const [sidebar, player] = await Promise.all([page.getByRole("complementary").boundingBox(), page.locator(".player-bar").boundingBox()]);
+  const hint = await crates.locator("xpath=..").boundingBox();
+  expect(sidebar && player && sidebar.y + sidebar.height <= player.y + 1).toBe(true);
+  expect(hint).not.toBeNull();
 });
 
 test("sidebar: crates are as wide as the navigation, and the width can be dragged and is remembered", async ({ page }) => {
