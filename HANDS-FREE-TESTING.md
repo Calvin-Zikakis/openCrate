@@ -1,66 +1,103 @@
 # Letting Claude drive the app on its own
 
-What this gives: Claude can start openCrate and rekordbox on this Mac, click through them, read the
-screen, and test with real music, without anyone at the keyboard. Setup is a few minutes once; after
-that nothing is needed from you.
+Claude tests openCrate hands-free from a separate, standard macOS account on the laptop. In that
+account it can start openCrate and rekordbox, click and type, read the screen, and work with test
+music, while your own account, files, keychain and logins stay out of its reach. Setup takes about
+half an hour once; after that, starting a night of testing is a user switch and one command.
 
-## 1. Let the terminal control the screen (one time, by you)
+Why a separate account: with screen control on, Claude can click into any app that is open, and in
+your own account that means everything you are signed in to. A standard account has its own files,
+keychain and browser, cannot use `sudo`, and, once your home folder is closed to other users (step
+2 below), cannot read your files.
 
-macOS only lets an app click and type for other apps once you allow it. Claude runs inside whichever
-app hosts the session, so that app needs two permissions.
+## On your own account
 
-1. System Settings, Privacy and Security, Accessibility: turn on **Visual Studio Code** (or
-   Terminal, iTerm, or the Claude app, whichever you run Claude Code in).
-2. System Settings, Privacy and Security, Screen Recording: the same app. (Screenshots already work
-   here, so this may be on already.)
-3. The first time Claude controls another app, macOS asks "Visual Studio Code wants access to
-   control System Events" (or "control openCrate"). Choose Allow. If you chose Don't Allow earlier,
-   turn it on under Privacy and Security, Automation.
+1. **Create the account.** System Settings, Users & Groups, Add User. Choose **Standard**, full name
+   `openCrate Test`, account name `octest`, and a password you keep.
 
-Quit and reopen the app after changing these; the permission is read at launch.
+2. **Close your home folder to other users.** In Terminal:
 
-How Claude then drives things: `cliclick` (installed with Homebrew) for clicks and typing by screen
-position, `screencapture` to see the result, and AppleScript through System Events to read window
-titles and buttons. The browser tests still cover the page; this is for the real app, with real
-files and the real rekordbox.
+   ```
+   chmod 700 ~
+   ```
 
-## 2. Music Claude may change
+   By default macOS lets other accounts read most of a home folder. This stops that. Undo with
+   `chmod 755 ~` if ever needed.
 
-Claude never touches your real library on the desktop or the NAS, and keeps track names from your
-library out of the repository. For hands-free testing it needs music it is allowed to import,
-retag, move and archive. Make a scratch area on this Mac:
+3. **Make a GitHub token for the openCrate repository only.** github.com, Settings, Developer
+   settings, Fine-grained tokens, Generate new token:
+   - Repository access: Only select repositories, `Calvin-Zikakis/openCrate`.
+   - Permissions: Contents, Actions, Workflows and Pull requests set to Read and write.
+   - Expiration: 90 days.
 
-```
-~/Desktop/ocTest/
-  Music/       an empty music folder for openCrate to file into
-  Downloads/   copies of a few releases, as they land from Bandcamp or Soulseek
-```
+   Keep it for step 5. If the test account were ever misused, this token can reach that one
+   repository and nothing else.
 
-Copy, do not move: whatever is in `ocTest` may be rewritten. A dozen releases is plenty, with a mix
-of lossless and MP3, a compilation, something with untidy tags ("Artist;") and a vinyl rip with A
-and B sides. Tell Claude the folder exists and it will add both folders in Settings itself.
+4. **Take screen control away from VS Code.** System Settings, Privacy and Security,
+   Accessibility: turn **Visual Studio Code** off. macOS keeps this list per app for the whole Mac,
+   not per account, so the test account will use Terminal instead. Do not leave an AI agent running
+   in Terminal in your own account.
 
-The laptop's rekordbox is already a test instance (you created it for this), so Claude may read and
-write it. Every write takes a backup first, listed in Settings; `docs/LOG.md` says how to restore
-by hand if ever needed.
+The preparation folder `/Users/Shared/openCrate-setup` (the repository, copies of the test music
+and Claude's notes) is made from your account by Claude before the switch. Delete it from your
+account once setup is done.
 
-## 3. Starting the apps
+## In the test account
 
-openCrate: `open /Applications/openCrate.app`, or the latest build at
-`target/release/bundle/macos/openCrate.app`. For the page's own dev tools, `npm run tauri dev` from
-the repository runs it against the local source.
+5. **Run the setup script.** Log in as `octest` (Apple menu, Lock Screen, Switch User; your own
+   session stays open underneath). Open Terminal and run:
 
-rekordbox: `env -u ELECTRON_RUN_AS_NODE open "/Applications/rekordbox 7/rekordbox.app"`. The
-variable matters: VS Code's terminal sets `ELECTRON_RUN_AS_NODE=1`, rekordbox passes it to its
-background agent (an Electron app), and the agent then dies with "Communication with
-rekordboxAgent failed". Quit rekordbox before any openCrate read or write of its library.
+   ```
+   zsh /Users/Shared/openCrate-setup/repo/scripts/test-user/setup.sh
+   ```
 
-## 4. What Claude will do with it
+   It copies the repository and test music, installs Rust, the test browsers and Claude Code, and
+   asks for the GitHub token. At the end macOS asks three things on behalf of Terminal: allow it to
+   control System Events (Allow), to record the screen (Allow), and to use Accessibility (turn
+   Terminal on in the System Settings page that opens; it asks for your administrator name and
+   password). Quit and reopen Terminal afterwards.
 
-- Import the scratch downloads, with and without conversion, and check where files land.
-- Check the editor and Clean up on real tags, then that rekordbox sees the changes after a sync.
-- Drop tracks on rekordbox playlists, resolve duplicates, tidy folders, and open rekordbox to
-  confirm each one by eye.
-- Screenshot every screen and fix what looks wrong.
+6. **Sign Claude Code in.** In Terminal, run `claude` once and follow the sign-in. Then type
+   `/exit`.
 
-Anything it finds goes in `docs/owner-notes.md`, as now.
+7. **Give rekordbox its own library.** Open rekordbox from Applications, sign in if it asks, and let
+   it create an empty library. Quit it. This library belongs to the test account and starts empty;
+   Claude fills it with the test music.
+
+## Each night
+
+8. Switch to `octest`, open Terminal, and run:
+
+   ```
+   cd ~/repositories/openCrate && claude --dangerously-skip-permissions
+   ```
+
+   Then paste:
+
+   > You are in the openCrate Test macOS account, set up for hands-free testing. Read
+   > docs/HANDOFF.md, the newest entry in docs/LOG.md, and HANDS-FREE-TESTING.md, then carry on
+   > with the next task there. Run `caffeinate -d -i -s` in the background first so the Mac stays
+   > awake.
+
+   Skipping permission prompts is acceptable here because the account itself is the boundary.
+
+9. Leave the Mac on the test account's screen, plugged in, lid open. Screen control only works on
+   the account that is showing; if you switch back to yours, Claude carries on with code work only.
+
+## What Claude does there
+
+- Starts openCrate with its own library: `OPENCRATE_DATA=~/Desktop/ocTest/data`, opened with
+  `open -n --env OPENCRATE_DATA=... openCrate.app`.
+- Imports from `~/Desktop/ocTest/Downloads` into `~/Desktop/ocTest/Music`, checks the editor,
+  Clean up, duplicates and the rekordbox sync, and confirms each one in rekordbox by eye.
+- Clicks with `cliclick`, sends keys through System Events (`osascript`), takes window screenshots
+  with `screencapture -l`, and scrolls with a small CoreGraphics helper.
+- Writes what it finds to `docs/owner-notes.md`, fixes it, and commits to the working branch.
+
+It does not type passwords, approve system prompts, or touch anything outside the test account. If
+macOS asks for something unexpected, it leaves the prompt and switches to code work.
+
+## Removing it
+
+System Settings, Users & Groups, select `openCrate Test`, Delete User. Then revoke the GitHub token
+and turn Terminal off under Accessibility.
