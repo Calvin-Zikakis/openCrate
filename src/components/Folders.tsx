@@ -130,7 +130,7 @@ export function Folders({ admin, open, onChanged }: Props) {
   const percent = running && running.tagsTotal > 0 ? Math.min(100, Math.round((running.tagsRead / running.tagsTotal) * 100)) : undefined;
   return <section aria-label="Music folders">
     <h3>Music folders</h3>
-    <p className="settings-copy">openCrate reads these folders to build your library. It never changes your music files.</p>
+    <p className="settings-copy">openCrate reads these folders to build your library. It changes a file only when you choose to: importing into it, tidying a folder name, resolving a duplicate, or keeping a value from rekordbox.</p>
     {!admin.persistent && <p className="settings-copy">This library is temporary and is discarded when the app closes.</p>}
     {folders.length === 0
       ? <p className="settings-copy">No folders yet. Add the folder that holds your music.</p>

@@ -51,6 +51,8 @@ interface Props {
   /** Tracks to play next, before the list the track came from carries on. */
   queue: LibraryItem[];
   onQueueChange: (queue: LibraryItem[]) => void;
+  /** What is loaded, and whether it is playing, for the list to mark it. */
+  onNowPlaying?: (now: { id: number; playing: boolean } | null) => void;
   analysis?: React.ReactNode;
 }
 
@@ -59,7 +61,7 @@ const typing = (target: EventTarget | null) =>
     (target.tagName === "INPUT" && !["range", "checkbox", "radio", "button"].includes((target as HTMLInputElement).type)));
 
 /** The bar at the bottom: what is playing, the transport, a seek bar and the volume. */
-export function PlayerBar({ api, selected, selectedIndex, query, request, queue, onQueueChange, analysis }: Props) {
+export function PlayerBar({ api, selected, selectedIndex, query, request, queue, onQueueChange, onNowPlaying, analysis }: Props) {
   const admin = api.admin;
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [state, setState] = useState<PlayerState | null>(null);
@@ -223,6 +225,10 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
     try { localStorage.setItem(VOLUME_KEY, String(value)); } catch { /* applied, not remembered */ }
     if (playing) void admin?.player("volume", value).catch(() => undefined);
   };
+
+  const nowId = playing?.item.id ?? null;
+  const nowPlaying = Boolean(state?.playing);
+  useEffect(() => { onNowPlaying?.(nowId === null ? null : { id: nowId, playing: nowPlaying }); }, [nowId, nowPlaying, onNowPlaying]);
 
   const shown = playing?.item ?? selected;
   const duration = state?.durationMs ?? (playing ? playing.item.duration * 1000 : 0);

@@ -52,7 +52,7 @@ export function LookupKeys({ admin, open }: { admin: LibraryAdmin; open: boolean
       return <div key={service.id} className="key-row">
         <label htmlFor={`key-${service.id}`}><strong>{service.name}</strong><small>{`${service.about} ${service.where}`}</small></label>
         <div className="key-controls">
-          <input id={`key-${service.id}`} type="password" autoComplete="off" spellCheck={false} placeholder={state(key)}
+          <input id={`key-${service.id}`} type="password" autoComplete="off" spellCheck={false} placeholder={key?.saved ? "Paste a new one to replace it" : "Paste it here"}
             value={drafts[service.id]} onChange={(event) => setDrafts((current) => ({ ...current, [service.id]: event.target.value }))} />
           <button className="secondary-button" disabled={busy !== null || drafts[service.id].trim() === ""} onClick={() => void save(service.id, drafts[service.id])}>{busy === service.id ? "Checking..." : "Save"}</button>
           {key?.saved && <button className="link-button" disabled={busy !== null} aria-label={`Remove the ${service.name}`} onClick={() => void save(service.id, null)}>Remove</button>}

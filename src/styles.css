@@ -243,7 +243,12 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .scan-status progress { flex: 0 0 120px; accent-color: var(--accent); }
 .link-button { text-decoration: underline; font-size: 12px; padding: 4px 6px; border-radius: 4px; }
 .sync-screen { display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; gap: 16px; padding-bottom: 24px; align-content: start; flex: 1; min-height: 0; overflow-y: auto; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
-.sync-hero { min-height: 0; padding-bottom: 8px; }
+/* The Import and rekordbox screens: a compact header, so their lists start near the top. */
+.sync-hero { min-height: 0; max-width: none; margin: 0; padding: 4px 0 18px; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 16px; align-items: center; text-align: left; }
+.sync-hero .empty-icon { width: 48px; height: 48px; border-radius: 13px; margin: 0; grid-row: span 2; }
+.sync-hero .empty-icon svg { width: 24px; height: 24px; }
+.sync-hero h1 { font-size: 26px; margin: 0; }
+.sync-hero p { margin: 2px 0 0; line-height: 1.6; }
 .sync-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
 .sync-card h2 { margin: 0 0 8px; font-size: 15px; }
 .sync-source { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
@@ -441,3 +446,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .copy-choice label { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; }
 .copy-choice input { accent-color: var(--accent); margin-top: 2px; }
 .copy-choice small { display: block; color: var(--secondary); margin-top: 3px; }
+
+/* The playing row: three bars in place of its number, moving while it plays. */
+.now-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+.now-bars i { width: 3px; height: 40%; border-radius: 1px; background: var(--accent); }
+.now-bars.is-playing i { animation: now-bar .9s ease-in-out infinite alternate; }
+.now-bars.is-playing i:nth-child(2) { animation-delay: -.3s; }
+.now-bars.is-playing i:nth-child(3) { animation-delay: -.6s; }
+@keyframes now-bar { from { height: 25%; } to { height: 100%; } }

@@ -83,7 +83,7 @@ export function Sync({ admin, onChanged }: Props) {
       <div className="empty-icon"><Icon name="sync" size={36} /></div>
       <h1>rekordbox</h1>
       <p>{direct
-        ? "Read rekordbox's library, or an XML export, to bring in tempo, key, cues, My Tags and playlists. openCrate reads a backup copy; rekordbox is never changed."
+        ? "Read rekordbox's library, or an XML export, to bring in tempo, key, cues, My Tags and playlists. openCrate reads a backup copy, and writes to rekordbox only when writing is on in Settings."
         : "Read a rekordbox XML export to bring in tempo, key, cues, beat grids and playlists. openCrate only reads it; rekordbox is never changed."}</p>
     </div>
     {blocked && <p role="status" className="inline-error">{blocked}</p>}

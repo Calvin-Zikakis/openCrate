@@ -17,6 +17,8 @@ interface Props {
   onOpen: (item: LibraryItem) => void;
   /** Double-click, Enter or the row's play button on a track. */
   onPlay?: (item: LibraryItem, index: number) => void;
+  /** The loaded track, marked in place of its number. */
+  nowPlaying?: { id: number; playing: boolean } | null;
   /** Right-click, then "Play next" (`next`) or "Add to queue". */
   onQueue?: (item: LibraryItem, next: boolean) => void;
   /** Rows can be dragged onto a crate. */
@@ -48,7 +50,7 @@ function dragPreview(data: DataTransfer, title: string, artist: string) {
   setTimeout(() => label.remove(), 0);
 }
 
-export function Library({ api, query, compact, selected, onSelect, onOpen, onPlay, onQueue, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
+export function Library({ api, query, compact, selected, onSelect, onOpen, onPlay, onQueue, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -193,7 +195,7 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
       <span> {query.search ? `matching "${query.search}"` : api.admin ? (api.admin.persistent ? "Your library" : "Demo database") : "Synthetic collection"}</span>
       {reorderable && page.total > 1 && <span className="crate-hint">{reorder?.remove
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
-        : " Drag tracks to arrange them; the list switches to Custom order. Alt+Up/Down moves the focused track."}</span>}
+        : " Drag a track onto a crate, a rekordbox playlist or the player, or within the list to arrange it (Custom order). Right-click for Play next and Add to queue."}</span>}
     </div>
     {!isGrid && <div className="track-header track-columns" aria-hidden="true"><span>#</span><span>Title / Artist</span><span>Release</span><span>BPM</span><span>Key</span><span>Time</span><span>Format</span></div>}
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
@@ -302,7 +304,9 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
                 }}
               >
                 {isGrid ? <>{item.kind === "artists" ? <ArtistArtwork api={api} artistId={item.id} color={item.color} large /> : <Artwork color={item.color} large src={api.artworkUrl?.(item.releaseId) ?? null} />}<strong>{item.title}</strong><span>{item.kind === "artists" ? `${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}` : item.artist}</span>{item.kind === "releases" && <small>{`${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}`}</small>}</> :
-                  <><span className="track-number">{index + 1}</span><span className="track-identity"><Artwork color={item.color} src={api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate"><strong>{item.title}</strong><small>{item.artist}</small></span></span><span className="track-release">{item.release}</span><span className="track-bpm">{item.bpm ?? "--"}</span><span className="track-key">{item.musicalKey}</span><span className="track-time">{time(item.duration)}</span><span className="track-format">{item.missing ? <span className="missing-tag" title="The file is not on disk right now">Missing</span> : item.format}</span></>}
+                  <><span className="track-number">{nowPlaying?.id === item.id
+                    ? <span className={`now-bars${nowPlaying.playing ? " is-playing" : ""}`} role="img" aria-label={nowPlaying.playing ? "Now playing" : "Paused"}><i /><i /><i /></span>
+                    : index + 1}</span><span className="track-identity"><Artwork color={item.color} src={api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate"><strong>{item.title}</strong><small>{item.artist}</small></span></span><span className="track-release">{item.release}</span><span className="track-bpm">{item.bpm ?? "--"}</span><span className="track-key">{item.musicalKey}</span><span className="track-time">{time(item.duration)}</span><span className="track-format">{item.missing ? <span className="missing-tag" title="The file is not on disk right now">Missing</span> : item.format}</span></>}
               </button>
               {!isGrid && onPlay && !item.missing && <button className="row-play" tabIndex={-1} aria-label={`Play ${item.title}`}
                 style={{ height: rowHeight }} onClick={() => { onSelect(item, index); onPlay(item, index); }}><Icon name="play" size={14} /></button>}

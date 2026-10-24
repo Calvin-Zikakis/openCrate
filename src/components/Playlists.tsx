@@ -75,7 +75,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
   if (rows.length === 0) {
     return <div className="playlist-note"><div className="nav-caption">PLAYLISTS</div>
       <p>{failed ? "Playlists could not be read." : "None yet."}</p>
-      <span>{failed ? "Try reading your export again." : "Read a rekordbox export on the rekordbox screen to see its playlists here."}</span></div>;
+      <span>{failed ? "Try reading your export again." : "Read rekordbox on the rekordbox screen to see its playlists here."}</span></div>;
   }
   const toggle = (id: number) => setOpen((current) => {
     const next = new Set(current);

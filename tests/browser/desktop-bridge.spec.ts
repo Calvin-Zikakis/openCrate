@@ -754,7 +754,7 @@ test("the settings close button stays put while the settings scroll", async ({ p
   const body = dialog.locator(".dialog-body");
   expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  await expect(dialog.getByText("Your folders are only read.")).toBeInViewport();
+  await expect(dialog.getByText("Nothing is uploaded.", { exact: false })).toBeInViewport();
   const close = dialog.getByRole("button", { name: "Close settings" });
   await expect(close).toBeInViewport();
   await close.click();
@@ -1043,17 +1043,19 @@ test("settings: lookup keys are saved, shown only by their ending, refused when 
   const dialog = page.getByRole("dialog", { name: "Settings" });
   const discogs = dialog.locator("#key-discogs");
   await expect(discogs).toHaveAttribute("type", "password");
-  await expect(discogs).toHaveAttribute("placeholder", "Not set");
+  await expect(discogs).toHaveAttribute("placeholder", "Paste it here");
+  const state = discogs.locator("xpath=../following-sibling::small[1]");
+  await expect(state).toHaveText("Not set");
   await discogs.fill("bad");
   await discogs.locator("xpath=..").getByRole("button", { name: "Save" }).click();
   await expect(dialog.getByRole("alert")).toContainText("Discogs did not accept that token");
   await discogs.fill("my-token-wxyz");
   await discogs.locator("xpath=..").getByRole("button", { name: "Save" }).click();
   await expect(dialog.getByRole("status").filter({ hasText: "Discogs accepted the token." })).toBeVisible();
-  await expect(discogs).toHaveAttribute("placeholder", "Saved, ending in wxyz");
+  await expect(state).toHaveText("Saved, ending in wxyz");
   await expect(discogs).toHaveValue("");
   await dialog.getByRole("button", { name: "Remove the Discogs personal token" }).click();
-  await expect(discogs).toHaveAttribute("placeholder", "Not set");
+  await expect(state).toHaveText("Not set");
 });
 
 test("library check: untidy folder names and recordings filed twice are listed, read only", async ({ page }) => {
@@ -1217,6 +1219,13 @@ test("player: a row's play button, a queue, and dropping a track on the player",
   const loads = async () => (await calls(page)).filter((call) => call.command === "player_load").map((call) => call.args.trackId);
   const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
 
+  // The playing row shows it, in place of its number.
+  await row("0005").dblclick();
+  await expect(row("0005").getByRole("img", { name: "Now playing" })).toBeVisible();
+  await bar.getByRole("button", { name: "Pause" }).click();
+  await expect(row("0005").getByRole("img", { name: "Paused" })).toBeVisible();
+  await bar.getByRole("button", { name: "Play" }).click();
+
   // Hovering a row brings up a play button at its left.
   await row("0004").hover();
   const play = page.getByRole("button", { name: "Play Rust Track 0004" });
@@ -1243,7 +1252,7 @@ test("player: a row's play button, a queue, and dropping a track on the player",
   await expect(queue).toContainText("Nothing queued");
   await bar.getByRole("button", { name: "Next track" }).click();
   await expect(now).toContainText("Rust Track 0005");
-  expect(await loads()).toEqual([4, 8, 12, 5]);
+  expect(await loads()).toEqual([5, 4, 8, 12, 5]);
 
   // A track dropped on the player plays.
   await row("0007").dragTo(bar);
@@ -1634,7 +1643,7 @@ test("playlists from the export appear in the sidebar and open as an ordered tra
   await stubBridge(page, "managed");
   await page.goto("/");
   const sidebar = page.getByRole("complementary");
-  await expect(sidebar.getByText("Read a rekordbox export on the rekordbox screen to see its playlists here.")).toBeVisible();
+  await expect(sidebar.getByText("Read rekordbox on the rekordbox screen to see its playlists here.")).toBeVisible();
 
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await page.getByRole("button", { name: "Choose export..." }).click();
