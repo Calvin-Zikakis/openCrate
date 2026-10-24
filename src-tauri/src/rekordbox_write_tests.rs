@@ -8,7 +8,9 @@ use rbl_db::fixture::{self, Shape};
 
 use crate::rekordbox_db::{self, Probe};
 use crate::rekordbox_merge::{self, ChoiceDto, Keep};
-use crate::rekordbox_write::{add_to_playlist, crate_to_playlist, send_new, set_enabled, IMPORTED};
+use crate::rekordbox_write::{
+    add_to_playlist, crate_to_playlist, create_folder, send_new, set_enabled, IMPORTED,
+};
 
 /// A path as rekordbox stores it: forward slashes, on Windows too.
 fn rekordbox_form(path: &std::path::Path) -> String {
@@ -222,6 +224,31 @@ fn a_crate_dropped_on_a_rekordbox_folder_becomes_a_playlist_there_and_stays_a_cr
 
     let error = crate_to_playlist(&setup.service, &setup.probe, empty, None).unwrap_err();
     assert!(error.contains("no tracks"), "{error}");
+}
+
+#[test]
+fn a_folder_made_in_opencrate_appears_in_rekordbox_and_the_sidebar() {
+    let setup = setup(&["Night Drive"], "7.2.19");
+    let error = create_folder(&setup.service, &setup.probe, "Sets", None).unwrap_err();
+    assert!(error.contains("Settings"), "{error}");
+    writing_on(&setup);
+    let error = create_folder(&setup.service, &setup.probe, "  ", None).unwrap_err();
+    assert!(error.contains("name"), "{error}");
+
+    let done = create_folder(&setup.service, &setup.probe, " Sets ", None).unwrap();
+    assert_eq!((done.name.as_str(), done.read_error), ("Sets", None));
+    let sets = playlist(&setup.service, "Sets").unwrap();
+    assert!(sets.is_folder);
+    let done = create_folder(&setup.service, &setup.probe, "Friday", Some(sets.id)).unwrap();
+    assert_eq!(done.name, "Friday");
+    let friday = playlist(&setup.service, "Friday").unwrap();
+    assert!(friday.is_folder);
+    assert_eq!(friday.parent_id, Some(sets.id));
+    let reasons: Vec<String> = rekordbox_db::backups(&setup.service)
+        .into_iter()
+        .map(|backup| backup.reason)
+        .collect();
+    assert!(reasons.contains(&"before-write".to_owned()), "{reasons:?}");
 }
 
 #[test]

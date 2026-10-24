@@ -32,6 +32,20 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
   const [note, setNote] = useState<{ text: string; failed: boolean; done: boolean } | null>(null);
   /** A crate dropped on a folder (null: the top of the tree), waiting for the owner to say yes. */
   const [asking, setAsking] = useState<{ crate: { id: number; name: string }; folder: PlaylistInfo | null } | null>(null);
+  /** A new rekordbox folder being named, inside `parent` (null: the top of the tree). */
+  const [naming, setNaming] = useState<{ parent: PlaylistInfo | null; name: string } | null>(null);
+  const [menu, setMenu] = useState<{ folder: PlaylistInfo; x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    menuRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+    const close = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenu(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setMenu(null); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", escape);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", escape); };
+  }, [menu]);
 
   useEffect(() => {
     if (!note?.done || note.failed) return;
@@ -55,6 +69,40 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
       setNote({ text: message(reason), failed: true, done: true });
     }
   };
+
+  /** Start naming a new folder; one inside a folder opens it so the name field shows. */
+  const startFolder = (parent: PlaylistInfo | null) => {
+    setMenu(null);
+    if (parent) setOpen((current) => new Set(current).add(parent.id));
+    setNaming({ parent, name: "" });
+  };
+  const makeFolder = async () => {
+    if (!naming) return;
+    const { parent, name } = naming;
+    setNaming(null);
+    if (!name.trim() || busy) return;
+    setNote({ text: `Making the folder ${name.trim()} in rekordbox...`, failed: false, done: false });
+    try {
+      const made = await admin.createRekordboxFolder(name, parent?.id ?? null);
+      setNote({ text: `Made the folder ${made.name} ${parent ? `in ${parent.name}` : "at the top of the playlists"} in rekordbox.`, failed: false, done: true });
+      onChanged?.();
+    } catch (reason) {
+      setNote({ text: message(reason), failed: true, done: true });
+    }
+  };
+  const nameInput = <input
+    className="crate-name-input"
+    aria-label={naming?.parent ? `New folder in ${naming.parent.name}` : "New rekordbox folder name"}
+    autoFocus
+    maxLength={100}
+    value={naming?.name ?? ""}
+    onChange={(event) => setNaming((current) => current && { ...current, name: event.target.value })}
+    onKeyDown={(event) => {
+      if (event.key === "Enter") { event.preventDefault(); void makeFolder(); }
+      if (event.key === "Escape") { event.preventDefault(); setNaming(null); }
+    }}
+    onBlur={() => { if (naming?.name.trim()) void makeFolder(); else setNaming(null); }}
+  />;
 
   /** A crate dropped on a folder becomes a new rekordbox playlist there; the crate stays. */
   const makePlaylist = async (crate: { id: number; name: string }, folder: PlaylistInfo | null) => {
@@ -117,7 +165,13 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
     return map;
   }, [rows]);
 
-  const caption = <div className={`nav-caption${over === -1 ? " is-drop-target" : ""}`} {...crateTarget(null)}>PLAYLISTS</div>;
+  const caption = <>
+    <div className="crate-head">
+      <div className={`nav-caption${over === -1 ? " is-drop-target" : ""}`} {...crateTarget(null)}>PLAYLISTS</div>
+      <button className="icon-button crate-add" aria-label="New rekordbox folder" title="New rekordbox folder" disabled={busy} onClick={() => startFolder(null)}>+</button>
+    </div>
+    {naming && naming.parent === null && nameInput}
+  </>;
   const footer = <>
     {asking && <div className="crate-confirm" role="alertdialog" aria-label={`Make a rekordbox playlist from ${asking.crate.name}?`}
       onKeyDown={(event) => { if (event.key === "Escape") setAsking(null); }}>
@@ -126,6 +180,9 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
       <button className="link-button" onClick={() => setAsking(null)}>Cancel</button>
     </div>}
     {note && <p className={note.failed ? "crate-error" : "crate-note"} role={note.failed ? "alert" : "status"}>{note.text}</p>}
+    {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={`${menu.folder.name} actions`} style={{ left: menu.x, top: menu.y }}>
+      <button type="button" role="menuitem" onClick={() => startFolder(menu.folder)}>New folder inside</button>
+    </div>}
   </>;
   if (rows.length === 0) {
     return <div className="playlist-note">{caption}
@@ -139,10 +196,18 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
   });
   const render = (parent: number | null, depth: number) => (children.get(parent) ?? []).map((row) => row.isFolder
     ? <li key={row.id}>
-      <button className={`tree-folder${over === row.id ? " is-drop-target" : ""}`} aria-expanded={open.has(row.id)} style={{ paddingLeft: 12 + depth * 12 }} onClick={() => toggle(row.id)} {...crateTarget(row)}>
+      <button className={`tree-folder${over === row.id ? " is-drop-target" : ""}`} aria-expanded={open.has(row.id)} style={{ paddingLeft: 12 + depth * 12 }} onClick={() => toggle(row.id)} {...crateTarget(row)}
+        onContextMenu={(event) => { event.preventDefault(); setMenu({ folder: row, x: event.clientX, y: event.clientY }); }}
+        onKeyDown={(event) => {
+          if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+            event.preventDefault();
+            const box = event.currentTarget.getBoundingClientRect();
+            setMenu({ folder: row, x: box.left + 12, y: box.bottom });
+          }
+        }}>
         <span aria-hidden="true">{open.has(row.id) ? "v" : ">"}</span><span className="truncate">{row.name}</span>
       </button>
-      {open.has(row.id) && <ul>{render(row.id, depth + 1)}</ul>}
+      {open.has(row.id) && <ul>{naming?.parent?.id === row.id && <li style={{ paddingLeft: 12 + (depth + 1) * 12 }}>{nameInput}</li>}{render(row.id, depth + 1)}</ul>}
     </li>
     : <li key={row.id}>
       <button className={`tree-playlist${over === row.id ? " is-drop-target" : ""}`} aria-current={activeId === row.id ? "true" : undefined} style={{ paddingLeft: 12 + depth * 12 }}

@@ -476,6 +476,12 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               const names: Record<number, string> = { 3: "Friday warm-up", 4: "Closers" };
               return { playlist: names[args?.playlistId] ?? "?", added: (args?.trackIds ?? []).length, imported: 0, leftOut: [], readError: null };
             }
+            case "rekordbox_create_folder": {
+              if (rbWrite() === null) throw "Writing to rekordbox is off. Turn it on in Settings.";
+              const name = String(args?.name ?? "").trim();
+              (window as any).__rbFolders = [...((window as any).__rbFolders ?? []), { name, folderId: args?.folderId }];
+              return { name: name === "Sets" ? "Sets (2)" : name, readError: null };
+            }
             case "rekordbox_crate_to_playlist": {
               if (rbWrite() === null) throw "Writing to rekordbox is off. Turn it on in Settings.";
               const made = crateById(args?.crateId);
@@ -2179,6 +2185,35 @@ test("BPM and key say whether rekordbox analysed them or they come from the file
   await expect(key("0001")).not.toHaveClass(/from-tags/);
   await expect(key("0002")).toHaveAttribute("title", "From the file's tags. rekordbox has no key for this track yet.");
   await expect(key("0002")).toHaveClass(/from-tags/);
+});
+
+test("a rekordbox folder is made from the sidebar, at the top or inside another folder", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbEnabled = true; (window as any).__rbWriting = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await page.getByRole("button", { name: "Choose export..." }).click();
+  const playlists = page.getByRole("complementary").getByRole("navigation", { name: "Playlists" });
+
+  // Escape gives up without writing.
+  await playlists.getByRole("button", { name: "New rekordbox folder" }).click();
+  await playlists.getByRole("textbox", { name: "New rekordbox folder name" }).fill("Gone");
+  await page.keyboard.press("Escape");
+  await expect(playlists.getByRole("textbox")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__rbFolders)).toBeUndefined();
+
+  // A taken name comes back numbered.
+  await playlists.getByRole("button", { name: "New rekordbox folder" }).click();
+  await playlists.getByRole("textbox", { name: "New rekordbox folder name" }).fill("Sets");
+  await page.keyboard.press("Enter");
+  await expect(playlists.getByRole("status")).toContainText("Made the folder Sets (2) at the top of the playlists in rekordbox.");
+
+  await playlists.getByRole("button", { name: "Sets", exact: true }).click({ button: "right" });
+  await page.getByRole("menu", { name: "Sets actions" }).getByRole("menuitem", { name: "New folder inside" }).click();
+  await playlists.getByRole("textbox", { name: "New folder in Sets" }).fill("Friday");
+  await page.keyboard.press("Enter");
+  await expect(playlists.getByRole("status")).toContainText("Made the folder Friday in Sets in rekordbox.");
+  expect(await page.evaluate(() => (window as any).__rbFolders)).toEqual([{ name: "Sets", folderId: null }, { name: "Friday", folderId: 2 }]);
 });
 
 test("crates: a crate dropped on a rekordbox folder becomes a playlist there once the owner says yes", async ({ page }) => {

@@ -240,6 +240,59 @@ fn members_of(
     Ok((members, left_out))
 }
 
+/// What making a folder did, for the page.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderDto {
+    /// The name it was given; a taken one gets a number.
+    pub name: String,
+    /// Set when the write worked but reading rekordbox again afterwards did not.
+    pub read_error: Option<String>,
+}
+
+/// rekordbox's id for a folder from the sidebar, or the top of its tree for none.
+fn folder_key(service: &LibraryService, folder_id: Option<i64>) -> Result<String, String> {
+    match folder_id {
+        None => Ok(write::ROOT.to_owned()),
+        Some(folder_id) => service
+            .rekordbox_playlist_key(folder_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| {
+                "This folder came from an xml export. Read rekordbox's library directly on the \
+                 rekordbox screen first, so openCrate knows rekordbox's own folders."
+                    .to_owned()
+            }),
+    }
+}
+
+/// A new folder in rekordbox's playlist tree: in the folder `folder_id`, or at the top for none.
+pub fn create_folder(
+    service: &LibraryService,
+    probe: &Probe,
+    name: &str,
+    folder_id: Option<i64>,
+) -> Result<FolderDto, String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 100 || name.chars().any(char::is_control) {
+        return Err("A folder needs a name of 1 to 100 characters.".into());
+    }
+    let location = ready(service, probe)?;
+    let parent = folder_key(service, folder_id)?;
+    let made = write::create_folder(
+        location,
+        &rekordbox_db::backups_dir(service),
+        probe.running(),
+        now_ms(),
+        name,
+        &parent,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(FolderDto {
+        name: made.name,
+        read_error: rekordbox_db::read(service, probe).err(),
+    })
+}
+
 /// A crate dropped on a rekordbox folder (or on the top of the tree, `folder_id` none): a new
 /// rekordbox playlist named after it, holding its tracks in its order. The crate stays as it is.
 pub fn crate_to_playlist(
@@ -249,17 +302,7 @@ pub fn crate_to_playlist(
     folder_id: Option<i64>,
 ) -> Result<WriteDto, String> {
     let location = ready(service, probe)?;
-    let parent = match folder_id {
-        None => write::ROOT.to_owned(),
-        Some(folder_id) => service
-            .rekordbox_playlist_key(folder_id)
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| {
-                "This folder came from an xml export. Read rekordbox's library directly on the \
-                 rekordbox screen first, so openCrate knows rekordbox's own folders."
-                    .to_owned()
-            })?,
-    };
+    let parent = folder_key(service, folder_id)?;
     let name = service
         .crates()
         .map_err(|error| error.to_string())?

@@ -271,6 +271,8 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .sidebar { min-height: 0; overflow-y: clip; }
 .playlist-tree { flex: 1; min-height: 0; overflow-y: auto; margin: 18px 0 0; }
 .playlist-tree ul { list-style: none; margin: 0; padding: 0; }
+/* A right-click opens a menu; it should not also select the name under it. */
+.playlist-tree button, .crate-item { -webkit-user-select: none; user-select: none; }
 .playlist-tree button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 12px; border-radius: 6px; font-size: 12px; color: var(--secondary); }
 .playlist-tree button:hover:not(:disabled) { color: var(--text); }
 .playlist-tree .tree-playlist[aria-current="true"] { color: var(--accent); background: var(--raised); }
@@ -399,6 +401,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-list { margin: 18px 0 0; }
 .crate-head { display: flex; align-items: center; justify-content: space-between; }
 .crate-add { width: 24px; height: 24px; font-size: 16px; line-height: 1; }
+.playlist-tree .crate-add, .playlist-note .crate-add { width: 24px; padding: 0; justify-content: center; font-size: 16px; color: var(--secondary); }
 .crate-list ul { list-style: none; margin: 4px 0 0; padding: 0; }
 .crate-empty, .crate-note, .crate-error { font-size: 11px; line-height: 1.6; color: var(--secondary); margin: 6px 12px; }
 .crate-error { color: var(--danger); }

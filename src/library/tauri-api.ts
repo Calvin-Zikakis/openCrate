@@ -16,6 +16,7 @@ import {
   type MergeApplied,
   type MergeChange,
   type MergeReview,
+  type RekordboxFolder,
   type RekordboxWrite,
   type MirrorInfo,
   type RekordboxBackup,
@@ -543,6 +544,12 @@ function toRekordboxWrite(value: unknown): RekordboxWrite {
   };
 }
 
+function toRekordboxFolder(value: unknown): RekordboxFolder {
+  const what = "rekordbox folder";
+  if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  return { name: text(value.name, what), readError: maybeText(value.readError, what) };
+}
+
 function toBackup(value: unknown): RekordboxBackup {
   const what = "rekordbox backup";
   if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
@@ -934,6 +941,8 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       toRekordboxWrite(await invoke("rekordbox_add_to_playlist", { playlistId, trackIds }).catch((error: unknown) => { throw failure(error); })),
     crateToRekordboxPlaylist: async (crateId, folderId) =>
       toRekordboxWrite(await invoke("rekordbox_crate_to_playlist", { crateId, folderId }).catch((error: unknown) => { throw failure(error); })),
+    createRekordboxFolder: async (name, parentId) =>
+      toRekordboxFolder(await invoke("rekordbox_create_folder", { name, folderId: parentId }).catch((error: unknown) => { throw failure(error); })),
     reviewRekordboxMerge: async () => toMergeReview(await invoke("rekordbox_merge_review").catch((error: unknown) => { throw failure(error); })),
     applyRekordboxMerge: async (choices) =>
       toMergeApplied(await invoke("rekordbox_merge_apply", { choices }).catch((error: unknown) => { throw failure(error); })),

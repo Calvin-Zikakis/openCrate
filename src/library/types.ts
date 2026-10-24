@@ -186,6 +186,14 @@ export interface MergeApplied {
 }
 
 /** What a write to rekordbox's library did. */
+/** A folder made in rekordbox's playlist tree. */
+export interface RekordboxFolder {
+  /** The name it was given; a taken one gets a number. */
+  name: string;
+  /** The write worked but reading rekordbox again afterwards did not. */
+  readError: string | null;
+}
+
 export interface RekordboxWrite {
   playlist: string;
   added: number;
@@ -687,6 +695,8 @@ export interface LibraryAdmin {
   addToRekordboxPlaylist(playlistId: number, trackIds: number[]): Promise<RekordboxWrite>;
   /** A new rekordbox playlist in a folder (the top of the tree when null) with a crate's tracks; the crate stays. */
   crateToRekordboxPlaylist(crateId: number, folderId: number | null): Promise<RekordboxWrite>;
+  /** A new folder in rekordbox's playlist tree, inside a folder (the top of the tree when null). */
+  createRekordboxFolder(name: string, parentId: number | null): Promise<RekordboxFolder>;
   /** Read rekordbox again and list what differs since both sides last agreed. */
   reviewRekordboxMerge(): Promise<MergeReview>;
   /** Apply the ticked changes. */

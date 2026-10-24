@@ -46,6 +46,66 @@ pub struct Added {
     pub backup: Snapshot,
 }
 
+const RUNNING: &str = "rekordbox is running. Quit it (and wait for its agent to stop) first.";
+
+/// A folder [`create_folder`] made.
+#[derive(Debug)]
+pub struct Made {
+    pub folder: String,
+    /// The name it was given: `name`, or `name (2)` and so on when that was taken.
+    pub name: String,
+    /// The copy taken before writing.
+    pub backup: Snapshot,
+}
+
+/// Make a folder in the folder `parent` (rekordbox's id, or [`ROOT`]), after a backup, and read
+/// it back. A name taken there gets a number, as a new playlist's does.
+pub fn create_folder(
+    location: &LibraryLocation,
+    backups: &Path,
+    running: bool,
+    now_ms: i64,
+    name: &str,
+    parent: &str,
+) -> Result<Made, DbError> {
+    if running {
+        return Err(refused(RUNNING));
+    }
+    {
+        let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
+        check_parent(library.connection(), parent)?;
+    }
+    let backup = take_snapshot(location, backups, "before-write", false, now_ms)?;
+    let mut writer = Writer::open(location.clone(), backups)?;
+    writer.disable_automatic_backups();
+    let free = free_name(&writer, parent, name)?;
+    let folder = writer.create_folder(&free, parent)?;
+    drop(writer);
+
+    let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
+    let found: Option<(i64, String)> = library
+        .connection()
+        .query_row(
+            "SELECT COALESCE(Attribute, 0), ParentID FROM djmdPlaylist
+             WHERE ID = ?1 AND rb_local_deleted = 0",
+            params![folder],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if found != Some((ATTRIBUTE_FOLDER, parent.to_owned())) {
+        return Err(DbError::WriteRefused(
+            "After writing, the new folder is not in rekordbox. Restore the backup taken just \
+             before from Settings."
+                .into(),
+        ));
+    }
+    Ok(Made {
+        folder,
+        name: free,
+        backup,
+    })
+}
+
 /// Put `members` at the end of `playlist`, adding files rekordbox does not have yet.
 /// `running` is the caller's check for rekordbox and its agent.
 pub fn add_to_playlist(
@@ -58,9 +118,7 @@ pub fn add_to_playlist(
 ) -> Result<Added, DbError> {
     // Refused before anything is copied; the snapshot refuses a running rekordbox too.
     if running {
-        return Err(refused(
-            "rekordbox is running. Quit it (and wait for its agent to stop) first.",
-        ));
+        return Err(refused(RUNNING));
     }
     check_before(location, Some(playlist), members)?;
     let backup = take_snapshot(location, backups, "before-write", false, now_ms)?;
@@ -513,20 +571,7 @@ fn check_before(
         }
     }
     if let Some(Playlist::New { parent, .. }) = playlist {
-        if parent != ROOT {
-            let attribute: Option<i64> = connection
-                .query_row(
-                    "SELECT COALESCE(Attribute, 0) FROM djmdPlaylist WHERE ID = ?1 AND rb_local_deleted = 0",
-                    params![parent],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            match attribute {
-                None => return Err(refused("That folder is no longer in rekordbox.")),
-                Some(ATTRIBUTE_FOLDER) => {}
-                Some(_) => return Err(refused("That is a playlist, not a folder.")),
-            }
-        }
+        check_parent(connection, parent)?;
     }
     for member in members {
         if let Member::Known(id) = member {
@@ -557,6 +602,25 @@ fn check_before(
         check_path_form(stored)?;
     }
     Ok(())
+}
+
+/// `parent` is the top of the tree or a live folder.
+fn check_parent(connection: &rusqlite::Connection, parent: &str) -> Result<(), DbError> {
+    if parent == ROOT {
+        return Ok(());
+    }
+    let attribute: Option<i64> = connection
+        .query_row(
+            "SELECT COALESCE(Attribute, 0) FROM djmdPlaylist WHERE ID = ?1 AND rb_local_deleted = 0",
+            params![parent],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match attribute {
+        None => Err(refused("That folder is no longer in rekordbox.")),
+        Some(ATTRIBUTE_FOLDER) => Ok(()),
+        Some(_) => Err(refused("That is a playlist, not a folder.")),
+    }
 }
 
 /// openCrate writes paths with forward slashes, the form rekordbox uses for its own paths on

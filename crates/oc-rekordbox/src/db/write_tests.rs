@@ -5,8 +5,8 @@ use rbl_db::fixture::{self, Shape};
 use rbl_db::{Library, LibraryLocation, OpenMode};
 
 use super::write::{
-    add_to_playlist, check_path_form, merge_duplicates, relocate, set_fields, Duplicate, FieldEdit,
-    Member, Playlist, TrackText,
+    add_to_playlist, check_path_form, create_folder, merge_duplicates, relocate, set_fields,
+    Duplicate, FieldEdit, Member, Playlist, TrackText,
 };
 use super::*;
 
@@ -249,6 +249,75 @@ fn a_new_playlist_is_made_in_a_folder_and_a_taken_name_gets_a_number() {
             parent: done.playlist.clone(),
         },
         &members,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("not a folder"), "{error}");
+}
+
+#[test]
+fn a_folder_is_made_after_a_backup_inside_another_and_a_taken_name_gets_a_number() {
+    let world = world();
+    let root = super::write::ROOT;
+    let error = create_folder(
+        &world.location,
+        world.backups.path(),
+        true,
+        NOW,
+        "Sets",
+        root,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("running"), "{error}");
+    assert_eq!(list_backups(world.backups.path()).len(), 0);
+
+    let sets = create_folder(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW,
+        "Sets",
+        root,
+    )
+    .unwrap();
+    assert_eq!(sets.name, "Sets");
+    assert_eq!(
+        parent_and_name(&world.location, &sets.folder),
+        (root.to_owned(), "Sets".to_owned())
+    );
+    assert_eq!(list_backups(world.backups.path()).len(), 1);
+    let inner = create_folder(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW + 1_000,
+        "Friday",
+        &sets.folder,
+    )
+    .unwrap();
+    assert_eq!(
+        parent_and_name(&world.location, &inner.folder),
+        (sets.folder.clone(), "Friday".to_owned())
+    );
+    let again = create_folder(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW + 2_000,
+        "Sets",
+        root,
+    )
+    .unwrap();
+    assert_eq!(again.name, "Sets (2)");
+
+    // A playlist cannot hold a folder.
+    let playlist = top_level_named(&world.location, "Playlist 1")[0].clone();
+    let error = create_folder(
+        &world.location,
+        world.backups.path(),
+        false,
+        NOW + 3_000,
+        "Nope",
+        &playlist,
     )
     .unwrap_err();
     assert!(error.to_string().contains("not a folder"), "{error}");

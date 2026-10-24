@@ -480,6 +480,7 @@ describe("rekordbox database", () => {
       if (command === "rekordbox_db_status" || command === "rekordbox_db_enable" || command === "rekordbox_db_enable_write") return status;
       if (command === "rekordbox_add_to_playlist" || command === "rekordbox_crate_to_playlist" || command === "rekordbox_send_new") return written;
       if (command === "rekordbox_merge_review") return { changes: [change], canWrite: true };
+      if (command === "rekordbox_create_folder") return { name: "Sets (2)", readError: null };
       if (command === "rekordbox_merge_apply") return applied;
       if (command === "rekordbox_db_read") return imported;
       if (command === "rekordbox_backups" || command === "rekordbox_backup_pin") return [backup];
@@ -497,6 +498,7 @@ describe("rekordbox database", () => {
     expect(await db.addToRekordboxPlaylist(9, [3, 4])).toEqual(written);
     expect(await db.crateToRekordboxPlaylist(2, 7)).toEqual(written);
     expect(await db.crateToRekordboxPlaylist(2, null)).toEqual(written);
+    expect(await db.createRekordboxFolder("Sets", 7)).toEqual({ name: "Sets (2)", readError: null });
     expect(await db.sendNewToRekordbox()).toEqual(written);
     expect(await db.sendNewToRekordbox([5])).toEqual(written);
     expect(await db.reviewRekordboxMerge()).toEqual({ changes: [change], canWrite: true });
@@ -513,6 +515,7 @@ describe("rekordbox database", () => {
       ["rekordbox_add_to_playlist", { playlistId: 9, trackIds: [3, 4] }],
       ["rekordbox_crate_to_playlist", { crateId: 2, folderId: 7 }],
       ["rekordbox_crate_to_playlist", { crateId: 2, folderId: null }],
+      ["rekordbox_create_folder", { name: "Sets", folderId: 7 }],
       ["rekordbox_send_new", { fileIds: null }],
       ["rekordbox_send_new", { fileIds: [5] }],
       ["rekordbox_merge_review"],
