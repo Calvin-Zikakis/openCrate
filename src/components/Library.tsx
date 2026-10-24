@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { carriesTracks, draggedTracks, setDraggedTracks } from "../library/drag";
+import { showKey, type KeyNotation } from "../library/keys";
 import type { LibraryApi, LibraryItem, LibraryPage, LibraryQuery } from "../library/types";
 import { ArtistArtwork, Artwork } from "./Artwork";
 import { Icon } from "./Icon";
@@ -12,6 +13,8 @@ interface Props {
   api: LibraryApi;
   query: LibraryQuery;
   compact: boolean;
+  /** How keys are shown. */
+  keyNotation?: KeyNotation;
   selected: LibraryItem | null;
   onSelect: (item: LibraryItem, index: number) => void;
   onOpen: (item: LibraryItem) => void;
@@ -55,7 +58,7 @@ function dragPreview(data: DataTransfer, title: string, artist: string) {
   setTimeout(() => label.remove(), 0);
 }
 
-export function Library({ api, query, compact, selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
+export function Library({ api, query, compact, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -338,7 +341,7 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
                 {isGrid ? <>{item.kind === "artists" ? <ArtistArtwork api={api} artistId={item.id} color={item.color} large /> : <Artwork color={item.color} large src={api.artworkUrl?.(item.releaseId) ?? null} />}<strong>{item.title}</strong><span>{item.kind === "artists" ? `${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}` : item.artist}</span>{item.kind === "releases" && <small>{`${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}`}</small>}</> :
                   <><span className="track-number">{nowPlaying?.id === item.id
                     ? <span className={`now-bars${nowPlaying.playing ? " is-playing" : ""}`} role="img" aria-label={nowPlaying.playing ? "Now playing" : "Paused"}><i /><i /><i /></span>
-                    : index + 1}</span><span className="track-identity"><Artwork color={item.color} src={api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate"><strong>{item.title}</strong><small>{item.artist}</small></span></span><span className="track-release">{item.release}</span><span className="track-bpm">{item.bpm ?? "--"}</span><span className="track-key">{item.musicalKey}</span><span className="track-time">{time(item.duration)}</span><span className="track-format">{item.missing ? <span className="missing-tag" title="The file is not on disk right now">Missing</span> : item.format}</span></>}
+                    : index + 1}</span><span className="track-identity"><Artwork color={item.color} src={api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate"><strong>{item.title}</strong><small>{item.artist}</small></span></span><span className="track-release">{item.release}</span><span className="track-bpm">{item.bpm ?? "--"}</span><span className="track-key">{showKey(item.musicalKey, keyNotation)}</span><span className="track-time">{time(item.duration)}</span><span className="track-format">{item.missing ? <span className="missing-tag" title="The file is not on disk right now">Missing</span> : item.format}</span></>}
               </button>
               {!isGrid && onPlay && !item.missing && <button className="row-play" tabIndex={-1} aria-label={`Play ${item.title}`}
                 style={{ height: rowHeight }} onClick={() => { onSelect(item, index); onPlay(item, index); }}><Icon name="play" size={14} /></button>}

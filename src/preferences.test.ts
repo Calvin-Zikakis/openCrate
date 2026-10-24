@@ -7,16 +7,16 @@ describe("appearance persistence", () => {
   });
   it("validates and round-trips appearance", () => {
     let stored = "";
-    const preferences = { compact: true, reducedMotion: false, theme: "light" as const };
+    const preferences = { compact: true, reducedMotion: false, theme: "light" as const, keyNotation: "camelot" as const };
     savePreferences({ setItem: (_, value) => { stored = value; } }, preferences);
     expect(loadPreferences({ getItem: () => stored })).toEqual(preferences);
-    for (const invalid of ["{", "null", "{}", '{"compact":"yes","reducedMotion":false}', '{"compact":true,"reducedMotion":false,"theme":"blue"}']) {
+    for (const invalid of ["{", "null", "{}", '{"compact":"yes","reducedMotion":false}', '{"compact":true,"reducedMotion":false,"theme":"blue"}', '{"compact":true,"reducedMotion":false,"theme":"dark","keyNotation":"solfege"}']) {
       expect(() => loadPreferences({ getItem: () => invalid })).toThrow();
     }
   });
   it("reads settings saved before themes existed as the dark theme", () => {
     expect(loadPreferences({ getItem: () => '{"compact":true,"reducedMotion":true}' }))
-      .toEqual({ compact: true, reducedMotion: true, theme: "dark" });
+      .toEqual({ compact: true, reducedMotion: true, theme: "dark", keyNotation: "rekordbox" });
     expect(DEFAULT_PREFERENCES.theme).toBe("dark");
   });
   it("propagates storage read and write failures for UI notification", () => {

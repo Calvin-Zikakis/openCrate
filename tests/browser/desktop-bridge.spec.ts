@@ -1384,6 +1384,19 @@ test("clean up: genres spelled alike are merged, and titles and artists are fixe
   ]);
 });
 
+test("keys are shown in the chosen notation", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const row = page.getByTestId("track-row").filter({ hasText: "Rust Track 0002" });
+  await expect(row.locator(".track-key")).toHaveText("8A");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("radio", { name: "Open Key (1m)" }).check();
+  await page.keyboard.press("Escape");
+  await expect(row.locator(".track-key")).toHaveText("1m");
+  await page.reload();
+  await expect(page.getByTestId("track-row").filter({ hasText: "Rust Track 0002" }).locator(".track-key")).toHaveText("1m");
+});
+
 test("a release page can choose, find or remove its cover", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.goto("/");

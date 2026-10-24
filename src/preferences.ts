@@ -1,11 +1,16 @@
+import type { KeyNotation } from "./library/keys";
+
 export type Theme = "system" | "dark" | "light";
 export interface Preferences {
   compact: boolean;
   reducedMotion: boolean;
   /** "system" follows the computer's light or dark setting. */
   theme: Theme;
+  /** How keys are shown; "rekordbox" shows them as rekordbox wrote them. */
+  keyNotation: KeyNotation;
 }
-export const DEFAULT_PREFERENCES: Preferences = { compact: false, reducedMotion: false, theme: "dark" };
+export const DEFAULT_PREFERENCES: Preferences = { compact: false, reducedMotion: false, theme: "dark", keyNotation: "rekordbox" };
+const NOTATIONS: readonly KeyNotation[] = ["rekordbox", "camelot", "openKey", "musical"];
 const KEY = "opencrate.appearance.v1";
 const THEMES: readonly Theme[] = ["system", "dark", "light"];
 
@@ -21,7 +26,10 @@ export function loadPreferences(storage: Pick<Storage, "getItem">): Preferences 
   // Settings saved before themes existed have none: they were made with the dark theme.
   const theme = "theme" in value ? value.theme : "dark";
   if (!THEMES.includes(theme as Theme)) throw new Error("Saved appearance settings are invalid. Choose your preferences again.");
-  return { compact: value.compact, reducedMotion: value.reducedMotion, theme: theme as Theme };
+  // Settings saved before key notation existed show keys as rekordbox wrote them.
+  const keyNotation = "keyNotation" in value ? value.keyNotation : "rekordbox";
+  if (!NOTATIONS.includes(keyNotation as KeyNotation)) throw new Error("Saved appearance settings are invalid. Choose your preferences again.");
+  return { compact: value.compact, reducedMotion: value.reducedMotion, theme: theme as Theme, keyNotation: keyNotation as KeyNotation };
 }
 
 export function savePreferences(storage: Pick<Storage, "setItem">, value: Preferences) {
