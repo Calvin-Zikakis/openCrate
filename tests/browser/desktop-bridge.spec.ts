@@ -1539,6 +1539,8 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   const preview = editor.getByRole("list", { name: "Cleanup changes" });
   await expect(preview).toContainText("Title: 02 - RUST TRACK 0002 -> Rust Track 0002");
   await expect(preview).toContainText("Title: 04 - RUST TRACK 0004 -> Rust Track 0004");
+  // What was typed is listed too, before saving.
+  await expect(editor.getByRole("list", { name: "Typed changes" })).toHaveText("All 2 tracksGenre: House -> Deep House");
   await editor.getByRole("button", { name: "Save 3 changes" }).click();
   await expect(editor).toHaveCount(0);
   // Typed values and cleanup go in one call: one save, one Undo.
@@ -1593,7 +1595,16 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
   await row("0002").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit details..." }).click();
   const editor = page.getByRole("dialog", { name: "Edit details" });
+  // A field emptied by mistake is plain to see before saving.
+  await editor.getByLabel("Label").fill("Night Label");
+  await editor.getByLabel("Genre").fill("");
+  const typed = editor.getByRole("list", { name: "Typed changes" });
+  await expect(typed.locator("li.emptied")).toHaveText("02 - RUST TRACK 0002Genre: House -> (empty), the tag is removed");
+  await expect(typed).toContainText("Label: (empty) -> Night Label");
+  await editor.getByLabel("Label").fill("");
+  await expect(typed.locator("li")).toHaveCount(1);
   await editor.getByLabel("Genre").fill("Techno");
+  await expect(typed.locator("li.emptied")).toHaveCount(0);
   await editor.getByRole("button", { name: "Remove number prefixes" }).click();
   await editor.getByRole("button", { name: "Save as recipe..." }).click();
   await expect(editor.getByLabel("Recipe name")).toBeFocused();

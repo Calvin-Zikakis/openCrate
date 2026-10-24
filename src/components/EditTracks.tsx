@@ -112,7 +112,10 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
   const saveRecipe = () => {
     const name = recipeName.trim();
     if (!name) return;
-    const recipe: Recipe = { name, values: recipeValues(typed), rules: applied };
+    // A field typed in and emptied back to how it was is not an edit: kept, it would empty that
+    // field on every track the recipe is applied to.
+    const meant = Object.fromEntries(Object.entries(typed).filter(([field, value]) => value?.trim() || value !== (shared(field as EditField) ?? undefined)));
+    const recipe: Recipe = { name, values: recipeValues(meant), rules: applied };
     const next = [...recipes.filter((found) => found.name !== name), recipe];
     setRecipes(next);
     saveRecipes(localStorage, next);
@@ -258,6 +261,14 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
         <p className="settings-copy">{single ? "Each rule changes this track's own details." : "Each rule changes each track's own details."} What it would change is listed before you save.</p>
         <div className="cleanup-buttons">{RULES.map((rule) => <button key={rule.id} className="secondary-button" disabled={busy} onClick={() => setNote(applyRules([rule]))}>{rule.label}</button>)}</div>
         {note && <p className="settings-copy" role="status">{note}</p>}
+        {typedChanges.length > 0 && <ul className="cleanup-changes" aria-label="Typed changes">{typedChanges.map((change) => {
+          const from = shared(change.field);
+          const emptied = change.value.trim() === "";
+          return <li key={change.field} className={emptied ? "emptied" : undefined}>
+            <strong>{single ? tracks[0]?.title || "Untitled" : `All ${trackIds.length} tracks`}</strong>
+            <small>{`${label(change.field)}: ${from === null ? "several values" : from || "(empty)"} -> `}{emptied ? <em>(empty), the tag is removed</em> : change.value}</small>
+          </li>;
+        })}</ul>}
         {cleanedChanges.length > 0 && <ul className="cleanup-changes" aria-label="Cleanup changes">{cleanedChanges.map((change) => <li key={`${change.trackId}:${change.field}`}>
           <strong>{change.title || "Untitled"}</strong><small>{`${label(change.field)}: ${change.from || "(empty)"} -> ${change.to || "(empty)"}`}</small>
         </li>)}</ul>}

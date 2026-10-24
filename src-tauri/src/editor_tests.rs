@@ -345,6 +345,43 @@ fn every_edit_is_remembered_and_the_last_one_can_be_undone() {
     );
 }
 
+#[test]
+fn a_field_emptied_by_mistake_comes_back_with_undo() {
+    use crate::editor::undo_last;
+    let setup = setup(&["Night Drive", "Soft Focus"]);
+    let ids = ids(&setup.service);
+    edit_tracks(
+        &setup.service,
+        &[ids["Night Drive"]],
+        &[FieldChange {
+            field: "genre".into(),
+            value: String::new(),
+        }],
+    )
+    .unwrap();
+    assert_eq!(oc_tag::read_file(&setup.files[0]).unwrap().tags.genre, None);
+
+    undo_last(&setup.service, newest(&setup.service)).unwrap();
+    assert_eq!(
+        oc_tag::read_file(&setup.files[0])
+            .unwrap()
+            .tags
+            .genre
+            .as_deref(),
+        Some("House"),
+        "the emptied genre is back"
+    );
+    assert_eq!(
+        oc_tag::read_file(&setup.files[1])
+            .unwrap()
+            .tags
+            .genre
+            .as_deref(),
+        Some("House"),
+        "the other track was never touched"
+    );
+}
+
 fn retitle(setup: &Setup, title: &str, value: &str) {
     let ids = ids(&setup.service);
     edit_tracks(
