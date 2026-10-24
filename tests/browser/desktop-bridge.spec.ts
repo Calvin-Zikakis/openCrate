@@ -1774,9 +1774,17 @@ test("clean up: crates are compared, sorted and merged", async ({ page }) => {
   await expect(comparison.getByRole("heading", { name: "In both (1)" })).toBeVisible();
   await expect(comparison.getByRole("heading", { name: "Only in Warm-up (2)" })).toBeVisible();
   await expect(comparison.getByRole("heading", { name: "Only in Peak (1)" })).toBeVisible();
+  // Comparing the other way round leaves Merge and Sort as they were.
+  await card.getByLabel("First").selectOption({ label: "Peak" });
+  await card.getByLabel("Second").selectOption({ label: "Warm-up" });
+  await expect(card.getByLabel("Into")).toHaveValue("1");
+  await expect(card.getByLabel("From")).toHaveValue("2");
+  await expect(card.getByLabel(/^Crate/)).toHaveValue("1");
   await card.getByLabel("Order").selectOption("bpm");
   await card.getByRole("button", { name: "Sort crate" }).click();
-  await expect(card.getByRole("status")).toContainText("Warm-up is now in bpm order.");
+  await expect(card.getByRole("status")).toContainText("Warm-up is now in BPM order.");
+  // A comparison of crates as they were is gone once one changes.
+  await expect(card.getByRole("region", { name: "Comparison" })).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__sorted)).toEqual({ crateId: 1, sort: "bpm" });
   await card.getByLabel("From").selectOption({ label: "Peak" });
   await card.getByRole("button", { name: "Merge" }).click();

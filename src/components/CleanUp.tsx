@@ -18,7 +18,12 @@ export function leftOut(left: string[]): string {
     const name = path.split(/[\\/]/).pop() ?? path;
     byReason.set(why, [...(byReason.get(why) ?? []), name]);
   }
-  const groups = Array.from(byReason, ([why, names]) => {
+  const groups = Array.from(byReason, ([why, all]) => {
+    // Copies of one track in two music folders share a name; list it once.
+    const names = Array.from(new Set(all), (name) => {
+      const copies = all.filter((other) => other === name).length;
+      return copies > 1 ? `${name} (${copies} copies)` : name;
+    });
     const shown = names.slice(0, 3).join(", ");
     return `${shown}${names.length > 3 ? ` and ${names.length - 3} more` : ""}: ${why}.`;
   });
@@ -77,7 +82,7 @@ function GenresCard({ admin, onChanged }: Props) {
     setError("");
     try {
       const done = await admin.renameGenres(from, to.trim());
-      setNote(`${plural(done.files, "file now has", "files now have")} the genre ${to.trim()}.${leftOut(done.left)}`);
+      setNote(`${done.files === 0 ? "No file changed." : `${plural(done.files, "file now has", "files now have")} the genre ${to.trim()}.`}${leftOut(done.left)}`);
       setNames({});
       await load();
       onChanged();
@@ -302,7 +307,7 @@ function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
 
   return <section className="sync-card" role="region" aria-label="Recent changes">
     <h2>Recent changes</h2>
-    <p className="settings-copy">Every save from the editor and this screen is remembered with what the files held before. Undo puts the newest one back.</p>
+    <p className="settings-copy">Every tag change saved from the editor and this screen is remembered with what the files held before. Undo puts the newest one back. New album art is not undone this way.</p>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {note && <p role="status" className="settings-copy">{note}</p>}
     {history && history.length === 0 && <p className="settings-copy">No changes yet.</p>}
@@ -317,8 +322,18 @@ const ORDERS: { sort: Sort; label: string }[] = [
   { sort: "title", label: "Title" }, { sort: "artist", label: "Artist" }, { sort: "bpm", label: "BPM" }, { sort: "recent", label: "Recently added" },
 ];
 
+/** "title order", "BPM order": an order's label inside a sentence. */
+function orderWords(order: Sort): string {
+  const label = ORDERS.find((item) => item.sort === order)?.label ?? order;
+  return label === label.toUpperCase() ? label : label.toLowerCase();
+}
+
 function CratesCard({ admin, onChanged }: Props) {
   const [crates, setCrates] = useState<CrateInfo[]>([]);
+  // Each tool has its own choice, so comparing two crates never sets up a merge that removes one.
+  const [sorted, setSorted] = useState<number | null>(null);
+  const [into, setInto] = useState<number | null>(null);
+  const [from, setFrom] = useState<number | null>(null);
   const [first, setFirst] = useState<number | null>(null);
   const [second, setSecond] = useState<number | null>(null);
   const [remove, setRemove] = useState(true);
@@ -332,8 +347,14 @@ function CratesCard({ admin, onChanged }: Props) {
     try {
       const found = await admin.crates();
       setCrates(found);
-      setFirst((current) => current ?? found[0]?.id ?? null);
-      setSecond((current) => current ?? found[1]?.id ?? null);
+      // A choice whose crate has gone (merged away, deleted) falls back to a crate still there.
+      const keep = (fallback: number) => (current: number | null) =>
+        current !== null && found.some((crate) => crate.id === current) ? current : found[fallback]?.id ?? null;
+      setSorted(keep(0));
+      setInto(keep(0));
+      setFrom(keep(1));
+      setFirst(keep(0));
+      setSecond(keep(1));
     } catch (reason) {
       setError(message(reason));
     }
@@ -344,6 +365,8 @@ function CratesCard({ admin, onChanged }: Props) {
     setBusy(true);
     setError("");
     setNote("");
+    // A comparison is of the crates as they were; any change (or a new comparison) replaces it.
+    setComparison(null);
     try {
       setNote(await work());
       await load();
@@ -366,24 +389,24 @@ function CratesCard({ admin, onChanged }: Props) {
     <div className="crate-tools">
       <div className="crate-tool">
         <h3>Sort</h3>
-        {picker("Crate", first, setFirst)}
+        {picker("Crate", sorted, setSorted)}
         <label className="crate-pick">Order<select value={order} onChange={(event) => setOrder(event.target.value as Sort)}>{ORDERS.map((item) => <option key={item.sort} value={item.sort}>{item.label}</option>)}</select></label>
-        <button className="secondary-button" disabled={busy || first === null} onClick={() => void act(async () => { await admin.sortCrate(first!, order); return `${name(first)} is now in ${ORDERS.find((item) => item.sort === order)?.label.toLowerCase()} order.`; })}>Sort crate</button>
+        <button className="secondary-button" disabled={busy || sorted === null} onClick={() => void act(async () => { await admin.sortCrate(sorted!, order); return `${name(sorted)} is now in ${orderWords(order)} order.`; })}>Sort crate</button>
       </div>
       {crates.length > 1 && <div className="crate-tool">
         <h3>Merge</h3>
-        {picker("From", second, setSecond)}
-        {picker("Into", first, setFirst)}
+        {picker("From", from, setFrom)}
+        {picker("Into", into, setInto)}
         <label className="crate-pick"><input type="checkbox" checked={remove} onChange={(event) => setRemove(event.target.checked)} />Remove the merged crate</label>
-        <button className="secondary-button" disabled={busy || first === null || second === null || first === second} onClick={() => void act(async () => {
-          const added = await admin.mergeCrates(first!, [second!], remove);
-          return `${plural(added, "track", "tracks")} added to ${name(first)}${remove ? `; ${name(second)} removed` : ""}.`;
+        <button className="secondary-button" disabled={busy || into === null || from === null || into === from} onClick={() => void act(async () => {
+          const added = await admin.mergeCrates(into!, [from!], remove);
+          return `${plural(added, "track", "tracks")} added to ${name(into)}${remove ? `; ${name(from)} removed` : ""}.`;
         })}>Merge</button>
       </div>}
       {crates.length > 1 && <div className="crate-tool">
         <h3>Compare</h3>
-        {picker("First", first, setFirst)}
-        {picker("Second", second, setSecond)}
+        {picker("First", first, (id) => { setFirst(id); setComparison(null); })}
+        {picker("Second", second, (id) => { setSecond(id); setComparison(null); })}
         <button className="secondary-button" disabled={busy || first === null || second === null || first === second} onClick={() => void act(async () => { setComparison(await admin.compareCrates(first!, second!)); return ""; })}>Compare</button>
       </div>}
     </div>

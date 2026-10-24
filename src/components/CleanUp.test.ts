@@ -10,8 +10,9 @@ describe("files left as they were", () => {
     const damaged = "its embedded picture is damaged";
     const left = ["a", "b", "c", "d"].map((name) => `/Music/Oak/${name}.aif: ${damaged}`);
     left.push("C:\\Music\\e.mp3: file could not be opened: denied");
+    left.push(`/Music2/Oak/a.aif: ${damaged}`);
     expect(leftOut(left)).toBe(
-      " 5 files were left as they were. a.aif, b.aif, c.aif and 1 more: its embedded picture is damaged. e.mp3: file could not be opened: denied.",
+      " 6 files were left as they were. a.aif (2 copies), b.aif, c.aif and 1 more: its embedded picture is damaged. e.mp3: file could not be opened: denied.",
     );
   });
 });
