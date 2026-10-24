@@ -21,7 +21,7 @@ pub fn installed_library() -> Result<LibraryLocation, DbError> {
 pub fn rekordbox_running() -> bool {
     rbl_db::is_rekordbox_running()
 }
-pub use read::{read_snapshot, REKORDBOX_ID};
+pub use read::{decoded_folder_path, read_snapshot, REKORDBOX_ID};
 #[cfg(test)]
 use snapshot::{folder_stamp, newest_version, plist_version};
 pub use snapshot::{rekordbox_app_version, take_snapshot, Snapshot};

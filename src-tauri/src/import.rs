@@ -259,10 +259,13 @@ mod tests {
         let mut found: Vec<String> = walk(folder)
             .iter()
             .map(|path| {
+                // `/`-separated on every system, so one expectation holds everywhere.
                 path.strip_prefix(folder)
                     .unwrap()
-                    .to_string_lossy()
-                    .into_owned()
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/")
             })
             .collect();
         found.sort();

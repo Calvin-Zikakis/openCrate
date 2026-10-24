@@ -87,7 +87,7 @@ fn rekordbox_has(library: &Library, title: &str, year: &str, label: &str) {
         collection_attributes: xml::Attributes::new(),
         tracks: vec![xml::Track {
             id: 777,
-            location_bytes: location.clone().into_bytes(),
+            location_bytes: oc_rekordbox::db::decoded_folder_path(&location),
             location,
             attributes,
             cues: Vec::new(),

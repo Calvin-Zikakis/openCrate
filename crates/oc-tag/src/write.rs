@@ -123,7 +123,11 @@ pub fn rewrite_tags(path: &Path, changes: &[(TextTag, String)]) -> Result<(), Re
         .ok_or_else(|| ReadError::Parse("not a file".into()))?;
     let copy = path.with_file_name(format!(".opencrate-retag-{}", name.to_string_lossy()));
     let result = retag_copy(path, &copy, changes).and_then(|()| {
-        std::fs::File::open(&copy)?.sync_all()?;
+        // Flushing needs write access on Windows.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&copy)?
+            .sync_all()?;
         std::fs::rename(&copy, path)?;
         Ok(())
     });

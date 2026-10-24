@@ -423,9 +423,9 @@ mod tests {
                     ..TagInfo::default()
                 },
             );
-            let destination = music.join(format!(
-                "Studio 001/Between Spaces/{index:02} - {title}.aif"
-            ));
+            // The title is in the tags; the file name is plain, as an import makes it (a quote is
+            // not allowed in a Windows file name).
+            let destination = music.join(format!("Studio 001/Between Spaces/{index:02}.aif"));
             fs::create_dir_all(destination.parent().unwrap()).unwrap();
             service.publish_file(staged, destination).unwrap();
         }

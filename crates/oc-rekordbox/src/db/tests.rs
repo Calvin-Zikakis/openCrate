@@ -280,6 +280,33 @@ fn folders_nest_and_follow_their_order() {
 }
 
 #[test]
+fn database_paths_read_in_the_shape_an_export_decodes_to() {
+    // An export's Location decodes to a leading slash before the drive; rekordbox's database
+    // stores the path without one, and on a library made elsewhere, with backslashes.
+    assert_eq!(
+        decoded_folder_path("C:/Music/A/01.mp3"),
+        b"/C:/Music/A/01.mp3"
+    );
+    assert_eq!(
+        decoded_folder_path("d:\\Music\\01.mp3"),
+        b"/d:/Music/01.mp3"
+    );
+    assert_eq!(
+        decoded_folder_path("/Users/dj/Music/01.mp3"),
+        b"/Users/dj/Music/01.mp3"
+    );
+    assert_eq!(
+        decoded_folder_path("//nas/share/01.mp3"),
+        b"//nas/share/01.mp3"
+    );
+    assert_eq!(
+        decoded_folder_path("/Users/dj/a\\b.mp3"),
+        b"/Users/dj/a\\b.mp3",
+        "a backslash is a name on a Mac"
+    );
+}
+
+#[test]
 fn each_playlist_and_folder_carries_its_rekordbox_id() {
     let (live, backups) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let snapshot = snapshot_of(live.path(), backups.path(), |connection| {

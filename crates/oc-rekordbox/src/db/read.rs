@@ -54,6 +54,25 @@ fn id(text: &str) -> Result<u64, DbError> {
         .map_err(|_| DbError::Schema(format!("a rekordbox id is not a number: {text:?}")))
 }
 
+/// A stored `FolderPath` in the shape an export's Location decodes to, so both kinds of read
+/// match files the same way: a drive path gains the leading slash (`C:/Music` becomes
+/// `/C:/Music`), and its backslashes, if any, become slashes. A Mac or UNC path is unchanged.
+pub fn decoded_folder_path(folder_path: &str) -> Vec<u8> {
+    let bytes = folder_path.as_bytes();
+    let drive = matches!(bytes, [letter, b':', ..] if letter.is_ascii_alphabetic());
+    if !drive {
+        return bytes.to_vec();
+    }
+    let mut decoded = Vec::with_capacity(bytes.len() + 1);
+    decoded.push(b'/');
+    decoded.extend(
+        bytes
+            .iter()
+            .map(|byte| if *byte == b'\\' { b'/' } else { *byte }),
+    );
+    decoded
+}
+
 /// The attribute holding a playlist's or folder's id in rekordbox's library.
 pub const REKORDBOX_ID: &str = "RekordboxId";
 
@@ -119,7 +138,7 @@ fn read_tracks(connection: &Connection) -> Result<Vec<Track>, DbError> {
         let (key, location, attributes) = row?;
         tracks.push(Track {
             id: id(&key)?,
-            location_bytes: location.clone().into_bytes(),
+            location_bytes: decoded_folder_path(&location),
             location,
             attributes,
             cues: Vec::new(),
