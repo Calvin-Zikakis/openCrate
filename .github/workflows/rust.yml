@@ -36,6 +36,10 @@ jobs:
         run: npm ci && npm run build
       - name: Install pinned Rust toolchain
         run: rustup show
+      - name: Use Strawberry Perl for the OpenSSL build (Git Bash's Perl lacks modules it needs)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "OPENSSL_SRC_PERL=C:/Strawberry/perl/bin/perl.exe" >> $env:GITHUB_ENV
       - uses: Swatinem/rust-cache@v2
         with:
           # Cache the folder the build actually uses.
