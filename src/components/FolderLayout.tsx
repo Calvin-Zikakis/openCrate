@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FolderLayout as Layout, LibraryAdmin } from "../library/types";
+import { PLAIN_TEXT } from "./plainText";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 
@@ -47,7 +48,7 @@ export function FolderLayout({ admin, open }: { admin: LibraryAdmin; open: boole
       </label>
     </div>
     <form className="layout-custom" onSubmit={(event) => { event.preventDefault(); void choose(custom); }}>
-      <input id="custom-folder-layout" aria-label="Custom folder layout" value={custom} spellCheck={false} onChange={(event) => setCustom(event.target.value)} />
+      <input {...PLAIN_TEXT} id="custom-folder-layout" aria-label="Custom folder layout" value={custom} onChange={(event) => setCustom(event.target.value)} />
       <button className="secondary-button" type="submit" disabled={custom.trim() === layout.layout}>Use this</button>
     </form>
     <p className="settings-copy layout-help">{"Fields: {folder_artist}, {artist}, {album_artist}, {release}, {title}, {year}, {track:02}, {disc}, {remixer}. Use / for a folder."}</p>

@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use lofty::config::{ParseOptions, WriteOptions};
-use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
 use lofty::id3::v2::{Frame, FrameId, Id3v2Tag, TimestampFrame};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::probe::Probe;
@@ -15,6 +15,38 @@ use lofty::TextEncoding;
 
 use crate::{Cover, ReadError};
 
+fn read_with(path: &Path, cover_art: bool) -> Result<TaggedFile, ReadError> {
+    let file = std::fs::File::open(path)?;
+    Probe::new(std::io::BufReader::new(file))
+        .options(ParseOptions::new().read_cover_art(cover_art))
+        .guess_file_type()?
+        .read()
+        .map_err(|error| ReadError::Parse(error.to_string()))
+}
+
+/// A file's tags whole, pictures included, so that writing them back keeps everything. When
+/// only the picture fails to read, the file is refused as [`ReadError::DamagedPicture`].
+fn read_whole(path: &Path) -> Result<TaggedFile, ReadError> {
+    read_with(path, true).map_err(|error| match read_with(path, false) {
+        Ok(_) => ReadError::DamagedPicture,
+        Err(_) => error,
+    })
+}
+
+/// lofty writes a picture with no description into `ID3v2.3` as UTF-16 with a stray one-byte
+/// terminator, which no reader accepts afterwards (lofty included), and the whole tag then fails
+/// to read. Such a picture is given a description before anything is saved.
+fn describe_pictures(tag: &mut Tag) {
+    for index in 0..tag.pictures().len() {
+        let picture = &tag.pictures()[index];
+        if picture.description().is_none_or(str::is_empty) {
+            let mut described = picture.clone();
+            described.set_description(Some("Cover".into()));
+            tag.set_picture(index, described);
+        }
+    }
+}
+
 /// Set every field that `values` holds, replacing what the file had for those fields only;
 /// other fields and other tags stay. `cover` is embedded only if the file has no picture yet.
 /// `ID3v2` tags are written as version 2.3, which rekordbox reads most reliably (owner question 2).
@@ -23,18 +55,14 @@ pub fn write_tags(
     values: &crate::TagInfo,
     cover: Option<&Cover>,
 ) -> Result<(), ReadError> {
-    let file = std::fs::File::open(path)?;
-    let mut tagged = Probe::new(std::io::BufReader::new(file))
-        .options(ParseOptions::new().read_cover_art(true))
-        .guess_file_type()?
-        .read()
-        .map_err(|error| ReadError::Parse(error.to_string()))?;
+    let mut tagged = read_whole(path)?;
     if tagged.primary_tag().is_none() {
         tagged.insert_tag(Tag::new(tagged.primary_tag_type()));
     }
     let Some(tag) = tagged.primary_tag_mut() else {
         return Err(ReadError::Parse("this file cannot hold tags".into()));
     };
+    describe_pictures(tag);
     if let Some(value) = &values.title {
         tag.set_title(value.clone());
     }
@@ -129,12 +157,11 @@ pub fn rewrite_tags(path: &Path, changes: &[(TextTag, String)]) -> Result<(), Re
 pub fn rewrite_cover(path: &Path, cover: Option<&Cover>) -> Result<(), ReadError> {
     rewrite_through_copy(path, |copy| {
         std::fs::copy(path, copy)?;
-        let file = std::fs::File::open(copy)?;
-        let mut tagged = Probe::new(std::io::BufReader::new(file))
-            .options(ParseOptions::new().read_cover_art(true))
-            .guess_file_type()?
-            .read()
-            .map_err(|error| ReadError::Parse(error.to_string()))?;
+        // Every picture is replaced, so a damaged one need not be read: it goes.
+        let mut tagged = match read_whole(copy) {
+            Err(ReadError::DamagedPicture) => read_with(copy, false)?,
+            other => other?,
+        };
         if tagged.primary_tag().is_none() {
             tagged.insert_tag(Tag::new(tagged.primary_tag_type()));
         }
@@ -226,15 +253,11 @@ fn retag_copy(path: &Path, copy: &Path, changes: &[(TextTag, String)]) -> Result
 }
 
 fn clear(path: &Path, cleared: &[TextTag]) -> Result<(), ReadError> {
-    let file = std::fs::File::open(path)?;
-    let mut tagged = Probe::new(std::io::BufReader::new(file))
-        .options(ParseOptions::new().read_cover_art(true))
-        .guess_file_type()?
-        .read()
-        .map_err(|error| ReadError::Parse(error.to_string()))?;
+    let mut tagged = read_whole(path)?;
     let Some(tag) = tagged.primary_tag_mut() else {
         return Ok(());
     };
+    describe_pictures(tag);
     for field in cleared {
         match field {
             TextTag::Title => tag.remove_title(),
@@ -472,5 +495,105 @@ mod tests {
         };
         write_tags(&path, &TagInfo::default(), Some(&second)).unwrap();
         assert_eq!(embedded_cover(&path).unwrap().data, PNG, "kept the first");
+    }
+
+    /// A picture with no description, as many shops and taggers write it: every way openCrate
+    /// writes tags keeps it readable (it once came out with a broken description).
+    #[test]
+    fn a_picture_with_no_description_survives_every_write() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("a.aif");
+        let picture = PNG.to_vec();
+        fs::write(&path, aiff(1)).unwrap();
+        crate::fixtures::write_tags_and_cover(
+            &path,
+            &TagInfo {
+                title: Some("Night Drive".into()),
+                ..TagInfo::default()
+            },
+            Some(&picture),
+        );
+        assert_eq!(embedded_cover(&path).unwrap().data, picture);
+        let readable = |path: &Path| {
+            let file = std::fs::File::open(path).unwrap();
+            Probe::new(std::io::BufReader::new(file))
+                .options(ParseOptions::new().read_cover_art(true))
+                .guess_file_type()
+                .unwrap()
+                .read()
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        };
+        write_tags(
+            &path,
+            &TagInfo {
+                genre: Some("House".into()),
+                ..TagInfo::default()
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(readable(&path), Ok(()), "after writing tags");
+        assert_eq!(embedded_cover(&path).unwrap().data, picture);
+        rewrite_tags(&path, &[(TextTag::Genre, "Techno".into())]).unwrap();
+        rewrite_tags(&path, &[(TextTag::Label, String::new())]).unwrap();
+        assert_eq!(readable(&path), Ok(()), "after an edit and a cleared field");
+        assert_eq!(embedded_cover(&path).unwrap().data, picture);
+        assert_eq!(
+            read_file(&path).unwrap().tags.genre.as_deref(),
+            Some("Techno")
+        );
+    }
+
+    /// A file already holding such a broken picture: tag edits refuse it and leave it as it was,
+    /// and new album art replaces the picture, after which it edits like any other.
+    #[test]
+    fn a_damaged_picture_is_refused_by_edits_and_replaced_by_new_art() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("a.aif");
+        fs::write(&path, aiff(1)).unwrap();
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.set_title("Night Drive".into());
+        tag.push_picture(Picture::new_unchecked(
+            PictureType::CoverFront,
+            Some(MimeType::Png),
+            None,
+            PNG.to_vec(),
+        ));
+        // What lofty itself writes for a picture with no description in ID3v2.3.
+        let mut options = WriteOptions::default();
+        tag.save_to_path(&path, options.use_id3v23(true)).unwrap();
+        assert_eq!(
+            read_file(&path).unwrap().tags.title.as_deref(),
+            Some("Night Drive")
+        );
+        assert!(embedded_cover(&path).is_none(), "the picture does not read");
+
+        let before = fs::read(&path).unwrap();
+        let error = rewrite_tags(&path, &[(TextTag::Genre, "House".into())]).unwrap_err();
+        assert!(matches!(error, ReadError::DamagedPicture), "{error}");
+        assert!(error.to_string().contains("picture is damaged"), "{error}");
+        assert_eq!(fs::read(&path).unwrap(), before, "left exactly as it was");
+
+        let mut other = PNG.to_vec();
+        other.push(7);
+        rewrite_cover(
+            &path,
+            Some(&Cover {
+                mime: "image/png",
+                data: other.clone(),
+            }),
+        )
+        .unwrap();
+        assert_eq!(embedded_cover(&path).unwrap().data, other);
+        assert_eq!(
+            read_file(&path).unwrap().tags.title.as_deref(),
+            Some("Night Drive")
+        );
+        rewrite_tags(&path, &[(TextTag::Genre, "House".into())]).unwrap();
+        assert_eq!(
+            read_file(&path).unwrap().tags.genre.as_deref(),
+            Some("House")
+        );
     }
 }

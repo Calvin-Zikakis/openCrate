@@ -95,6 +95,12 @@ pub enum ReadError {
     Io(#[from] io::Error),
     #[error("not readable as audio: {0}")]
     Parse(String),
+    /// The tags read, but the embedded picture does not; writing the tags back would lose it.
+    #[error(
+        "its embedded picture is damaged, so openCrate leaves the file as it is rather than lose \
+         the picture; set new album art for it on Clean up to replace the picture"
+    )]
+    DamagedPicture,
 }
 
 #[must_use]

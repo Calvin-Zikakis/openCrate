@@ -21,6 +21,7 @@ import { PlayerBar, type PlayRequest } from "./components/PlayerBar";
 import { Sync } from "./components/Sync";
 import { DEFAULT_QUERY, type Format, type LibraryApi, type LibraryItem, type CrateInfo, type PlaylistInfo, type Sort, type View } from "./library/types";
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from "./preferences";
+import { PLAIN_TEXT } from "./components/plainText";
 
 /** Open or close a dialog to match the state. A close made here is marked, because its "close"
  * event arrives a moment later and must not undo an open that came in between. */
@@ -282,7 +283,7 @@ export function App({ api }: { api: LibraryApi }) {
     </aside>
     <div className="workspace">
       <header className="topbar">
-        <div className="search-box"><Icon name="search" /><input ref={searchInput} aria-label="Search library" placeholder="Search tracks, artists, releases" value={search} onChange={(event) => { setSearch(event.target.value); if (!isLibrary) setScreen("tracks"); }} /><kbd>/</kbd>{search && <button className="icon-button" aria-label="Clear search" onClick={() => setSearch("")}><Icon name="close" size={16} /></button>}</div>
+        <div className="search-box"><Icon name="search" /><input {...PLAIN_TEXT} ref={searchInput} aria-label="Search library" placeholder="Search tracks, artists, releases" value={search} onChange={(event) => { setSearch(event.target.value); if (!isLibrary) setScreen("tracks"); }} /><kbd>/</kbd>{search && <button className="icon-button" aria-label="Clear search" onClick={() => setSearch("")}><Icon name="close" size={16} /></button>}</div>
         <span className="demo-badge">{api.admin ? (api.admin.persistent ? "LOCAL LIBRARY" : "DEMO DATABASE") : "SYNTHETIC DEMO"}</span>
         <button className="icon-button settings-trigger" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>
       </header>

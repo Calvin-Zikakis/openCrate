@@ -2,9 +2,29 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { onlyCasing, proposeFixes, type ProposedFix } from "../library/cleanup";
 import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, Sort } from "../library/types";
 import { Icon } from "./Icon";
+import { PLAIN_TEXT } from "./plainText";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+/** Files a save left alone, grouped by why: "a.aif, b.aif: its embedded picture is damaged...".
+ * Each reason comes as "path: why"; the folder is dropped to keep the note short. */
+export function leftOut(left: string[]): string {
+  if (left.length === 0) return "";
+  const byReason = new Map<string, string[]>();
+  for (const item of left) {
+    const at = item.indexOf(": ");
+    const path = at < 0 ? "" : item.slice(0, at);
+    const why = at < 0 ? item : item.slice(at + 2);
+    const name = path.split(/[\\/]/).pop() ?? path;
+    byReason.set(why, [...(byReason.get(why) ?? []), name]);
+  }
+  const groups = Array.from(byReason, ([why, names]) => {
+    const shown = names.slice(0, 3).join(", ");
+    return `${shown}${names.length > 3 ? ` and ${names.length - 3} more` : ""}: ${why}.`;
+  });
+  return ` ${plural(left.length, "file was", "files were")} left as they were. ${groups.join(" ")}`;
+}
+
 /** Rows drawn; ticking all still covers every one. */
 const DRAWN = 300;
 
@@ -17,17 +37,20 @@ interface Props {
 /** Fixes across the whole library. Nothing changes until it is chosen; changes go into the files'
  * tags, and the next sync with rekordbox offers them to rekordbox. */
 export function CleanUp({ admin, onChanged }: Props) {
+  // Each save here is a new entry in Recent changes, so that list is read again after one.
+  const [saves, setSaves] = useState(0);
+  const changed = useCallback(() => { setSaves((count) => count + 1); onChanged(); }, [onChanged]);
   return <div className="sync-screen">
     <div className="feature-empty sync-hero">
       <div className="empty-icon"><Icon name="clean" size={36} /></div>
       <h1>Clean up</h1>
       <p>Fix what is untidy across your whole library. Nothing changes until you choose; changes go into the files' tags, and the next Sync with rekordbox offers them to rekordbox.</p>
     </div>
-    <HistoryCard admin={admin} onChanged={onChanged} />
-    <GenresCard admin={admin} onChanged={onChanged} />
-    <TitlesCard admin={admin} onChanged={onChanged} />
-    <ArtCard admin={admin} onChanged={onChanged} />
-    <CratesCard admin={admin} onChanged={onChanged} />
+    <HistoryCard admin={admin} onChanged={changed} saves={saves} />
+    <GenresCard admin={admin} onChanged={changed} />
+    <TitlesCard admin={admin} onChanged={changed} />
+    <ArtCard admin={admin} onChanged={changed} />
+    <CratesCard admin={admin} onChanged={changed} />
   </div>;
 }
 
@@ -54,7 +77,7 @@ function GenresCard({ admin, onChanged }: Props) {
     setError("");
     try {
       const done = await admin.renameGenres(from, to.trim());
-      setNote(`${plural(done.files, "file now has", "files now have")} the genre ${to.trim()}.${done.left.length > 0 ? ` ${plural(done.left.length, "file was", "files were")} left as they were.` : ""}`);
+      setNote(`${plural(done.files, "file now has", "files now have")} the genre ${to.trim()}.${leftOut(done.left)}`);
       setNames({});
       await load();
       onChanged();
@@ -79,7 +102,7 @@ function GenresCard({ admin, onChanged }: Props) {
           <strong>{group.members.join(", ")}</strong>
           <small>{plural(group.tracks, "track", "tracks")}</small>
         </div>
-        <input aria-label={`New name for ${group.members.join(", ")}`} value={to} onChange={(event) => setNames({ ...names, [key]: event.target.value })} />
+        <input {...PLAIN_TEXT} aria-label={`New name for ${group.members.join(", ")}`} value={to} onChange={(event) => setNames({ ...names, [key]: event.target.value })} />
         <button className="secondary-button" disabled={busy || !to.trim()} onClick={() => void rename(group.members.filter((member) => member !== to.trim()), to)}>Merge</button>
       </li>;
     })}</ul>}
@@ -88,7 +111,7 @@ function GenresCard({ admin, onChanged }: Props) {
       const to = names[genre.name] ?? genre.name;
       return <li key={genre.name} className="folder-row genre-row">
         <div className="folder-text"><strong>{genre.name}</strong><small>{plural(genre.tracks, "track", "tracks")}</small></div>
-        <input aria-label={`New name for ${genre.name}`} value={to} onChange={(event) => setNames({ ...names, [genre.name]: event.target.value })} />
+        <input {...PLAIN_TEXT} aria-label={`New name for ${genre.name}`} value={to} onChange={(event) => setNames({ ...names, [genre.name]: event.target.value })} />
         <button className="secondary-button" disabled={busy || !to.trim() || to.trim() === genre.name} onClick={() => void rename([genre.name], to)}>Rename</button>
       </li>;
     })}</ul>}
@@ -127,7 +150,7 @@ function TitlesCard({ admin, onChanged }: Props) {
     setError("");
     try {
       const done = await admin.editEach(chosen.map((track) => ({ trackId: track.trackId, changes: track.fixes.map((fix) => ({ field: fix.field, value: fix.to })) })));
-      setNote(`${plural(chosen.length, "track was", "tracks were")} cleaned up.${done.left.length > 0 ? ` ${plural(done.left.length, "file was", "files were")} left as they were.` : ""}`);
+      setNote(`${plural(chosen.length, "track was", "tracks were")} cleaned up.${leftOut(done.left)}`);
       setFound(null);
       onChanged();
     } catch (reason) {
@@ -205,7 +228,7 @@ function ArtCard({ admin, onChanged }: Props) {
     try {
       const done = await admin.setReleaseArt(release.releaseId, source);
       if (done) {
-        setNotes({ ...notes, [release.releaseId]: `${plural(done.files, "file", "files")} now ${done.files === 1 ? "has" : "have"} the cover.${done.left.length > 0 ? ` ${plural(done.left.length, "file was", "files were")} left as they were.` : ""}` });
+        setNotes({ ...notes, [release.releaseId]: `${plural(done.files, "file", "files")} now ${done.files === 1 ? "has" : "have"} the cover.${leftOut(done.left)}` });
         setMissing((before) => before?.filter((found) => found.releaseId !== release.releaseId) ?? null);
         onChanged();
       }
@@ -247,7 +270,7 @@ function ArtCard({ admin, onChanged }: Props) {
 const FIELD_NAMES: Record<string, string> = { title: "title", artist: "artist", album: "album", albumArtist: "album artist", genre: "genre", label: "label", year: "year", track: "track number" };
 const when = (ms: number) => new Date(ms).toLocaleString();
 
-function HistoryCard({ admin, onChanged }: Props) {
+function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
   const [history, setHistory] = useState<EditBatch[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
@@ -260,15 +283,14 @@ function HistoryCard({ admin, onChanged }: Props) {
       setError(message(reason));
     }
   }, [admin]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, saves]);
 
   const undo = async () => {
     setBusy(true);
     setError("");
     try {
       const done = await admin.undoLastEdit();
-      setNote(`${plural(done.files, "file is", "files are")} back as before.${done.left.length > 0 ? ` ${plural(done.left.length, "file was", "files were")} left as they were.` : ""}`);
-      await load();
+      setNote(`${plural(done.files, "file is", "files are")} back as before.${leftOut(done.left)}`);
       onChanged();
     } catch (reason) {
       setError(message(reason));

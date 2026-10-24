@@ -3,6 +3,7 @@ import { fixCasing, removeJunk, removeNumberPrefix, tidySeparators } from "../li
 import { loadRecipes, saveRecipes, type Recipe } from "../library/recipes";
 import type { CustomFields, EditField, LibraryAdmin, TrackTags } from "../library/types";
 import { Icon } from "./Icon";
+import { PLAIN_TEXT } from "./plainText";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
@@ -160,7 +161,7 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
           const common = shared(field.id);
           return <label key={field.id} className="editor-field">
             <span>{field.label}</span>
-            <input value={typed[field.id] ?? common ?? ""} inputMode={field.numeric ? "numeric" : undefined}
+            <input {...PLAIN_TEXT} value={typed[field.id] ?? common ?? ""} inputMode={field.numeric ? "numeric" : undefined}
               placeholder={common === null ? "Several values" : ""}
               onChange={(event) => setTyped((before) => ({ ...before, [field.id]: event.target.value }))} />
           </label>;
@@ -179,7 +180,7 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
           </label>}
           {!naming && (Object.keys(typed).length > 0 || applied.length > 0) && <button className="link-button" onClick={() => setNaming(true)}>Save as recipe...</button>}
           {naming && <span className="recipe-name">
-            <input aria-label="Recipe name" value={recipeName} placeholder="Name" onChange={(event) => setRecipeName(event.target.value)} />
+            <input {...PLAIN_TEXT} aria-label="Recipe name" value={recipeName} placeholder="Name" onChange={(event) => setRecipeName(event.target.value)} />
             <button className="secondary-button" disabled={!recipeName.trim()} onClick={() => {
               const recipe: Recipe = { name: recipeName.trim(), values: { ...typed }, rules: applied };
               const next = [...recipes.filter((found) => found.name !== recipe.name), recipe];
@@ -197,14 +198,14 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
           {customNames.map((name) => {
             const shared = customShared(name);
             return <label key={name} className="editor-field"><span>{name}</span>
-              <input defaultValue={shared ?? ""} placeholder={shared === null ? "Several values" : ""} aria-label={`${name} value`}
+              <input {...PLAIN_TEXT} defaultValue={shared ?? ""} placeholder={shared === null ? "Several values" : ""} aria-label={`${name} value`}
                 onBlur={(event) => { if (event.target.value !== (shared ?? "")) void setField(name, event.target.value); }} />
             </label>;
           })}
           <div className="custom-add">
-            <input list="custom-field-names" aria-label="New field name" placeholder="Field" value={newField.name} onChange={(event) => setNewField({ ...newField, name: event.target.value })} />
+            <input {...PLAIN_TEXT} list="custom-field-names" aria-label="New field name" placeholder="Field" value={newField.name} onChange={(event) => setNewField({ ...newField, name: event.target.value })} />
             <datalist id="custom-field-names">{(custom?.names ?? []).filter((name) => !customNames.includes(name)).map((name) => <option key={name} value={name} />)}</datalist>
-            <input aria-label="New field value" placeholder="Value" value={newField.value} onChange={(event) => setNewField({ ...newField, value: event.target.value })} />
+            <input {...PLAIN_TEXT} aria-label="New field value" placeholder="Value" value={newField.value} onChange={(event) => setNewField({ ...newField, value: event.target.value })} />
             <button className="secondary-button" disabled={!newField.name.trim() || !newField.value.trim()} onClick={() => { void setField(newField.name, newField.value); setNewField({ name: "", value: "" }); }}>Add</button>
           </div>
           {customError && <p role="alert" className="inline-error">{customError}</p>}

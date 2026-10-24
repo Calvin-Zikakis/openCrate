@@ -267,6 +267,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             }
             case "library_rename_genres":
               (window as any).__genresMerged = { from: args?.from, to: args?.to };
+              (window as any).__renamedGenres = true;
               return { files: 2, left: [] };
             case "library_track_names":
               return [
@@ -335,7 +336,8 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 { id: 2, savedMs: Date.UTC(2026, 9, 24, 3, 5), tracks: 1, fields: ["title"] },
                 { id: 1, savedMs: Date.UTC(2026, 9, 24, 3, 0), tracks: 2, fields: ["genre", "label"] },
               ];
-              return all.slice(undone);
+              const renamed = (window as any).__renamedGenres ? [{ id: 3, savedMs: Date.UTC(2026, 9, 24, 3, 10), tracks: 2, fields: ["genre"] }] : [];
+              return [...renamed, ...all].slice(undone);
             }
             case "library_undo_last_edit":
               (window as any).__undone = ((window as any).__undone ?? 0) + 1;
@@ -1605,6 +1607,8 @@ test("clean up: genres spelled alike are merged, and titles and artists are fixe
   await expect(genres.getByRole("status")).toContainText("2 files now have the genre Deep House.");
   expect(await page.evaluate(() => (window as any).__genresMerged)).toEqual({ from: ["deep-house"], to: "Deep House" });
   await expect(genres).toContainText("No genres are spelled two ways.");
+  // The merge is the newest save in Recent changes at once, ready to undo.
+  await expect(page.getByRole("region", { name: "Recent changes" }).getByRole("button", { name: /^Undo: genre of 2 tracks/ })).toBeVisible();
 
   const titles = page.getByRole("region", { name: "Titles and artists" });
   await titles.getByRole("button", { name: "Check titles and artists" }).click();
@@ -2185,6 +2189,17 @@ test("BPM and key say whether rekordbox analysed them or they come from the file
   await expect(key("0001")).not.toHaveClass(/from-tags/);
   await expect(key("0002")).toHaveAttribute("title", "From the file's tags. rekordbox has no key for this track yet.");
   await expect(key("0002")).toHaveClass(/from-tags/);
+});
+
+test("names and tags are typed as they are: no autocorrect, capitals or spelling marks", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Crates" }).getByRole("button", { name: "New crate" }).click();
+  for (const field of [page.getByRole("textbox", { name: "Search library" }), page.getByRole("textbox", { name: "New crate name" })]) {
+    await expect(field).toHaveAttribute("autocorrect", "off");
+    await expect(field).toHaveAttribute("autocapitalize", "off");
+    await expect(field).toHaveAttribute("spellcheck", "false");
+  }
 });
 
 test("a rekordbox folder is made from the sidebar, at the top or inside another folder", async ({ page }) => {

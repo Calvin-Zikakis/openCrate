@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { carriesCrate, carriesTracks, draggedCrate, draggedTracks } from "../library/drag";
 import type { LibraryAdmin, PlaylistInfo } from "../library/types";
+import { PLAIN_TEXT } from "./plainText";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 /** How long a confirmation stays up; a refusal stays until the next drop. */
@@ -90,7 +91,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
       setNote({ text: message(reason), failed: true, done: true });
     }
   };
-  const nameInput = <input
+  const nameInput = <input {...PLAIN_TEXT}
     className="crate-name-input"
     aria-label={naming?.parent ? `New folder in ${naming.parent.name}` : "New rekordbox folder name"}
     autoFocus

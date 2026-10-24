@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { carriesTracks, draggedTracks, setDraggedCrate } from "../library/drag";
 import type { CrateInfo, LibraryAdmin } from "../library/types";
+import { PLAIN_TEXT } from "./plainText";
 
 /** How long "Added 1 to ..." stays up. */
 const NOTE_MS = 3000;
@@ -98,7 +99,7 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
     }
   };
 
-  const nameInput = (label: string) => <input
+  const nameInput = (label: string) => <input {...PLAIN_TEXT}
     className="crate-name-input"
     aria-label={label}
     autoFocus
