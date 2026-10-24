@@ -110,7 +110,7 @@ struct Pair {
 fn pairs(connection: &Connection) -> Result<Vec<Pair>> {
     let mut statement = connection.prepare(
         "SELECT t.rb_key, tr.id, f.id,
-                tr.title, a.name, r.title, r.year, r.label,
+                tr.title, a.name, r.title, tr.year, tr.label,
                 t.name, t.artist, json_extract(t.attributes, '$.Album'),
                 json_extract(t.attributes, '$.Year'), json_extract(t.attributes, '$.Label')
          FROM rb_track t

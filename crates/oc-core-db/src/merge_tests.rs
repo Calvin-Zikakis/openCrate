@@ -186,6 +186,50 @@ fn after_a_sync_only_what_changed_since_is_offered() {
 }
 
 #[test]
+fn a_year_and_label_edited_in_opencrate_flow_to_rekordbox() {
+    let library = library();
+    rekordbox_has(&library, "Night Drive", "", "");
+    assert_eq!(found(&library), []);
+    // The editor writes the file's tags and reads the folder again; the release keeps what its
+    // first file said, so the track's own values must be the ones compared.
+    write_tags(
+        &library.night,
+        &TagInfo {
+            title: Some("Night Drive".into()),
+            artist: Some("Studio 001".into()),
+            album: Some("Between Spaces".into()),
+            year: Some(2020),
+            label: Some("Edited Label".into()),
+            ..TagInfo::default()
+        },
+    );
+    let root = library.service.roots().unwrap()[0].root.id;
+    library
+        .service
+        .scan_root(root, &ScanOptions::default())
+        .unwrap();
+    assert_eq!(
+        found(&library),
+        [
+            (
+                Field::Year,
+                "2020".into(),
+                String::new(),
+                Some(String::new()),
+                Direction::ToRekordbox
+            ),
+            (
+                Field::Label,
+                "Edited Label".into(),
+                String::new(),
+                Some(String::new()),
+                Direction::ToRekordbox
+            ),
+        ]
+    );
+}
+
+#[test]
 fn a_label_added_in_rekordbox_flows_to_opencrate() {
     let library = library();
     rekordbox_has(&library, "Night Drive", "", "");
