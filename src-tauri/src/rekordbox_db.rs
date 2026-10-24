@@ -57,7 +57,7 @@ impl Probe {
         self.running.set(Some(running));
     }
 
-    fn running(&self) -> bool {
+    pub(crate) fn running(&self) -> bool {
         if let Some(known) = self.running.get() {
             return known;
         }
@@ -66,7 +66,7 @@ impl Probe {
         found
     }
 
-    fn version(&self) -> &str {
+    pub(crate) fn version(&self) -> &str {
         self.app_version.as_deref().unwrap_or(UNKNOWN)
     }
 }
@@ -91,6 +91,12 @@ pub struct RekordboxDbDto {
     pub confirmed_version: Option<String>,
     /// On, but rekordbox has changed version since the warning was confirmed.
     pub needs_confirmation: bool,
+    /// Writing to rekordbox's library is on (it needs reading on too).
+    pub write_enabled: bool,
+    pub write_confirmed_version: Option<String>,
+    pub write_needs_confirmation: bool,
+    /// This rekordbox version is one the writer is known to work with.
+    pub write_tested: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -125,7 +131,7 @@ impl From<&Snapshot> for BackupDto {
 
 use oc_core_db::now_ms;
 
-fn backups_dir(service: &LibraryService) -> PathBuf {
+pub(crate) fn backups_dir(service: &LibraryService) -> PathBuf {
     service.data_directory().join(BACKUPS)
 }
 
@@ -143,7 +149,12 @@ fn confirmed(service: &LibraryService) -> Result<Option<String>, String> {
 
 pub fn status(service: &LibraryService, probe: &Probe) -> Result<RekordboxDbDto, String> {
     let confirmed_version = confirmed(service)?;
+    let write = crate::rekordbox_write::state(service, probe)?;
     Ok(RekordboxDbDto {
+        write_enabled: write.enabled,
+        write_confirmed_version: write.confirmed_version,
+        write_needs_confirmation: write.needs_confirmation,
+        write_tested: write.tested,
         installed: probe.location.is_some(),
         app_version: probe.app_version.clone(),
         // Only worth knowing once the setting is on: it is what a read would refuse on.
@@ -170,6 +181,8 @@ pub fn set_enabled(
             .map_err(|error| error.to_string())?,
         )
     } else {
+        // Writing needs reading: off goes with it.
+        crate::rekordbox_write::clear(service)?;
         None
     };
     service
@@ -178,7 +191,7 @@ pub fn set_enabled(
     status(service, probe)
 }
 
-fn installed(probe: &Probe) -> Result<&LibraryLocation, String> {
+pub(crate) fn installed(probe: &Probe) -> Result<&LibraryLocation, String> {
     probe
         .location
         .as_ref()

@@ -1,8 +1,13 @@
+import type { LibraryItem } from "./types";
+
 /** The drag format for library tracks. Only this app's own rows produce it. */
 export const TRACKS_MIME = "application/x-opencrate-tracks";
+/** The same tracks in full, so the player can show and play them without asking again. */
+const ITEMS_MIME = "application/x-opencrate-items";
 
-export function setDraggedTracks(data: DataTransfer, trackIds: number[], label: string) {
+export function setDraggedTracks(data: DataTransfer, trackIds: number[], label: string, items: LibraryItem[] = []) {
   data.setData(TRACKS_MIME, JSON.stringify(trackIds));
+  if (items.length > 0) data.setData(ITEMS_MIME, JSON.stringify(items));
   data.setData("text/plain", label);
   data.effectAllowed = "copyMove";
 }
@@ -18,3 +23,14 @@ export function draggedTracks(data: DataTransfer): number[] | null {
 
 /** While dragging, the data is unreadable; only its types can be checked. */
 export const carriesTracks = (data: DataTransfer) => Array.from(data.types).includes(TRACKS_MIME);
+
+/** The dragged tracks in full, or null when the drag did not carry them. */
+export function draggedItems(data: DataTransfer): LibraryItem[] | null {
+  try {
+    const parsed: unknown = JSON.parse(data.getData(ITEMS_MIME));
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((item) => typeof item === "object" && item !== null && Number.isInteger((item as LibraryItem).id) && typeof (item as LibraryItem).title === "string")) {
+      return parsed as LibraryItem[];
+    }
+  } catch { /* not ours */ }
+  return null;
+}

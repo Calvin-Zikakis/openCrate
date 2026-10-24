@@ -10,6 +10,10 @@ import {
   type LibraryItem,
   type LibraryPage,
   type LibraryQuery,
+  type MergeApplied,
+  type MergeChange,
+  type MergeReview,
+  type RekordboxWrite,
   type MirrorInfo,
   type RekordboxBackup,
   type RekordboxCandidate,
@@ -251,7 +255,7 @@ function toHealth(value: unknown): LibraryHealth {
     files: whole(value.files, "check"),
     untidy: value.untidy.map((item: unknown) => {
       if (!isRecord(item)) throw bad();
-      return { rootLabel: text(item.rootLabel, "check"), folder: text(item.folder, "check"), suggested: text(item.suggested, "check"), files: whole(item.files, "check") };
+      return { rootId: whole(item.rootId, "check"), rootLabel: text(item.rootLabel, "check"), folder: text(item.folder, "check"), suggested: text(item.suggested, "check"), files: whole(item.files, "check") };
     }),
     duplicates: value.duplicates.map((item: unknown) => {
       if (!isRecord(item) || !Array.isArray(item.files)) throw bad();
@@ -442,6 +446,47 @@ function toRekordboxDatabase(value: unknown): RekordboxDatabase {
     installed: flag(value.installed, what), appVersion: maybeText(value.appVersion, what), running: flag(value.running, what),
     enabled: flag(value.enabled, what), confirmedVersion: maybeText(value.confirmedVersion, what),
     needsConfirmation: flag(value.needsConfirmation, what),
+    writeEnabled: flag(value.writeEnabled, what), writeConfirmedVersion: maybeText(value.writeConfirmedVersion, what),
+    writeNeedsConfirmation: flag(value.writeNeedsConfirmation, what), writeTested: flag(value.writeTested, what),
+  };
+}
+
+const FIELDS = ["title", "artist", "album", "year", "label"] as const;
+const DIRECTIONS = ["toRekordbox", "toOpenCrate", "conflict"] as const;
+
+function toMergeChange(value: unknown): MergeChange {
+  const what = "merge change";
+  if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  const field = FIELDS.find((name) => name === value.field);
+  const direction = DIRECTIONS.find((name) => name === value.direction);
+  if (!field || !direction) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    rbKey: whole(value.rbKey, what), trackId: whole(value.trackId, what), title: text(value.title, what), artist: text(value.artist, what),
+    field, base: maybeText(value.base, what), ours: text(value.ours, what), theirs: text(value.theirs, what), direction,
+  };
+}
+
+function toMergeReview(value: unknown): MergeReview {
+  const what = "merge review";
+  if (!isRecord(value) || !Array.isArray(value.changes)) throw new Error(`The library returned an unreadable ${what}.`);
+  return { changes: value.changes.map(toMergeChange), canWrite: flag(value.canWrite, what) };
+}
+
+function toMergeApplied(value: unknown): MergeApplied {
+  const what = "merge result";
+  if (!isRecord(value) || !Array.isArray(value.skipped)) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    toRekordbox: whole(value.toRekordbox, what), toOpencrate: whole(value.toOpencrate, what),
+    skipped: value.skipped.map((item) => text(item, what)),
+  };
+}
+
+function toRekordboxWrite(value: unknown): RekordboxWrite {
+  const what = "rekordbox write";
+  if (!isRecord(value) || !Array.isArray(value.leftOut)) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    playlist: text(value.playlist, what), added: whole(value.added, what), imported: whole(value.imported, what),
+    leftOut: value.leftOut.map((item) => text(item, what)), readError: maybeText(value.readError, what),
   };
 }
 
@@ -616,6 +661,15 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       return toPlayer(await invoke("player_control", args).catch((error: unknown) => { throw failure(error); }));
     },
     checkLibrary: async () => toHealth(await invoke("library_check").catch((error: unknown) => { throw failure(error); })),
+    tidyFolder: async (rootId, folder) => {
+      const value: unknown = await invoke("library_tidy_folder", { rootId, folder }).catch((error: unknown) => { throw failure(error); });
+      const what = "tidied folder";
+      if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
+      return {
+        folder: text(value.folder, what), suggested: text(value.suggested, what), moved: whole(value.moved, what),
+        relocated: whole(value.relocated, what), left: value.left.map((item) => text(item, what)),
+      };
+    },
     folderLayout: async () => toLayout(await invoke("library_folder_layout").catch((error: unknown) => { throw failure(error); })),
     setFolderLayout: async (layout) => toLayout(await invoke("library_set_folder_layout", { layout }).catch((error: unknown) => { throw failure(error); })),
     setWatchFolderEnabled: async (id, enabled) => {
@@ -696,6 +750,15 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     setRekordboxDatabase: async (enabled) =>
       toRekordboxDatabase(await invoke("rekordbox_db_enable", { enabled }).catch((error: unknown) => { throw failure(error); })),
     readRekordboxDatabase: async () => toImport(await invoke("rekordbox_db_read").catch((error: unknown) => { throw failure(error); })),
+    setRekordboxWrite: async (enabled) =>
+      toRekordboxDatabase(await invoke("rekordbox_db_enable_write", { enabled }).catch((error: unknown) => { throw failure(error); })),
+    addToRekordboxPlaylist: async (playlistId, trackIds) =>
+      toRekordboxWrite(await invoke("rekordbox_add_to_playlist", { playlistId, trackIds }).catch((error: unknown) => { throw failure(error); })),
+    reviewRekordboxMerge: async () => toMergeReview(await invoke("rekordbox_merge_review").catch((error: unknown) => { throw failure(error); })),
+    applyRekordboxMerge: async (choices) =>
+      toMergeApplied(await invoke("rekordbox_merge_apply", { choices }).catch((error: unknown) => { throw failure(error); })),
+    sendNewToRekordbox: async (fileIds) =>
+      toRekordboxWrite(await invoke("rekordbox_send_new", { fileIds: fileIds ?? null }).catch((error: unknown) => { throw failure(error); })),
     rekordboxBackups: async () => toBackups(await invoke("rekordbox_backups").catch((error: unknown) => { throw failure(error); })),
     pinRekordboxBackup: async (name, pinned) =>
       toBackups(await invoke("rekordbox_backup_pin", { name, pinned }).catch((error: unknown) => { throw failure(error); })),

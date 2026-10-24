@@ -138,3 +138,32 @@ pub fn check(connection: &Connection) -> Result<Health> {
     }
     Ok(health)
 }
+
+/// Every present file below `folder` (as the check shows it, `/`-separated) in a music folder,
+/// with its path inside the music folder as components.
+pub fn files_below(
+    connection: &Connection,
+    root_id: i64,
+    folder: &str,
+) -> Result<Vec<(i64, Vec<Vec<u8>>)>> {
+    let depth = folder.split('/').count();
+    let mut statement = connection.prepare(
+        "SELECT id, path_raw FROM file WHERE root_id = ?1 AND presence = 'present' \
+         AND lifecycle = 'active' ORDER BY path_raw",
+    )?;
+    let rows = statement.query_map([root_id], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
+    })?;
+    let mut found = Vec::new();
+    for row in rows {
+        let (file_id, path) = row?;
+        let components: Vec<&[u8]> = path.split(|byte| *byte == 0).collect();
+        if components.len() > depth && shown(&components[..depth]) == folder {
+            found.push((
+                file_id,
+                components.iter().map(|part| part.to_vec()).collect(),
+            ));
+        }
+    }
+    Ok(found)
+}

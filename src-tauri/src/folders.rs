@@ -550,6 +550,7 @@ mod tests {
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UntidyFolderDto {
+    pub root_id: i64,
     pub root_label: String,
     pub folder: String,
     pub suggested: String,
@@ -587,6 +588,7 @@ pub fn check_health(service: &LibraryService) -> Result<HealthDto, String> {
             .untidy
             .into_iter()
             .map(|folder| UntidyFolderDto {
+                root_id: folder.root_id,
                 root_label: labels.get(&folder.root_id).cloned().unwrap_or_default(),
                 folder: folder.folder,
                 suggested: folder.suggested,

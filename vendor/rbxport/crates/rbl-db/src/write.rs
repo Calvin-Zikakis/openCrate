@@ -4203,6 +4203,10 @@ fn normalized(path: &Path) -> PathBuf {
             other => out.push(other),
         }
     }
+    // openCrate patch: rekordbox writes its own Windows paths with forward slashes
+    // (`C:/Users/...`, see `locate.rs`); `push` would join with backslashes.
+    #[cfg(windows)]
+    let out = PathBuf::from(out.to_string_lossy().replace('\\', "/"));
     out
 }
 

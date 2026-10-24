@@ -8,6 +8,9 @@
 - Licence: GPL-2.0-or-later (see `LICENSE`), used here under GPL-3.0-or-later.
 - Local changes: the workspace manifest lists only these crates and drops the release profiles (the openCrate root
   profiles apply); `rbl-anlz`'s dev-dependencies are removed because they name crates not copied here;
-  `rustfmt.toml` turns formatting off so the code stays as published. No source file is changed.
+  `rustfmt.toml` turns formatting off so the code stays as published. One source change, marked "openCrate
+patch": `normalized()` in `rbl-db/src/write.rs` returns forward slashes on Windows, the form rekordbox uses for its
+own paths there, so imported files are stored as `C:/...` and `track_id_at` finds them. openCrate also refuses to add
+files to a library that stores backslashes (`oc-rekordbox` `check_path_form`). Carry the patch over on an update.
 - To update: copy the same files from a newer commit, record it here, and read every change to `rbl-db/src/write.rs`
   before use.

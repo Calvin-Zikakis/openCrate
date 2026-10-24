@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import type { PlanFile, TagView } from "../library/types";
 
 type Field = { value: string | null; guessed: boolean; tidiedFrom: string | null };
@@ -125,9 +125,19 @@ export function PlanTable({ files }: { files: PlanFile[] }) {
     });
   };
 
+  // Opened near the bottom or right edge, the menu moves so all of it stays in the window.
+  useLayoutEffect(() => {
+    const element = menuRef.current;
+    if (!menu || !element) return;
+    const box = element.getBoundingClientRect();
+    const margin = 8;
+    element.style.left = `${Math.max(margin, Math.min(menu.x, window.innerWidth - box.width - margin))}px`;
+    element.style.top = `${Math.max(margin, Math.min(menu.y, window.innerHeight - box.height - margin))}px`;
+  }, [menu]);
+
   useEffect(() => {
     if (!menu) return;
-    menuRef.current?.querySelector<HTMLElement>("[role=menuitemcheckbox]:not([aria-disabled=true])")?.focus();
+    menuRef.current?.querySelector<HTMLElement>("[role=menuitemcheckbox]:not([aria-disabled=true])")?.focus({ preventScroll: true });
     const close = (event: Event) => {
       if (event instanceof MouseEvent && menuRef.current?.contains(event.target as Node)) return;
       setMenu(null);

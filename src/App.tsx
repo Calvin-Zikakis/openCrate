@@ -19,6 +19,43 @@ import { Sync } from "./components/Sync";
 import { DEFAULT_QUERY, type Format, type LibraryApi, type LibraryItem, type CrateInfo, type PlaylistInfo, type Sort, type View } from "./library/types";
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from "./preferences";
 
+/** Open or close a dialog to match the state. A close made here is marked, because its "close"
+ * event arrives a moment later and must not undo an open that came in between. */
+function showOrClose(element: HTMLDialogElement | null, open: boolean) {
+  if (!element) return;
+  if (open && !element.open) element.showModal();
+  if (!open && element.open) {
+    element.dataset.closedHere = "true";
+    element.close();
+  }
+}
+
+/** Whether a "close" event came from the browser (Escape, for one) rather than from `showOrClose`. */
+function closedByBrowser(element: HTMLDialogElement): boolean {
+  const ours = element.dataset.closedHere === "true";
+  delete element.dataset.closedHere;
+  return !ours;
+}
+
+/** Pointer handlers that close a modal dialog when a click starts and ends on its backdrop. A
+ * native dialog receives backdrop clicks itself, so the point is checked against its box. */
+function closesOutside(close: () => void) {
+  const outside = (event: React.PointerEvent<HTMLDialogElement> | React.MouseEvent<HTMLDialogElement>) => {
+    if (event.target !== event.currentTarget) return false;
+    const box = event.currentTarget.getBoundingClientRect();
+    return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+  };
+  return {
+    // Kept on the element, so a render between press and release does not forget it.
+    onPointerDown: (event: React.PointerEvent<HTMLDialogElement>) => { event.currentTarget.dataset.pressedOutside = String(outside(event)); },
+    onClick: (event: React.MouseEvent<HTMLDialogElement>) => {
+      const pressed = event.currentTarget.dataset.pressedOutside === "true";
+      delete event.currentTarget.dataset.pressedOutside;
+      if (pressed && outside(event)) close();
+    },
+  };
+}
+
 type Screen = View | "import" | "sync";
 const NAV: { screen: Screen; name: string; icon: IconName }[] = [
   { screen: "tracks", name: "Tracks", icon: "tracks" },
@@ -47,9 +84,27 @@ export function App({ api }: { api: LibraryApi }) {
   const [selected, setSelected] = useState<LibraryItem | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [playRequest, setPlayRequest] = useState<PlayRequest | null>(null);
+  /** Tracks to play before the list carries on. */
+  const [queue, setQueue] = useState<LibraryItem[]>([]);
   const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
   const [settingsError, setSettingsError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Cmd+, (Ctrl+, on Windows) opens Settings, as does the macOS app menu, which sends this event.
+  useEffect(() => {
+    const open = () => setSettingsOpen(true);
+    const key = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key === ",") {
+        event.preventDefault();
+        open();
+      }
+    };
+    window.addEventListener("opencrate:open-settings", open);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("opencrate:open-settings", open);
+      window.removeEventListener("keydown", key);
+    };
+  }, []);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const analysisDialog = useRef<HTMLDialogElement>(null);
   const [libraryVersion, setLibraryVersion] = useState(0);
@@ -79,14 +134,8 @@ export function App({ api }: { api: LibraryApi }) {
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
   }, []);
-  useEffect(() => {
-    if (analysisOpen) analysisDialog.current?.showModal();
-    else analysisDialog.current?.close();
-  }, [analysisOpen]);
-  useEffect(() => {
-    if (settingsOpen) dialog.current?.showModal();
-    else dialog.current?.close();
-  }, [settingsOpen]);
+  useEffect(() => { showOrClose(analysisDialog.current, analysisOpen); }, [analysisOpen]);
+  useEffect(() => { showOrClose(dialog.current, settingsOpen); }, [settingsOpen]);
 
   const updatePreferences = (value: Preferences) => {
     setPreferences(value);
@@ -148,6 +197,13 @@ export function App({ api }: { api: LibraryApi }) {
     setFocus(item); setScreen("tracks"); setSearch(""); setFormat("all");
   };
   const isLibrary = screen !== "import" && screen !== "sync";
+  /** Play a whole release, artist, crate or playlist from its first track that can be played. */
+  const playAll = async () => {
+    const page = await api.read(query, 0, 50, new AbortController().signal).catch(() => null);
+    const index = page?.items.findIndex((item) => !item.missing) ?? -1;
+    const item = index >= 0 ? page?.items[index] : undefined;
+    if (item) setPlayRequest({ item, index, query, nonce: Date.now() });
+  };
   const heading = crate?.name ?? playlist?.name ?? focus?.title ?? (screen === "tracks" ? "Tracks" : screen === "releases" ? "Releases" : "Artists");
 
   return <div className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
@@ -158,7 +214,7 @@ export function App({ api }: { api: LibraryApi }) {
       <nav aria-label="Main navigation">{NAV.map(({ screen: target, name, icon }) => <button key={target} aria-label={name} onClick={() => navigate(target)} aria-current={screen === target ? "page" : undefined} className={target === "import" ? "nav-divider" : ""}><Icon name={icon} /><span>{name}</span>{screen === target && <span className="nav-dot" />}</button>)}</nav>
       <div className="sidebar-lists">
       {api.admin && <Crates admin={api.admin} version={crateVersion} activeId={crate?.id ?? null} onOpen={openCrate} onChanged={crateChanged} onRenamed={(next) => setCrate((current) => (current?.id === next.id ? next : current))} onDeleted={(id) => { if (crate?.id === id) navigate("tracks"); }} />}
-      {api.admin ? <Playlists admin={api.admin} version={libraryVersion} activeId={playlist?.id ?? null} onOpen={openPlaylist} /> : <div className="playlist-note"><div className="nav-caption">PLAYLISTS</div><p>From your rekordbox export.</p><span>Needs a library on disk.</span></div>}
+      {api.admin ? <Playlists admin={api.admin} version={libraryVersion} activeId={playlist?.id ?? null} onOpen={openPlaylist} onChanged={refreshLibrary} /> : <div className="playlist-note"><div className="nav-caption">PLAYLISTS</div><p>From your rekordbox export.</p><span>Needs a library on disk.</span></div>}
       </div>
       <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} />
       <div className="sidebar-bottom"><div className="demo-dot" /><div><strong>{api.admin ? (api.admin.persistent ? "Local library" : "Demo database") : "Demo workspace"}</strong><small>{api.admin ? "Folders are only read" : "No files connected"}</small></div></div>
@@ -176,31 +232,31 @@ export function App({ api }: { api: LibraryApi }) {
         {isLibrary ? <>
           {api.admin && <Welcome admin={api.admin} onOpenRekordbox={() => navigate("sync")} onLibraryChanged={refreshLibrary} />}
           <div className="library-hero">
-            <div>{focus && <button className="back-link" onClick={() => { setScreen(focus.kind); setFocus(null); setSort("recent"); }}><Icon name="back" size={14} />Back to {focus.kind}</button>}{crate && <button className="back-link" onClick={() => { setCrate(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{playlist && <button className="back-link" onClick={() => { setPlaylist(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{(playlist || crate || focus) && <div className="eyebrow">{playlist ? "REKORDBOX PLAYLIST" : crate ? "CRATE" : focus?.kind === "artists" ? "ARTIST" : "RELEASE"}</div>}<h1>{heading}</h1>{playlist ? <p>{`${playlist.inLibrary} of ${playlist.entries} tracks are in your library. The rest are not in your folders.`}</p> : focus ? <p>{`${focus.trackCount} ${focus.trackCount === 1 ? "track" : "tracks"}`}{focus.kind === "releases" ? ` by ${focus.artist}` : ""}</p> : crate ? <p>Kept in openCrate only. rekordbox is not changed.</p> : <p className="page-note">{PAGE_NOTES[screen === "releases" || screen === "artists" ? screen : "tracks"]}</p>}</div>
+            <div>{focus && <button className="back-link" onClick={() => { setScreen(focus.kind); setFocus(null); setSort("recent"); }}><Icon name="back" size={14} />Back to {focus.kind}</button>}{crate && <button className="back-link" onClick={() => { setCrate(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{playlist && <button className="back-link" onClick={() => { setPlaylist(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{(playlist || crate || focus) && <div className="eyebrow">{playlist ? "REKORDBOX PLAYLIST" : crate ? "CRATE" : focus?.kind === "artists" ? "ARTIST" : "RELEASE"}</div>}<h1>{heading}</h1>{api.admin && (playlist || crate || focus) && <button className="play-all" onClick={() => void playAll()}><Icon name="play" size={16} />Play all</button>}{playlist ? <p>{`${playlist.inLibrary} of ${playlist.entries} tracks are in your library. The rest are not in your folders.`}</p> : focus ? <p>{`${focus.trackCount} ${focus.trackCount === 1 ? "track" : "tracks"}`}{focus.kind === "releases" ? ` by ${focus.artist}` : ""}</p> : crate ? <p>Kept in openCrate only. rekordbox is not changed.</p> : <p className="page-note">{PAGE_NOTES[screen === "releases" || screen === "artists" ? screen : "tracks"]}</p>}</div>
             <div className="hero-art" aria-hidden="true">{focus?.kind === "artists" ? <ArtistArtwork api={api} artistId={focus.id} color={focus.color} large /> : <Artwork color={focus?.color ?? 1} large src={focus ? api.artworkUrl?.(focus.releaseId) ?? null : null} />}<div className="hero-disc" /></div>
           </div>
           <div className="library-toolbar">
             <div className="format-filters" role="group" aria-label="Format filters">{screen === "tracks" ? (["all", "AIFF", "MP3", "FLAC"] as const).map((value) => <button key={value} aria-pressed={format === value} onClick={() => setFormat(value)}>{value === "all" ? "All tracks" : value}</button>) : <span />}</div>
             <div className="view-options">{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="recent">Recently added</option><option value="title">Title</option><option value="artist">Artist</option>{screen === "tracks" && <option value="bpm">BPM</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label></div>
           </div>
-          <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restoreScroll} version={crateVersion} />
+          <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restoreScroll} version={crateVersion} />
         </> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "import" && api.admin ? <Import admin={api.admin} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : "rekordbox"}</h1><p>{screen === "import" ? "Watching download folders needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}
       </main>
     </div>
-    <PlayerBar api={api} selected={selected} selectedIndex={selectedIndex} query={query} request={playRequest}
+    <PlayerBar api={api} selected={selected} selectedIndex={selectedIndex} query={query} request={playRequest} queue={queue} onQueueChange={setQueue}
       analysis={api.admin && selected?.kind === "tracks" ? <button className="secondary-button analysis-button" onClick={() => setAnalysisOpen(true)}>Cues and grid</button> : null} />
-    <dialog ref={analysisDialog} className="settings-dialog" aria-labelledby="analysis-title" onCancel={() => setAnalysisOpen(false)} onClose={() => setAnalysisOpen(false)}>
+    <dialog ref={analysisDialog} className="settings-dialog" {...closesOutside(() => setAnalysisOpen(false))} aria-labelledby="analysis-title" onCancel={() => setAnalysisOpen(false)} onClose={(event) => { if (closedByBrowser(event.currentTarget)) setAnalysisOpen(false); }}>
       <div className="dialog-heading"><div><div className="eyebrow">FROM REKORDBOX</div><h2 id="analysis-title">Cues and beat grid</h2></div><button autoFocus className="icon-button" aria-label="Close cues and grid" onClick={() => setAnalysisOpen(false)}><Icon name="close" /></button></div>
       <div className="dialog-body">
         {analysisOpen && api.admin && selected?.kind === "tracks" && <><p className="settings-copy"><strong>{selected.title}</strong> - {selected.artist}</p><Analysis admin={api.admin} trackId={selected.id} title={selected.title} /></>}
       </div>
     </dialog>
-    <dialog ref={dialog} className="settings-dialog" aria-labelledby="settings-title" onCancel={() => setSettingsOpen(false)} onClose={() => setSettingsOpen(false)}>
+    <dialog ref={dialog} className="settings-dialog" {...closesOutside(() => setSettingsOpen(false))} aria-labelledby="settings-title" onCancel={() => setSettingsOpen(false)} onClose={(event) => { if (closedByBrowser(event.currentTarget)) setSettingsOpen(false); }}>
       <div className="dialog-heading"><div><h2 id="settings-title">Settings</h2></div><button autoFocus className="icon-button" aria-label="Close settings" onClick={() => setSettingsOpen(false)}><Icon name="close" /></button></div>
       <div className="dialog-body">
       <h3>Appearance</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label>
       {settingsError && <p role="alert" className="inline-error">{settingsError}</p>}
-      {api.admin ? <><Folders admin={api.admin} open={settingsOpen} onChanged={refreshLibrary} /><Downloads admin={api.admin} open={settingsOpen} /><FolderLayout admin={api.admin} open={settingsOpen} /><LibraryCheck admin={api.admin} /><RekordboxDatabase admin={api.admin} open={settingsOpen} /></> : <><h3>Music folders</h3><p className="settings-copy">Download and library folders will be chosen with the system folder picker. Folder selection is not connected in this demo.</p><h3>rekordbox</h3><p className="settings-copy">XML export will be the default read-back. Reading rekordbox's own library will be off by default and read a backup copy only. Neither is enabled here.</p></>}
+      {api.admin ? <><Folders admin={api.admin} open={settingsOpen} onChanged={refreshLibrary} /><Downloads admin={api.admin} open={settingsOpen} /><FolderLayout admin={api.admin} open={settingsOpen} /><LibraryCheck admin={api.admin} onChanged={refreshLibrary} /><RekordboxDatabase admin={api.admin} open={settingsOpen} /></> : <><h3>Music folders</h3><p className="settings-copy">Download and library folders will be chosen with the system folder picker. Folder selection is not connected in this demo.</p><h3>rekordbox</h3><p className="settings-copy">XML export will be the default read-back. Reading rekordbox's own library will be off by default and read a backup copy only. Neither is enabled here.</p></>}
       <div className="settings-footnote">{api.admin ? "Your folders are only read. Nothing is uploaded." : "100,000 synthetic tracks. No music, credentials or personal data."}</div>
       </div>
     </dialog>

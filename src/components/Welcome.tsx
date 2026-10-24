@@ -105,7 +105,7 @@ export function Welcome({ admin, onOpenRekordbox, onLibraryChanged }: Props) {
       </li>
       <li className={downloads.length > 0 ? "is-done" : ""}>
         <strong>Download folders</strong>
-        <small>Where Bandcamp and Soulseek save new music. New releases there show on the Import screen; the originals are never changed.</small>
+        <small>Where new music lands when you download it. New releases there show on the Import screen; the originals are never changed.</small>
         {downloads.map((folder) => <span key={folder.id} className="welcome-done">{folder.label}</span>)}
         <button className="secondary-button" disabled={busy} onClick={() => void addDownloads()}>{downloads.length > 0 ? "Add another download folder..." : "Add a download folder..."}</button>
       </li>

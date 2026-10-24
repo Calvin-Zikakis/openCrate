@@ -22,6 +22,16 @@ describe("the player's waveform and clock", () => {
     expect(shown[2]).toEqual({ low: 30, mid: 3, high: 0 });
     expect(columns(detail, 0, 0, 1)).toEqual([]);
   });
+  it("keeps a short peak on screen at every step of the scroll, so nothing blinks", () => {
+    // Two slices to a pixel, and one loud slice: as the playhead moves by less than a slice,
+    // the peak must stay in some pixel at full height.
+    const low = Array.from({ length: 200 }, (_, i) => (i === 100 ? 255 : 10));
+    const detail = { perSecond: 100, low, mid: low.map(() => 0), high: low.map(() => 0) };
+    for (let at = 900; at < 920; at += 1) {
+      const peak = Math.max(...columns(detail, at, 50, 1).map((column) => column?.low ?? 0));
+      expect(peak, `at ${at} ms`).toBe(255);
+    }
+  });
   it("draws the loudest band first so none is hidden", () => {
     expect(byLevel({ low: 40, mid: 200, high: 90 })).toEqual([["mid", 200], ["high", 90], ["low", 40]]);
   });

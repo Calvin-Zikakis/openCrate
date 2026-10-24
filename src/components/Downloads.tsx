@@ -66,7 +66,7 @@ export function Downloads({ admin, open }: Props) {
 
   return <section aria-label="Download folders">
     <h3>Download folders</h3>
-    <p className="settings-copy">Where Bandcamp and Soulseek put your downloads. openCrate only reads these folders; it never moves, renames or deletes anything in them. Importing is not connected yet.</p>
+    <p className="settings-copy">Where new music lands when you download it. openCrate only reads these folders; it never moves, renames or deletes anything in them.</p>
     {folders.length === 0
       ? <p className="settings-copy">No download folders yet.</p>
       : <ul className="folder-list">{folders.map((folder) => <li key={folder.id} className="folder-row">

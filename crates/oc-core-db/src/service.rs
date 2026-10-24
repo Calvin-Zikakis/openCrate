@@ -221,6 +221,45 @@ impl LibraryService {
         })?
     }
 
+    /// What differs between openCrate and rekordbox's last direct read, field by field; fields
+    /// that agree become the merge's base.
+    pub fn merge_review(&self) -> Result<Vec<crate::merge::Change>> {
+        self.writer
+            .run(|database| database.merge_review(now_ms()))?
+    }
+
+    /// Record values both sides now hold, after a sync applied them.
+    pub fn record_merge_base(&self, agreed: Vec<(i64, crate::merge::Field, String)>) -> Result<()> {
+        self.writer
+            .run(move |database| database.record_merge_base(&agreed, now_ms()))?
+    }
+
+    /// rekordbox's id for a playlist or folder read directly from its library; none for one
+    /// from an export.
+    pub fn rekordbox_playlist_key(&self, playlist_id: i64) -> Result<Option<String>> {
+        crate::offers::rekordbox_playlist_key(self.pool.lease().connection(), playlist_id)
+    }
+
+    /// For each track, in order: rekordbox's id for it from the last direct read, or the file to
+    /// add when rekordbox does not have it.
+    pub fn rekordbox_members(
+        &self,
+        track_ids: &[i64],
+    ) -> Result<Vec<crate::offers::RekordboxMember>> {
+        let mut members = Vec::with_capacity(track_ids.len());
+        for &track_id in track_ids {
+            let known = crate::offers::rekordbox_key(self.pool.lease().connection(), track_id)?;
+            members.push(match known {
+                Some(key) => crate::offers::RekordboxMember::Known(key),
+                None => match self.track_file(track_id)? {
+                    Some(path) => crate::offers::RekordboxMember::File(path),
+                    None => crate::offers::RekordboxMember::NoFile,
+                },
+            });
+        }
+        Ok(members)
+    }
+
     /// Files openCrate filed that rekordbox does not have yet, newest first, and when rekordbox
     /// was last read (none if never), so the page can say when the answer may be stale.
     pub fn rekordbox_candidates(&self) -> Result<(Vec<crate::offers::Candidate>, Option<i64>)> {
@@ -437,6 +476,35 @@ impl LibraryService {
             }
         }
         Ok(paths)
+    }
+
+    /// Every present file below a folder the library check names, with its path inside the
+    /// music folder as components.
+    pub fn files_below(&self, root_id: i64, folder: &str) -> Result<Vec<(i64, Vec<Vec<u8>>)>> {
+        crate::health::files_below(self.pool.lease().connection(), root_id, folder)
+    }
+
+    /// rekordbox's id for a library file, when the last direct read matched it.
+    pub fn rekordbox_file_key(&self, file_id: i64) -> Result<Option<String>> {
+        crate::offers::rekordbox_file_key(self.pool.lease().connection(), file_id)
+    }
+
+    /// A library file's root and full path, when it is present.
+    pub fn file_location(&self, file_id: i64) -> Result<Option<(i64, PathBuf)>> {
+        use rusqlite::OptionalExtension;
+        let lease = self.pool.lease();
+        let row: Option<(i64, Vec<u8>, Vec<u8>)> = lease
+            .connection()
+            .query_row(
+                "SELECT r.id, r.path_raw, f.path_raw FROM file f JOIN library_root r ON r.id = f.root_id \
+                 WHERE f.id = ?1 AND f.presence = 'present'",
+                [file_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        Ok(row.and_then(|(root_id, root, relative)| {
+            crate::catalog::full_path(&root, &relative).map(|path| (root_id, path))
+        }))
     }
 
     /// The file to play for a track: a present, active one, lossless first. `None` when the track

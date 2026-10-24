@@ -6,6 +6,7 @@ pub mod downloads;
 pub mod health;
 pub mod library;
 pub mod matching;
+pub mod merge;
 pub mod mirror;
 pub mod offers;
 pub mod publish_store;
@@ -56,6 +57,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/014_rekordbox_offer.sql"),
     include_str!("schema/015_rekordbox_hidden.sql"),
     include_str!("schema/016_waveform_format.sql"),
+    include_str!("schema/017_merge_base.sql"),
 ];
 
 #[derive(Debug, Error)]
@@ -366,6 +368,8 @@ mod downloads_tests;
 mod health_tests;
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod merge_tests;
 #[cfg(test)]
 mod mirror_tests;
 #[cfg(test)]

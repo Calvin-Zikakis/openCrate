@@ -1,5 +1,6 @@
-//! Writing tags into a staged copy before it is filed. Never used on a file in a download folder
-//! or in the library: the importer calls it only on its own copy in the staging folder.
+//! Writing tags. `write_tags` writes into a staged copy before it is filed and is never used on
+//! a file in a download folder or in the library. `rewrite_tags` changes a file already in the
+//! library, only for a change the owner ticked in the rekordbox sync, and never in place.
 
 use std::path::Path;
 
@@ -102,6 +103,95 @@ pub fn write_tags(
     id3.save_to_path(path, options).map_err(failed)
 }
 
+/// A text field the rekordbox sync can change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextTag {
+    Title,
+    Artist,
+    Album,
+    Year,
+    Label,
+}
+
+/// Change `changes` in a file already in the library; an empty value removes the field. The
+/// file is never half written: the change goes into a copy beside it, which is flushed to disk
+/// and then takes the file's place in one rename. On any failure the copy is removed and the
+/// file is exactly as it was.
+pub fn rewrite_tags(path: &Path, changes: &[(TextTag, String)]) -> Result<(), ReadError> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| ReadError::Parse("not a file".into()))?;
+    let copy = path.with_file_name(format!(".opencrate-retag-{}", name.to_string_lossy()));
+    let result = retag_copy(path, &copy, changes).and_then(|()| {
+        std::fs::File::open(&copy)?.sync_all()?;
+        std::fs::rename(&copy, path)?;
+        Ok(())
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&copy);
+    }
+    result
+}
+
+fn retag_copy(path: &Path, copy: &Path, changes: &[(TextTag, String)]) -> Result<(), ReadError> {
+    std::fs::copy(path, copy)?;
+    let cleared: Vec<TextTag> = changes
+        .iter()
+        .filter(|(_, value)| value.trim().is_empty())
+        .map(|(tag, _)| *tag)
+        .collect();
+    if !cleared.is_empty() {
+        clear(copy, &cleared)?;
+    }
+    let mut values = crate::TagInfo::default();
+    for (tag, value) in changes.iter().filter(|(_, value)| !value.trim().is_empty()) {
+        let value = value.trim().to_owned();
+        match tag {
+            TextTag::Title => values.title = Some(value),
+            TextTag::Artist => values.artist = Some(value),
+            TextTag::Album => values.album = Some(value),
+            TextTag::Label => values.label = Some(value),
+            TextTag::Year => {
+                values.year = Some(
+                    value
+                        .parse()
+                        .map_err(|_| ReadError::Parse(format!("\"{value}\" is not a year")))?,
+                );
+            }
+        }
+    }
+    if values.is_empty() {
+        return Ok(());
+    }
+    write_tags(copy, &values, None)
+}
+
+fn clear(path: &Path, cleared: &[TextTag]) -> Result<(), ReadError> {
+    let file = std::fs::File::open(path)?;
+    let mut tagged = Probe::new(std::io::BufReader::new(file))
+        .options(ParseOptions::new().read_cover_art(true))
+        .guess_file_type()?
+        .read()
+        .map_err(|error| ReadError::Parse(error.to_string()))?;
+    let Some(tag) = tagged.primary_tag_mut() else {
+        return Ok(());
+    };
+    for field in cleared {
+        match field {
+            TextTag::Title => tag.remove_title(),
+            TextTag::Artist => tag.remove_artist(),
+            TextTag::Album => tag.remove_album(),
+            TextTag::Year => tag.remove_year(),
+            TextTag::Label => tag.remove_key(&ItemKey::Label),
+        }
+    }
+    let mut options = WriteOptions::default();
+    let options = options.use_id3v23(true);
+    tagged
+        .save_to_path(path, options)
+        .map_err(|error| ReadError::Parse(error.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -114,6 +204,56 @@ mod tests {
     const PNG: &[u8] = &[
         0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, b'I', b'H', b'D', b'R',
     ];
+
+    #[test]
+    fn a_library_file_is_retagged_through_a_copy_and_a_cleared_field_goes() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("a.mp3");
+        fs::write(&path, mp3(20)).unwrap();
+        fixture_tags(
+            &path,
+            &TagInfo {
+                artist: Some("Studio 001".into()),
+                title: Some("Night Drive".into()),
+                label: Some("Old Label".into()),
+                year: Some(2019),
+                ..TagInfo::default()
+            },
+        );
+        rewrite_tags(
+            &path,
+            &[
+                (TextTag::Title, "Night Drive (Extended)".into()),
+                (TextTag::Label, String::new()),
+                (TextTag::Year, "2021".into()),
+            ],
+        )
+        .unwrap();
+        let tags = read_file(&path).unwrap().tags;
+        assert_eq!(tags.title.as_deref(), Some("Night Drive (Extended)"));
+        assert_eq!(tags.label, None);
+        assert_eq!(tags.year, Some(2021));
+        assert_eq!(
+            tags.artist.as_deref(),
+            Some("Studio 001"),
+            "untouched fields stay"
+        );
+        let names: Vec<_> = fs::read_dir(folder.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["a.mp3"], "no copy is left behind");
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_retagged_is_left_exactly_as_it_was() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("broken.mp3");
+        fs::write(&path, b"not audio").unwrap();
+        assert!(rewrite_tags(&path, &[(TextTag::Title, "X".into())]).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"not audio");
+        assert_eq!(fs::read_dir(folder.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn chosen_fields_are_replaced_and_the_rest_kept_as_id3v2_3() {

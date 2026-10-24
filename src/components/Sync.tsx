@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./Icon";
 import { CratesForRekordbox } from "./CratesForRekordbox";
+import { RekordboxMerge } from "./RekordboxMerge";
 import { SendToRekordbox } from "./SendToRekordbox";
 import type { AliasSuggestion, ImportResult, LibraryAdmin, MirrorInfo, RekordboxDatabase } from "../library/types";
 
@@ -122,7 +123,8 @@ export function Sync({ admin, onChanged }: Props) {
       {mirror.counts.ambiguous + mirror.counts.unrecognized > 0 && <p className="settings-copy">{number(mirror.counts.ambiguous + mirror.counts.unrecognized)} entries could not be placed safely and were left unmatched.</p>}
       {note && <p role="status" className="settings-copy">{note}</p>}
     </div>}
-    {loaded && <SendToRekordbox admin={admin} refresh={reads} />}
+    {loaded && direct && <RekordboxMerge admin={admin} onChanged={onChanged} />}
+    {loaded && <SendToRekordbox admin={admin} refresh={reads} onWritten={onChanged} />}
     {loaded && <CratesForRekordbox admin={admin} refresh={reads} />}
     {suggestions.length > 0 && <div className="sync-card">
       <h2>These entries look like they belong to a folder</h2>

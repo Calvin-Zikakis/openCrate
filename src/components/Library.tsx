@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { carriesTracks, draggedTracks, setDraggedTracks } from "../library/drag";
 import type { LibraryApi, LibraryItem, LibraryPage, LibraryQuery } from "../library/types";
@@ -15,8 +15,10 @@ interface Props {
   selected: LibraryItem | null;
   onSelect: (item: LibraryItem, index: number) => void;
   onOpen: (item: LibraryItem) => void;
-  /** Double-click or Enter on a track. */
+  /** Double-click, Enter or the row's play button on a track. */
   onPlay?: (item: LibraryItem, index: number) => void;
+  /** Right-click, then "Play next" (`next`) or "Add to queue". */
+  onQueue?: (item: LibraryItem, next: boolean) => void;
   /** Rows can be dragged onto a crate. */
   dragTracks?: boolean;
   /** Set when rows can be dragged to rearrange them: a crate in its own order, or the whole
@@ -46,7 +48,7 @@ function dragPreview(data: DataTransfer, title: string, artist: string) {
   setTimeout(() => label.remove(), 0);
 }
 
-export function Library({ api, query, compact, selected, onSelect, onOpen, onPlay, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
+export function Library({ api, query, compact, selected, onSelect, onOpen, onPlay, onQueue, dragTracks = false, reorder = null, version = 0, restoreScroll = 0 }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -58,6 +60,8 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
   const [error, setError] = useState("");
   const [start, setStart] = useState(0);
   const [retry, setRetry] = useState(0);
+  /** The track a right-click menu is open for, and where. */
+  const [menu, setMenu] = useState<{ item: LibraryItem; index: number; x: number; y: number } | null>(null);
   const isGrid = query.view !== "tracks";
   const perRow = isGrid ? columns : 1;
   const rowHeight = isGrid ? 250 : compact ? 40 : 56;
@@ -240,7 +244,7 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
                 className={isGrid ? "release-card" : `track-row track-columns${selected?.id === item.id ? " is-selected" : ""}${item.missing ? " is-missing" : ""}${isSource ? (drag?.insertAt === null ? " is-drag-source" : " is-drag-gap") : ""}`}
                 draggable={!isGrid && (dragTracks || reorderable)}
                 onDragStart={(event) => {
-                  setDraggedTracks(event.dataTransfer, [item.id], `${item.title} - ${item.artist}`);
+                  setDraggedTracks(event.dataTransfer, [item.id], `${item.title} - ${item.artist}`, [item]);
                   dragPreview(event.dataTransfer, item.title, item.artist);
                   if (reorderable) setDrag({ source: index, insertAt: null });
                   else event.dataTransfer.effectAllowed = "copy";
@@ -256,6 +260,12 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
                   if (isGrid) onOpen(item); else onSelect(item, index);
                 }}
                 onDoubleClick={() => { if (!isGrid && onPlay && !item.missing) onPlay(item, index); }}
+                onContextMenu={(event) => {
+                  if (isGrid || !onQueue || item.missing) return;
+                  event.preventDefault();
+                  onSelect(item, index);
+                  setMenu({ item, index, x: event.clientX, y: event.clientY });
+                }}
                 onKeyDown={(event) => {
                   if (!isGrid && onPlay && event.key === "Enter" && !event.altKey && !item.missing) {
                     event.preventDefault();
@@ -294,10 +304,60 @@ export function Library({ api, query, compact, selected, onSelect, onOpen, onPla
                 {isGrid ? <>{item.kind === "artists" ? <ArtistArtwork api={api} artistId={item.id} color={item.color} large /> : <Artwork color={item.color} large src={api.artworkUrl?.(item.releaseId) ?? null} />}<strong>{item.title}</strong><span>{item.kind === "artists" ? `${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}` : item.artist}</span>{item.kind === "releases" && <small>{`${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}`}</small>}</> :
                   <><span className="track-number">{index + 1}</span><span className="track-identity"><Artwork color={item.color} src={api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate"><strong>{item.title}</strong><small>{item.artist}</small></span></span><span className="track-release">{item.release}</span><span className="track-bpm">{item.bpm ?? "--"}</span><span className="track-key">{item.musicalKey}</span><span className="track-time">{time(item.duration)}</span><span className="track-format">{item.missing ? <span className="missing-tag" title="The file is not on disk right now">Missing</span> : item.format}</span></>}
               </button>
+              {!isGrid && onPlay && !item.missing && <button className="row-play" tabIndex={-1} aria-label={`Play ${item.title}`}
+                style={{ height: rowHeight }} onClick={() => { onSelect(item, index); onPlay(item, index); }}><Icon name="play" size={14} /></button>}
             </div>;
           })}
         </div>)}
       </div>
     </div>
+    {menu && <RowMenu item={menu.item} x={menu.x} y={menu.y} onClose={() => setMenu(null)} actions={[
+      ...(onPlay ? [{ label: "Play now", run: () => onPlay(menu.item, menu.index) }] : []),
+      ...(onQueue ? [{ label: "Play next", run: () => onQueue(menu.item, true) }, { label: "Add to queue", run: () => onQueue(menu.item, false) }] : []),
+    ]} />}
   </section>;
+}
+
+/** A track's right-click menu. It closes on a choice, a click elsewhere, Escape or a scroll, and
+ * stays inside the window. */
+function RowMenu({ item, x, y, actions, onClose }: { item: LibraryItem; x: number; y: number; actions: { label: string; run: () => void }[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const box = element.getBoundingClientRect();
+    element.style.left = `${Math.max(8, Math.min(x, window.innerWidth - box.width - 8))}px`;
+    element.style.top = `${Math.max(8, Math.min(y, window.innerHeight - box.height - 8))}px`;
+    element.querySelector<HTMLElement>("[role=menuitem]")?.focus({ preventScroll: true });
+  }, [x, y]);
+  useEffect(() => {
+    // A scroll from just before the menu opened arrives a frame later; only a later one closes it.
+    let armed = false;
+    let frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => { armed = true; }); });
+    const close = (event: Event) => {
+      if (event instanceof MouseEvent && ref.current?.contains(event.target as Node)) return;
+      if (event.type === "scroll" && !armed) return;
+      onClose();
+    };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", key);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", key);
+    };
+  }, [onClose]);
+  return <div ref={ref} className="column-menu row-menu" role="menu" aria-label={item.title} style={{ left: x, top: y }}
+    onKeyDown={(event) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[role=menuitem]"));
+      const at = items.indexOf(document.activeElement as HTMLElement);
+      items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+    }}>
+    {actions.map((action) => <button key={action.label} type="button" role="menuitem" onClick={() => { action.run(); onClose(); }}>{action.label}</button>)}
+  </div>;
 }

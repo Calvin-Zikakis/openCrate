@@ -216,8 +216,16 @@ pub(super) fn folder_stamp(ms: i64) -> String {
     )
 }
 
-/// The installed rekordbox's version, where it can be read (macOS for now).
+/// The installed rekordbox's version: from its app bundle on macOS, from its install folder's
+/// name on Windows.
 pub fn rekordbox_app_version() -> Option<String> {
+    if cfg!(windows) {
+        let bases: Vec<PathBuf> = ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
+            .iter()
+            .filter_map(|name| std::env::var_os(name).map(PathBuf::from))
+            .collect();
+        return windows_install_version(&bases);
+    }
     if !cfg!(target_os = "macos") {
         return None;
     }
@@ -232,6 +240,27 @@ pub fn rekordbox_app_version() -> Option<String> {
         .filter_map(|folder| {
             let plist = folder.join("rekordbox.app/Contents/Info.plist");
             plist_version(&fs::read_to_string(plist).ok()?)
+        });
+    newest_version(versions)
+}
+
+/// rekordbox installs on Windows into a folder named for its version ("rekordbox 7.2.19"),
+/// under Program Files itself or inside a "rekordbox" or "Pioneer" folder there. The newest
+/// such folder holding the program wins.
+pub(super) fn windows_install_version(bases: &[PathBuf]) -> Option<String> {
+    let versions = bases
+        .iter()
+        .flat_map(|base| [base.clone(), base.join("rekordbox"), base.join("Pioneer")])
+        .filter_map(|parent| fs::read_dir(parent).ok())
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter(|entry| entry.path().join("rekordbox.exe").is_file())
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let version = name.strip_prefix("rekordbox ")?.trim().to_owned();
+            version
+                .split('.')
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+                .then_some(version)
         });
     newest_version(versions)
 }

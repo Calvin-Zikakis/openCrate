@@ -50,9 +50,15 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
       const rb = () => (rekordbox ??= (window as any).__rbEnabled
         ? { enabled: true, confirmedVersion: "7.2.19.0342" } : { enabled: false, confirmedVersion: null });
       const rbVersion = () => ((window as any).__rbVersion ?? "7.2.19.0342") as string;
+      // Read when first asked, so a test's later init script can set the flag.
+      let rbWriteSet: { version: string | null } | null = null;
+      const rbWrite = () => (rbWriteSet ??= { version: (window as any).__rbWriting ? "7.2.19.0342" : null }).version;
+      const setRbWrite = (version: string | null) => { rbWriteSet = { version }; };
       const rbState = () => ({
         installed: true, appVersion: rbVersion(), running: !!(window as any).__rbRunning, enabled: rb().enabled,
         confirmedVersion: rb().confirmedVersion, needsConfirmation: rb().enabled && rb().confirmedVersion !== rbVersion(),
+        writeEnabled: rbWrite() !== null, writeConfirmedVersion: rbWrite(), writeNeedsConfirmation: rbWrite() !== null && rbWrite() !== rbVersion(),
+        writeTested: rbVersion().startsWith("7.2."),
       });
       const rbBackups: Record<string, any>[] = [];
       const rbCrates = new Set<number>();
@@ -169,6 +175,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                   rel("Bought on Bandcamp.zip", "settling", { loose: true, audioFiles: 0, archives: 1, quietSeconds: 4 }),
                   rel("Old Favourites", "ready", { alreadyThere: true, audioFiles: 12 }),
                   ...((window as any).__twoReady ? [rel("Second Light", "ready", { audioFiles: 2 })] : []),
+                  ...((window as any).__cleanReady ? [rel("Clean Single", "ready", { audioFiles: 1 })] : []),
                 ],
               };
             }
@@ -209,16 +216,24 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               }
               if (action === "play") { if (at() >= duration()) player.base = 0; player.since = Date.now(); player.playing = true; }
               if (action === "pause") { player.base = at(); player.playing = false; }
-              if (action === "seek") { player.base = args?.positionMs; player.since = Date.now(); }
+              if (action === "seek") {
+                // A slow seek: a status asked before it lands still reports the old position.
+                if ((window as any).__slowSeek) await new Promise((resolve) => setTimeout(resolve, 600));
+                player.base = args?.positionMs; player.since = Date.now();
+              }
               if (action === "volume") player.volume = args?.volume;
               if (action === "stop") { player.trackId = null; player.playing = false; player.base = 0; }
               (window as any).__volume = player.volume;
               return playerState();
             }
+            case "library_tidy_folder":
+              if (!(window as any).__rbWriting) throw "rekordbox uses files in this folder, so it has to be told where they go. Writing to rekordbox is off. Turn it on in Settings.";
+              (window as any).__tidied = [...((window as any).__tidied ?? []), { rootId: args?.rootId, folder: args?.folder }];
+              return { folder: args?.folder, suggested: "Studio 001", moved: 1, relocated: 1, left: [] };
             case "library_check":
               return {
                 files: 10,
-                untidy: [{ rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
+                untidy: (window as any).__tidied ? [] : [{ rootId: 7, rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
                 duplicates: [{ artist: "Studio 001", title: "Soft Focus", files: ["Studio 001/Between Spaces/02 - Soft Focus.aif", "Studio 001;Guest/Between Spaces/02 - Soft Focus.aif"] }],
               };
             case "library_folder_layout":
@@ -229,6 +244,15 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return layoutOut();
             case "library_plan_release":
               if (args?.name === "Night Drive EP") throw "That release is no longer in the download folder.";
+              if (args?.name === "Clean Single") {
+                return {
+                  release: args?.name, rootLabel: "Music", ready: 1, blocked: 0,
+                  files: [{
+                    source: "Clean Single/01.aif", destination: "Studio 001/Clean Single/01 - Studio 001 - Clean Single.aif", shortened: false, problem: null, becomes: null,
+                    tags: { fields: [{ name: "Title", value: "Clean Single", guessed: false, tidiedFrom: null }], audio: "AIFF 16/44.1", length: "3:00", readError: null, warnings: [] },
+                  }],
+                };
+              }
               if (args?.name === "Second Light") {
                 return {
                   release: args?.name, rootLabel: "Music", ready: 2, blocked: 0,
@@ -315,7 +339,51 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "rekordbox_db_enable":
               rb().enabled = args?.enabled === true;
               rb().confirmedVersion = rb().enabled ? rbVersion() : null;
+              if (!rb().enabled) setRbWrite(null);
               return rbState();
+            case "rekordbox_db_enable_write":
+              if (args?.enabled === true && !rb().enabled) throw "Turn on reading rekordbox's library first.";
+              setRbWrite(args?.enabled === true ? rbVersion() : null);
+              return rbState();
+            case "rekordbox_add_to_playlist": {
+              if (rbWrite() === null) throw "Writing to rekordbox is off. Turn it on in Settings.";
+              if ((window as any).__rbRunning) throw "rekordbox is running. Quit it (and wait for its agent to stop) first.";
+              (window as any).__rbAdded = [...((window as any).__rbAdded ?? []), { playlistId: args?.playlistId, trackIds: args?.trackIds }];
+              const names: Record<number, string> = { 3: "Friday warm-up", 4: "Closers" };
+              return { playlist: names[args?.playlistId] ?? "?", added: (args?.trackIds ?? []).length, imported: 0, leftOut: [], readError: null };
+            }
+            case "rekordbox_merge_review": {
+              if (!rb().enabled) throw "The merge works from a direct read of rekordbox's library. Turn reading on in Settings first.";
+              const change = (rbKey: number, title: string, field: string, ours: string, theirs: string, direction: string, base: string | null) =>
+                ({ rbKey, trackId: rbKey, title, artist: "Studio 001", field, base, ours, theirs, direction });
+              return {
+                canWrite: rbWrite() !== null,
+                changes: (window as any).__merged ? [] : [
+                  change(101, "Night Drive", "title", "Night Drive", "Night Drive (Original Mix)", "toOpenCrate", "Night Drive"),
+                  change(102, "Soft Focus", "label", "Test Label", "", "toRekordbox", null),
+                  change(103, "Late Train", "year", "2019", "2020", "conflict", "2018"),
+                ],
+              };
+            }
+            case "rekordbox_merge_apply": {
+              const choices = (args?.choices ?? []) as { keep: string }[];
+              if (choices.some((choice) => choice.keep === "openCrate") && rbWrite() === null) {
+                throw "Keeping openCrate's values means writing to rekordbox. Writing to rekordbox is off. Turn it on in Settings.";
+              }
+              (window as any).__mergeChoices = choices;
+              (window as any).__merged = true;
+              return { toRekordbox: choices.filter((choice) => choice.keep === "openCrate").length, toOpencrate: choices.filter((choice) => choice.keep === "rekordbox").length, skipped: [] };
+            }
+            case "rekordbox_send_new": {
+              if (rbWrite() === null) throw "Writing to rekordbox is off. Turn it on in Settings.";
+              if ((window as any).__rbRunning) throw "rekordbox is running. Quit it (and wait for its agent to stop) first.";
+              const named = args?.fileIds as number[] | null;
+              const sent = (track: any) => !track.hidden && (named == null || named.includes(track.fileId));
+              const fresh = ((window as any).__newTracks ?? []).filter(sent);
+              (window as any).__newTracks = ((window as any).__newTracks ?? []).filter((track: any) => !sent(track));
+              (window as any).__rbSentNew = ((window as any).__rbSentNew ?? 0) + 1;
+              return { playlist: "Imported", added: fresh.length, imported: fresh.length, leftOut: [], readError: null };
+            }
             case "rekordbox_db_read":
               if ((window as any).__rbRunning) throw "rekordbox is running. Quit it (and wait for its agent to stop) first.";
               rbBackups.unshift(rbBackup(`2026102${rbBackups.length}-120000-read`, "read", false));
@@ -614,6 +682,40 @@ test("download folders are added, switched off and removed, and a refused folder
   ]);
 });
 
+test("settings open from the keyboard and from the app menu", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Close settings" }).click();
+  await expect(dialog).toBeHidden();
+  // What the macOS menu item sends.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("opencrate:open-settings")));
+  await expect(dialog).toBeVisible();
+});
+
+test("settings close with a click outside them, but not with a drag that ends outside", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(dialog).toBeVisible();
+  const box = (await dialog.boundingBox())!;
+  // Pressed inside, let go outside: still open.
+  await page.mouse.move(box.x + 40, box.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 30, box.y + 60, { steps: 4 });
+  await page.mouse.up();
+  await expect(dialog).toBeVisible();
+  // A click inside its padding: still open.
+  await page.mouse.click(box.x + 6, box.y + 6);
+  await expect(dialog).toBeVisible();
+  // A click outside: closed.
+  await page.mouse.click(box.x + box.width + 30, box.y + 60);
+  await expect(dialog).toBeHidden();
+});
+
 test("the settings close button stays put while the settings scroll", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 420 });
   await stubBridge(page, "managed");
@@ -663,7 +765,7 @@ test("a release can be previewed before anything is imported, and the screen scr
   await expect(page.getByRole("listitem").filter({ hasText: "Old Favourites" })).toBeInViewport();
 
   await screen.evaluate((element) => { element.scrollTop = 0; });
-  await page.getByRole("button", { name: "Preview Between Spaces" }).click();
+  await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("1 file is ready to go into Music; 1 needs attention and stays in the download folder.")).toBeVisible();
   await expect(page.getByText("Tags are written as shown")).toBeVisible();
   await expect(page.getByText("Studio 001/Between Spaces/01 - Studio 001 - Night Drive.flac")).toBeVisible();
@@ -686,7 +788,10 @@ test("a release can be previewed before anything is imported, and the screen scr
   await expect(page.getByRole("list", { name: "Notes for Between Spaces/01.flac" })).toContainText("The title ends with a file extension.");
   await expect(page.getByRole("list", { name: "Notes for Between Spaces/02.flac" })).toContainText("No track number");
 
-  // Right-click a heading to choose columns; Title cannot be hidden.
+  // Right-click a heading to choose columns; Title cannot be hidden. The heading is brought into
+  // view first, as a person would, so the scroll does not land after the menu opens and close it.
+  await table.getByRole("columnheader", { name: "Year" }).scrollIntoViewIfNeeded();
+  await page.waitForTimeout(100);
   await table.getByRole("columnheader", { name: "Year" }).click({ button: "right" });
   const menu = page.getByRole("menu", { name: "Columns" });
   await expect(menu.getByRole("menuitemcheckbox", { name: "Title" })).toHaveAttribute("aria-disabled", "true");
@@ -722,7 +827,7 @@ test("a release can be previewed before anything is imported, and the screen scr
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add download folder..." }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
-  await page.getByRole("button", { name: "Preview Between Spaces" }).click();
+  await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
   await expect(table.getByRole("columnheader", { name: "Genre" })).toHaveCount(0);
   await expect(table.getByRole("columnheader", { name: "#", exact: true })).toBeVisible();
   expect(Math.abs((await titleHeading.boundingBox())!.width - after)).toBeLessThanOrEqual(2);
@@ -745,7 +850,7 @@ test("import: a previewed release is copied in, the library rescanned, and it mo
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
 
-  await page.getByRole("button", { name: "Preview Between Spaces" }).click();
+  await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("the originals stay in Downloads")).toBeVisible();
   await page.getByRole("button", { name: "Import 1 file" }).click();
   await expect(page.getByText("1 file is now in Music. The originals are still in Downloads.")).toBeVisible();
@@ -763,6 +868,32 @@ test("import: a previewed release is copied in, the library rescanned, and it mo
   await expect(page.getByRole("button", { name: /^Import \d/ })).toHaveCount(0);
 });
 
+test("import: with writing to rekordbox on, imported tracks go into its Imported playlist", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => {
+    (window as any).__rbEnabled = true;
+    (window as any).__rbWriting = true;
+    (window as any).__newTracks = [{ fileId: 31, title: "Night Drive", artist: "Studio 001", album: "Between Spaces", durationMs: 225_000, container: "FLAC", filedMs: 1, offeredMs: null, hidden: false }];
+  });
+  await openImportWithFolders(page);
+  await page.getByRole("button", { name: "Import 1 file" }).click();
+  await expect(page.getByText("Added 1 track to rekordbox's Imported playlist.")).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__rbSentNew)).toBe(1);
+});
+
+test("import: with rekordbox open, imported tracks wait for it and the note says so", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => {
+    (window as any).__rbEnabled = true;
+    (window as any).__rbWriting = true;
+    (window as any).__rbRunning = true;
+  });
+  await openImportWithFolders(page);
+  await page.getByRole("button", { name: "Import 1 file" }).click();
+  await expect(page.getByText(/Not added to rekordbox yet: rekordbox is running/)).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__rbSentNew ?? 0)).toBe(0);
+});
+
 async function openImportWithFolders(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
@@ -776,7 +907,7 @@ test("import choices: conversion and tidying are sent with the preview and shown
   await stubBridge(page, "managed");
   await openImportWithFolders(page);
   await page.getByLabel("Convert lossless files to").selectOption("aiff");
-  await page.getByRole("button", { name: "Preview Between Spaces" }).click();
+  await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
   const table = page.getByRole("table");
   await expect(table.getByRole("cell", { name: "AIFF", exact: true })).toBeVisible();
   await expect(table.getByRole("columnheader", { name: "Becomes" })).toBeVisible();
@@ -787,7 +918,7 @@ test("import choices: conversion and tidying are sent with the preview and shown
 
   // Turning tidying off re-plans without it, and the choices are remembered.
   await page.getByRole("checkbox", { name: /Tidy names/ }).uncheck();
-  await page.getByRole("button", { name: "Preview Between Spaces" }).click();
+  await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
   await expect(table.getByLabel("tidied, was Studio 001;")).toHaveCount(0);
   await page.reload();
   await openImportWithFolders(page);
@@ -804,11 +935,35 @@ test("import choices: without ffmpeg converting cannot be chosen and is not sent
   await openImportWithFolders(page);
   await expect(page.getByLabel("Convert lossless files to")).toBeDisabled();
   await expect(page.getByText("Converting needs ffmpeg")).toBeVisible();
-  await page.getByRole("button", { name: "Preview Between Spaces" }).click();
+  await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("table")).toBeVisible();
   const sent = (await calls(page)).filter((call) => call.command === "library_plan_release").at(-1)!;
   expect(sent.args.options.convert).toEqual({ lossless: null, lossy: null });
   await expect(page.getByRole("table").getByRole("columnheader", { name: "Becomes" })).toHaveCount(0);
+});
+
+test("import: finished releases have their tags read without a click, and those needing a look open", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__cleanReady = true; });
+  await openImportWithFolders(page);
+  const between = page.getByRole("listitem").filter({ hasText: "Between Spaces" });
+  const clean = page.getByRole("listitem").filter({ hasText: "Clean Single" });
+  await expect(between.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
+  await expect(between.locator(".folder-badge")).toHaveText("Needs attention");
+  await expect(between.getByText("No track number in the tags or file name.")).toBeVisible();
+  await expect(clean.getByRole("button", { name: "Preview Clean Single" })).toHaveAttribute("aria-expanded", "false");
+  await expect(clean.locator(".folder-badge")).toHaveText("Ready");
+  await expect(clean.getByText("Goes to Studio 001/Clean Single/01 - Studio 001 - Clean Single.aif")).toBeVisible();
+  // Still downloading, and already there before the folder was added: read only when opened.
+  const planned = async () => (await calls(page)).filter((call) => call.command === "library_plan_release").map((call) => call.args.name);
+  expect(await planned()).toEqual(["Between Spaces", "Clean Single"]);
+
+  // Closing one by hand keeps it closed, through the next look at the folder.
+  await between.getByRole("button", { name: "Preview Between Spaces" }).click();
+  await page.waitForTimeout(3500);
+  await expect(between.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "false");
+  await expect(between.getByText("1 file ready to go into Music")).toBeVisible();
+  expect(await planned()).toEqual(["Between Spaces", "Clean Single"]);
 });
 
 test("import all: a review lists doubtful tags, then every finished release is imported and scanned once", async ({ page }) => {
@@ -872,6 +1027,28 @@ test("library check: untidy folder names and recordings filed twice are listed, 
   expect(sent.filter((command) => /move|rename|delete|remove/.test(command))).toEqual([]);
 });
 
+test("library check: an untidy folder is tidied after a confirmation, and rekordbox follows", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("button", { name: "Check library" }).click();
+  const results = dialog.getByRole("region", { name: "Library check results" });
+  await results.getByRole("button", { name: "Tidy Studio 001;" }).click();
+  const confirm = results.getByRole("region", { name: "Tidy Studio 001;?" });
+  await expect(confirm).toContainText("1 file moves to Studio 001");
+  // Writing off: refused, nothing moved.
+  await confirm.getByRole("button", { name: "Tidy" }).click();
+  await expect(results.getByRole("alert")).toContainText("Turn it on in Settings");
+  expect(await page.evaluate(() => (window as any).__tidied)).toBeUndefined();
+
+  await page.evaluate(() => { (window as any).__rbWriting = true; });
+  await confirm.getByRole("button", { name: "Tidy" }).click();
+  await expect(results.getByRole("status")).toContainText("Moved 1 file to Studio 001; rekordbox was told where 1 went.");
+  await expect(results.getByRole("heading", { name: /folder name/ })).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__tidied)).toEqual([{ rootId: 7, folder: "Studio 001;" }]);
+});
+
 test("player: double-click plays, Space pauses, seek and volume work, and the next track follows", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.goto("/");
@@ -933,6 +1110,92 @@ test("player: double-click plays, Space pauses, seek and volume work, and the ne
 
   await page.reload();
   await expect(page.getByRole("contentinfo", { name: "Player" }).getByRole("slider", { name: "Volume" })).toHaveValue("0.3");
+});
+
+test("player: a click anywhere on the overview seeks there, and the bar never shows the old spot again", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByText("Rust Track 0002").dblclick();
+  const bar = page.getByRole("contentinfo", { name: "Player" });
+  await expect(bar.getByRole("button", { name: "Pause" })).toBeVisible();
+  const wave = bar.getByTestId("waveform");
+  const box = (await wave.boundingBox())!;
+  const seeks = async () => (await calls(page)).filter((call) => call.command === "player_control" && call.args.action === "seek").map((call) => call.args.positionMs);
+
+  // Some browsers click on whole pixels: within a pixel and a half of the aim is exact.
+  const pixel = (200_000 / box.width) * 1.5;
+  const near = (ms: number | undefined, aim: number) => ms !== undefined && Math.abs(ms - aim) <= pixel;
+
+  // Near the start, where the playhead is: 5% of 200 seconds.
+  await page.mouse.click(box.x + box.width * 0.05, box.y + box.height / 2);
+  await expect.poll(async () => near((await seeks())[0], 10_000)).toBe(true);
+  expect(await seeks()).toHaveLength(1);
+
+  // Halfway, with a seek that takes a while to land.
+  await page.evaluate(() => { (window as any).__slowSeek = true; });
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2);
+  const clockText = bar.locator(".seek span").first();
+  const seen = new Set<string>();
+  for (let i = 0; i < 12; i += 1) {
+    seen.add((await clockText.textContent()) ?? "");
+    await page.waitForTimeout(100);
+  }
+  expect([...seen].every((text) => text >= "1:39"), [...seen].join(" ")).toBe(true);
+  expect(near((await seeks()).at(-1), 100_000)).toBe(true);
+});
+
+test("player: a row's play button, a queue, and dropping a track on the player", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const bar = page.getByRole("contentinfo", { name: "Player" });
+  const now = bar.locator(".now-playing");
+  const loads = async () => (await calls(page)).filter((call) => call.command === "player_load").map((call) => call.args.trackId);
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+
+  // Hovering a row brings up a play button at its left.
+  await row("0004").hover();
+  const play = page.getByRole("button", { name: "Play Rust Track 0004" });
+  await expect(play).toBeVisible();
+  await play.click();
+  await expect(now).toContainText("Rust Track 0004");
+
+  // Right-click to queue: "Play next" goes in front, "Add to queue" at the end.
+  for (const [n, choice] of [["0010", "Add to queue"], ["0012", "Add to queue"], ["0008", "Play next"]] as const) {
+    await row(n).click({ button: "right" });
+    await page.getByRole("menu", { name: `Rust Track ${n}` }).getByRole("menuitem", { name: choice }).click();
+  }
+  await bar.getByRole("button", { name: "Queue, 3 tracks" }).click();
+  const queue = page.getByRole("region", { name: "Queue" });
+  await expect(queue.getByRole("listitem")).toHaveText([/Rust Track 0008/, /Rust Track 0010/, /Rust Track 0012/]);
+  await queue.getByRole("button", { name: "Remove Rust Track 0010 from the queue" }).click();
+  await expect(queue.getByRole("listitem")).toHaveCount(2);
+
+  // Queued tracks play first; then the list carries on from where it was left.
+  await bar.getByRole("button", { name: "Next track" }).click();
+  await expect(now).toContainText("Rust Track 0008");
+  await bar.getByRole("button", { name: "Next track" }).click();
+  await expect(now).toContainText("Rust Track 0012");
+  await expect(queue).toContainText("Nothing queued");
+  await bar.getByRole("button", { name: "Next track" }).click();
+  await expect(now).toContainText("Rust Track 0005");
+  expect(await loads()).toEqual([4, 8, 12, 5]);
+
+  // A track dropped on the player plays.
+  await row("0007").dragTo(bar);
+  await expect(now).toContainText("Rust Track 0007");
+});
+
+test("player: a release, artist, crate or playlist plays from its first playable track", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Releases", exact: true }).click();
+  await page.getByTestId("library-card").first().click();
+  await page.getByRole("button", { name: "Play all" }).click();
+  const bar = page.getByRole("contentinfo", { name: "Player" });
+  // Track 1 is missing from disk, so the list starts at track 2.
+  await expect(bar.locator(".now-playing")).toContainText("Rust Track 0002");
+  await bar.getByRole("button", { name: "Next track" }).click();
+  await expect(bar.locator(".now-playing")).toContainText("Rust Track 0003");
 });
 
 test("player: at the end of a track an unplayable next one is skipped", async ({ page }) => {
@@ -1093,6 +1356,8 @@ test("crates: make one, drag tracks onto it, reorder by dragging and keyboard, r
   await page.getByRole("button", { name: /Rust Track 0003,/ }).dragTo(crate);
   await expect(crates.getByRole("status")).toContainText("Already in Warm-up.");
   await expect(crate).toContainText("3");
+  // The note goes away on its own.
+  await expect(crates.getByRole("status")).toHaveCount(0, { timeout: 5000 });
 
   await crate.click();
   const titles = () => page.getByTestId("track-row").evaluateAll((rows) => rows.map((row) => row.querySelector("strong")?.textContent));
@@ -1239,6 +1504,65 @@ test("a held disappearance is explained and only confirmed on request", async ({
 
   await dialog.getByRole("button", { name: "Mark them missing" }).click();
   await expect.poll(scans).toEqual([{ rootId: 7 }, { rootId: 7, confirmMissing: true }]);
+});
+
+test("a track dropped on a rekordbox playlist goes into rekordbox once writing is on", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbEnabled = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await page.getByRole("button", { name: "Choose export..." }).click();
+  await page.getByRole("button", { name: "Tracks", exact: true }).click();
+  const sidebar = page.getByRole("complementary");
+  const closers = sidebar.getByRole("navigation", { name: "Playlists" }).getByRole("button", { name: "Closers" });
+  const row = page.getByTestId("track-row").filter({ hasText: "Rust Track 0004" });
+
+  // Writing off: nothing is written, and the note says where to turn it on.
+  await row.dragTo(closers);
+  await expect(sidebar.getByRole("alert")).toContainText("Turn it on in Settings");
+  expect(await page.evaluate(() => (window as any).__rbAdded)).toBeUndefined();
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("checkbox", { name: /Let openCrate write to rekordbox's library/ }).click();
+  await dialog.getByRole("button", { name: "I understand, let openCrate write" }).click();
+  await expect(dialog.getByText("Writing is on for rekordbox 7.2.19.0342.")).toBeVisible();
+  await dialog.getByRole("button", { name: "Close settings" }).click();
+
+  await row.dragTo(closers);
+  await expect(sidebar.getByRole("status")).toContainText("Added 1 to Closers in rekordbox.");
+  expect(await page.evaluate(() => (window as any).__rbAdded)).toEqual([{ playlistId: 4, trackIds: [4] }]);
+});
+
+test("rekordbox sync: changes on either side are reviewed and only ticked ones are applied", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbEnabled = true; (window as any).__rbWriting = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  const card = page.getByRole("region", { name: "Sync with rekordbox" });
+  await card.getByRole("button", { name: "Review changes" }).click();
+
+  const fromRekordbox = card.getByRole("group", { name: "rekordbox to openCrate" });
+  const toRekordbox = card.getByRole("group", { name: "openCrate to rekordbox" });
+  const both = card.getByRole("group", { name: "Changed on both sides" });
+  await expect(fromRekordbox.getByRole("checkbox", { name: /Night Drive, title/ })).toBeChecked();
+  await expect(fromRekordbox).toContainText("Night Drive (Original Mix)");
+  await expect(toRekordbox.getByRole("checkbox", { name: /Soft Focus, label/ })).toBeChecked();
+  await expect(toRekordbox).toContainText("(empty)");
+  // Both changed: nothing is chosen until the owner picks a side.
+  await expect(both.getByRole("checkbox", { name: /Late Train, year/ })).not.toBeChecked();
+  await expect(both).toContainText("was 2018");
+  await both.getByRole("radio", { name: "Keep rekordbox's: 2020" }).check();
+  await expect(both.getByRole("checkbox", { name: /Late Train, year/ })).toBeChecked();
+
+  await toRekordbox.getByRole("checkbox", { name: /Soft Focus, label/ }).uncheck();
+  await card.getByRole("button", { name: "Sync 2 changes" }).click();
+  await expect(card.getByRole("status")).toContainText("2 changes came from rekordbox");
+  expect(await page.evaluate(() => (window as any).__mergeChoices)).toEqual([
+    { rbKey: 101, field: "title", keep: "rekordbox", ours: "Night Drive", theirs: "Night Drive (Original Mix)" },
+    { rbKey: 103, field: "year", keep: "rekordbox", ours: "2019", theirs: "2020" },
+  ]);
+  await expect(card).toContainText("openCrate and rekordbox agree");
 });
 
 test("playlists from the export appear in the sidebar and open as an ordered track view", async ({ page }) => {

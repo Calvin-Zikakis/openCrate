@@ -145,15 +145,18 @@ The reference setup is the owner's. The library folder on the desktop is the sou
 
 ## rekordbox
 
-rekordbox is the source of truth for playlists, cues and grids. openCrate reads them back and sends new tracks to it ([decision 0008](docs/decisions/0008-rekordbox-readback-xml-first.md)).
+openCrate and rekordbox are kept in step both ways, like a Git merge ([design](docs/design/rekordbox-sync.md), agreed 2026-10-23; built 2026-10-24 on the owner's go-ahead). rekordbox keeps the analysis: cues, beat grids, keys and tempo.
 
 | Topic | Design |
 | --- | --- |
 | Read-back, default | The rekordbox XML export. The owner picks the export file in settings. openCrate remembers it, re-reads it on request, and notices when it changes. It carries the collection, cues, beat grids and the playlist tree |
-| Read-back, experimental | A setting, off by default, reads rekordbox's `master.db` through rbxport's `rbl-db`. It only ever opens a copy of the database, never the live one |
-| Playlists | Shown read-only in the sidebar and as a library filter. They are a mirror that is rebuilt on each read-back. openCrate does not edit playlists or write playlist files |
+| Reading rekordbox's library | A setting, off by default, behind a warning: reads rekordbox's `master.db` through the vendored `rbl-db`, always from a backup copy taken while rekordbox is closed |
+| Writing rekordbox's library | A second setting, off by default, behind its own warning, needing reading on: only for rekordbox versions the writer is tested with (7.2.x), only while rekordbox and its agent are closed, after a backup listed in Settings (restorable), and checked by reading back afterwards. It only adds and edits; it never deletes a track or playlist. On Windows, files are added only to a library that stores paths with forward slashes |
+| Playlists | The sidebar shows rekordbox's tree. With writing on, tracks dropped on a rekordbox playlist go into it |
+| New tracks | With writing on, newly imported tracks go straight into rekordbox, into one rolling top-level playlist "Imported", made if missing; tracks rekordbox already has are not added again. With writing off, they go into openCrate's XML file for the owner to import (`Location` spelled exactly as rekordbox spells it, [research 002](docs/research/002-owner-data-shapes.md)) |
+| Track details | Title, artist, album, year and label are merged both ways against a base of what both sides last agreed: a one-sided change flows across, a change on both sides is the owner's choice, and nothing is applied that the owner did not tick. A value kept from rekordbox is written into the file's tags (through a copy, never in place) |
+| Folder names | Library check can tidy a folder named from untidy tags: the files move (never over another file) and rekordbox is told where each one it uses went, so it keeps its analysis and playlists |
 | Missing files | An entry whose file is gone is listed and flagged, not hidden. rekordbox keeps such entries, for example files it still points at in the recycle bin |
-| Sending tracks | Newly filed tracks are written to an XML that rekordbox imports. `Location` is spelled exactly as rekordbox spells it ([research 002](docs/research/002-owner-data-shapes.md)). Paths are frozen after sync by default |
 
 ## Identification and metadata
 
@@ -204,6 +207,8 @@ What openCrate does:
 ## What gets built
 
 The order, scope and acceptance checks for each milestone are in [docs/BUILD-PLAN.md](docs/BUILD-PLAN.md). In short: a foundation with Windows CI, then the real library in the interface, then the rekordbox read-back, then the import pipeline (a dry run first), then conversion and filing, rekordbox export, the player, online lookups, dedupe and upgrades, and the installers.
+
+Later, after version 1: plugins and scripting, so users can add their own steps (an import rule, a tag fix, an export target) without changing openCrate itself. Planned; not yet designed.
 
 | Document | What it holds |
 | --- | --- |

@@ -351,3 +351,59 @@ pub fn crate_tracks(connection: &Connection, crate_id: i64) -> Result<(String, V
     }
     Ok((name, tracks))
 }
+
+/// Where a library track stands in rekordbox's library, from the last direct read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RekordboxMember {
+    /// rekordbox has one of its files, under this id.
+    Known(String),
+    /// rekordbox does not have it; this is the file to add.
+    File(std::path::PathBuf),
+    /// It has no file that can be reached, so it cannot be added.
+    NoFile,
+}
+
+/// rekordbox's id for a playlist or folder, when it came from a direct read of rekordbox's
+/// library. An export's playlists have none: only a database read names rekordbox's rows.
+pub fn rekordbox_playlist_key(connection: &Connection, playlist_id: i64) -> Result<Option<String>> {
+    Ok(connection
+        .query_row(
+            "SELECT json_extract(p.attributes, '$.' || ?2) FROM playlist p
+             JOIN rb_source s ON s.id = p.rb_source_id
+             WHERE p.id = ?1 AND s.kind = 'master_db'",
+            rusqlite::params![playlist_id, oc_rekordbox::db::REKORDBOX_ID],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// rekordbox's id for a track when a direct read matched one of its files, if any.
+pub fn rekordbox_key(connection: &Connection, track_id: i64) -> Result<Option<String>> {
+    Ok(connection
+        .query_row(
+            "SELECT t.rb_key FROM rb_track t
+             JOIN rb_source s ON s.id = t.rb_source_id
+             JOIN file f ON f.id = t.file_id
+             WHERE f.track_id = ?1 AND s.kind = 'master_db' AND t.match_status = 'matched'
+             ORDER BY t.rb_key LIMIT 1",
+            [track_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .map(|key| key.to_string()))
+}
+
+/// rekordbox's id for a library file, when a direct read matched it.
+pub fn rekordbox_file_key(connection: &Connection, file_id: i64) -> Result<Option<String>> {
+    Ok(connection
+        .query_row(
+            "SELECT t.rb_key FROM rb_track t JOIN rb_source s ON s.id = t.rb_source_id
+             WHERE t.file_id = ?1 AND s.kind = 'master_db' AND t.match_status = 'matched'
+             ORDER BY t.rb_key LIMIT 1",
+            [file_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .map(|key| key.to_string()))
+}

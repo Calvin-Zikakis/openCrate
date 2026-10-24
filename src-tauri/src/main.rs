@@ -7,11 +7,20 @@ mod folders;
 mod import;
 mod ipc;
 mod layout;
+mod library_fix;
+#[cfg(test)]
+mod library_fix_tests;
 mod lookup;
+#[cfg(target_os = "macos")]
+mod menu;
 mod plan;
 mod player;
 mod rekordbox_db;
+mod rekordbox_merge;
 mod rekordbox_send;
+mod rekordbox_write;
+#[cfg(test)]
+mod rekordbox_write_tests;
 mod sync;
 mod tagview;
 mod waves;
@@ -414,6 +423,26 @@ async fn library_check(state: State<'_, AppState>) -> Result<folders::HealthDto,
         .map_err(|error| error.to_string())?
 }
 
+/// Move a folder the library check names to its tidy name; rekordbox follows the files it uses.
+#[tauri::command]
+async fn library_tidy_folder(
+    state: State<'_, AppState>,
+    root_id: i64,
+    folder: String,
+) -> Result<library_fix::TidiedDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        library_fix::tidy_folder(
+            &service,
+            &rekordbox_db::Probe::installed(),
+            root_id,
+            &folder,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// How imported music is arranged, the presets, and whether converting is possible.
 #[tauri::command]
 async fn library_folder_layout(state: State<'_, AppState>) -> Result<layout::LayoutDto, String> {
@@ -724,6 +753,80 @@ async fn rekordbox_db_enable(
 }
 
 #[tauri::command]
+async fn rekordbox_db_enable_write(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<rekordbox_db::RekordboxDbDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_write::set_enabled(&service, &rekordbox_db::Probe::installed(), enabled)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_add_to_playlist(
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+) -> Result<rekordbox_write::WriteDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_write::add_to_playlist(
+            &service,
+            &rekordbox_db::Probe::installed(),
+            playlist_id,
+            &track_ids,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_send_new(
+    state: State<'_, AppState>,
+    file_ids: Option<Vec<i64>>,
+) -> Result<rekordbox_write::WriteDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_write::send_new(
+            &service,
+            &rekordbox_db::Probe::installed(),
+            file_ids.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_merge_review(
+    state: State<'_, AppState>,
+) -> Result<rekordbox_merge::ReviewDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_merge::review(&service, &rekordbox_db::Probe::installed())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn rekordbox_merge_apply(
+    state: State<'_, AppState>,
+    choices: Vec<rekordbox_merge::ChoiceDto>,
+) -> Result<rekordbox_merge::AppliedDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rekordbox_merge::apply(&service, &rekordbox_db::Probe::installed(), &choices)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn rekordbox_db_read(state: State<'_, AppState>) -> Result<sync::ImportDto, String> {
     let service = state.library()?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -915,8 +1018,11 @@ fn library_scan_cancel(state: State<'_, AppState>) {
 }
 
 fn main() -> Result<(), tauri::Error> {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    // A menu on Windows would add a menu strip to the window; there Ctrl+, opens Settings.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(menu::build).on_menu_event(menu::on_event);
+    builder
         .setup(|app| {
             // The local (not roaming) folder: the library must never sit in a synced place.
             let default = app.path().app_local_data_dir().ok();
@@ -978,6 +1084,12 @@ fn main() -> Result<(), tauri::Error> {
             rekordbox_db_status,
             rekordbox_db_enable,
             rekordbox_db_read,
+            rekordbox_db_enable_write,
+            rekordbox_add_to_playlist,
+            rekordbox_send_new,
+            rekordbox_merge_review,
+            rekordbox_merge_apply,
+            library_tidy_folder,
             rekordbox_backups,
             rekordbox_backup_pin,
             rekordbox_restore,

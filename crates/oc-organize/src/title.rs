@@ -259,7 +259,8 @@ pub fn same_version(left: Option<&str>, right: Option<&str>) -> bool {
 }
 
 /// The artist folder (A12): the remixer when the credit moves the folder, else the album
-/// artist, else the artist.
+/// artist, else the artist. A compilation's "Various Artists" counts as no album artist, so
+/// each track is filed under the act that made it.
 #[must_use]
 pub fn folder_artist(parsed: &ParsedTitle, album_artist: Option<&str>, artist: &str) -> String {
     let remixer = parsed
@@ -267,9 +268,26 @@ pub fn folder_artist(parsed: &ParsedTitle, album_artist: Option<&str>, artist: &
         .as_deref()
         .filter(|_| parsed.kind.is_some_and(RemixKind::moves_folder));
     remixer
-        .or_else(|| album_artist.map(str::trim).filter(|name| !name.is_empty()))
+        .or_else(|| {
+            album_artist
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && !is_various(name))
+        })
         .unwrap_or(artist)
         .to_owned()
+}
+
+/// The placeholder album artists stores and taggers put on compilations.
+fn is_various(name: &str) -> bool {
+    const PLACEHOLDERS: [&str; 6] = [
+        "various artists",
+        "various artist",
+        "various",
+        "va",
+        "v.a.",
+        "v/a",
+    ];
+    PLACEHOLDERS.contains(&name.to_lowercase().as_str())
 }
 
 #[cfg(test)]
@@ -585,6 +603,31 @@ mod tests {
     }
 
     #[test]
+    fn a_compilation_track_goes_to_its_own_artist() {
+        let plain = parse_title("Night Drive (Original Mix)");
+        for various in [
+            "Various Artists",
+            "various artists",
+            "Various",
+            "VA",
+            "V.A.",
+            "V/A",
+            " Various Artist ",
+        ] {
+            assert_eq!(
+                folder_artist(&plain, Some(various), "Studio 001"),
+                "Studio 001",
+                "{various}"
+            );
+        }
+        assert_eq!(
+            folder_artist(&plain, Some("Various Production"), "Studio 001"),
+            "Various Production",
+            "an act whose name only starts with Various is a real album artist"
+        );
+    }
+
+    #[test]
     fn the_folder_follows_the_credit_the_album_artist_then_the_artist() {
         let remix = parse_title("Night Drive (Studio 001 Remix)");
         assert_eq!(
@@ -606,8 +649,8 @@ mod tests {
             let parsed = parse_title(generic);
             assert_eq!(parsed.remixer, None, "{generic}");
             assert_eq!(
-                folder_artist(&parsed, Some("Various"), "Original Act"),
-                "Various",
+                folder_artist(&parsed, Some("Album Artist"), "Original Act"),
+                "Album Artist",
                 "{generic}"
             );
         }

@@ -128,10 +128,12 @@ mod tests {
     fn problems_come_back_as_errors_with_their_cause() {
         let template = Template::parse(DEFAULT_TEMPLATE).unwrap();
         let mut missing = fields("Night Drive");
-        missing.track = None;
+        missing.release = None;
         assert_eq!(
             destination(&template, &missing, "aif", "G:", &PathBudget::classic()),
-            Err(DestinationError::Template(TemplateError::Missing("track")))
+            Err(DestinationError::Template(TemplateError::Missing(
+                "release"
+            )))
         );
         let root = format!(r"G:\{}", "r".repeat(250));
         assert!(matches!(

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { carriesTracks, draggedTracks } from "../library/drag";
 import type { CrateInfo, LibraryAdmin } from "../library/types";
 
+/** How long "Added 1 to ..." stays up. */
+const NOTE_MS = 3000;
+
 interface Props {
   admin: LibraryAdmin;
   /** Changes when crates may have changed, so the list is read again. */
@@ -26,6 +29,13 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // A note confirms a drop; it goes away on its own.
+  useEffect(() => {
+    if (!note) return;
+    const timer = setTimeout(() => setNote(""), NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [note]);
 
   const load = useCallback(async () => {
     try {

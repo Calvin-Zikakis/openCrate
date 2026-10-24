@@ -5,6 +5,9 @@ mod read;
 mod snapshot;
 #[cfg(test)]
 mod tests;
+pub mod write;
+#[cfg(test)]
+mod write_tests;
 
 pub use backups::{list_backups, prune, restore, set_pinned};
 pub use rbl_db::{DbError, LibraryLocation};
@@ -18,7 +21,7 @@ pub fn installed_library() -> Result<LibraryLocation, DbError> {
 pub fn rekordbox_running() -> bool {
     rbl_db::is_rekordbox_running()
 }
-pub use read::read_snapshot;
+pub use read::{read_snapshot, REKORDBOX_ID};
 #[cfg(test)]
 use snapshot::{folder_stamp, newest_version, plist_version};
 pub use snapshot::{rekordbox_app_version, take_snapshot, Snapshot};

@@ -135,6 +135,62 @@ export interface RekordboxDatabase {
   confirmedVersion: string | null;
   /** On, but rekordbox changed version since the warning was confirmed. */
   needsConfirmation: boolean;
+  /** Writing to rekordbox's library is on; it needs reading on too. */
+  writeEnabled: boolean;
+  writeConfirmedVersion: string | null;
+  writeNeedsConfirmation: boolean;
+  /** This rekordbox version is one openCrate's writer is known to work with. */
+  writeTested: boolean;
+}
+
+export type MergeField = "title" | "artist" | "album" | "year" | "label";
+export type MergeDirection = "toRekordbox" | "toOpenCrate" | "conflict";
+
+/** One field of one track that differs between openCrate and rekordbox. */
+export interface MergeChange {
+  rbKey: number;
+  trackId: number;
+  title: string;
+  artist: string;
+  field: MergeField;
+  /** What both sides last agreed on; null before the first sync. */
+  base: string | null;
+  ours: string;
+  theirs: string;
+  direction: MergeDirection;
+}
+
+export interface MergeReview {
+  changes: MergeChange[];
+  /** Writing to rekordbox is on, so openCrate's values can go to rekordbox. */
+  canWrite: boolean;
+}
+
+/** A ticked change: which side's value to keep, with the values the owner saw. */
+export interface MergeChoice {
+  rbKey: number;
+  field: MergeField;
+  keep: "openCrate" | "rekordbox";
+  ours: string;
+  theirs: string;
+}
+
+export interface MergeApplied {
+  toRekordbox: number;
+  toOpencrate: number;
+  skipped: string[];
+}
+
+/** What a write to rekordbox's library did. */
+export interface RekordboxWrite {
+  playlist: string;
+  added: number;
+  /** Files that were new to rekordbox. */
+  imported: number;
+  /** Tracks that could not go in, with why. */
+  leftOut: string[];
+  /** The write worked but reading rekordbox again afterwards did not. */
+  readError: string | null;
 }
 
 export interface RekordboxBackup {
@@ -314,11 +370,22 @@ export interface PlayerState {
 
 export type PlayerAction = "play" | "pause" | "stop" | "status" | "seek" | "volume";
 
+/** What tidying a folder did. */
+export interface TidiedFolder {
+  folder: string;
+  suggested: string;
+  moved: number;
+  /** Moved files rekordbox was told about. */
+  relocated: number;
+  /** Files left where they are, and why. */
+  left: string[];
+}
+
 /** What a read-only look over the library found. */
 export interface LibraryHealth {
   files: number;
   /** Folders whose names carry stray separators from untidy tags. */
-  untidy: { rootLabel: string; folder: string; suggested: string; files: number }[];
+  untidy: { rootId: number; rootLabel: string; folder: string; suggested: string; files: number }[];
   /** The same recording (artist, title, length within 2 s) in more than one file. */
   duplicates: { artist: string; title: string; files: string[] }[];
 }
@@ -430,6 +497,8 @@ export interface LibraryAdmin {
   player(action: PlayerAction, value?: number): Promise<PlayerState>;
   /** Looks for untidy folder names and recordings filed twice. Reads only. */
   checkLibrary(): Promise<LibraryHealth>;
+  /** Move a folder the check names to its tidy name; rekordbox follows the files it uses. */
+  tidyFolder(rootId: number, folder: string): Promise<TidiedFolder>;
   folderLayout(): Promise<FolderLayout>;
   /** Checks and saves a layout; rejects with a plain reason if it cannot be used. */
   setFolderLayout(layout: string): Promise<FolderLayout>;
@@ -473,6 +542,16 @@ export interface LibraryAdmin {
   setRekordboxDatabase(enabled: boolean): Promise<RekordboxDatabase>;
   /** Backs up rekordbox's library, then reads the copy. rekordbox must be closed. */
   readRekordboxDatabase(): Promise<ImportResult>;
+  /** Turn writing to rekordbox's library on or off. */
+  setRekordboxWrite(enabled: boolean): Promise<RekordboxDatabase>;
+  /** Put library tracks at the end of a rekordbox playlist from the sidebar. */
+  addToRekordboxPlaylist(playlistId: number, trackIds: number[]): Promise<RekordboxWrite>;
+  /** Read rekordbox again and list what differs since both sides last agreed. */
+  reviewRekordboxMerge(): Promise<MergeReview>;
+  /** Apply the ticked changes. */
+  applyRekordboxMerge(choices: MergeChoice[]): Promise<MergeApplied>;
+  /** New tracks rekordbox does not have go into its "Imported" playlist: these files, or every one not kept out. */
+  sendNewToRekordbox(fileIds?: number[]): Promise<RekordboxWrite>;
   rekordboxBackups(): Promise<RekordboxBackup[]>;
   pinRekordboxBackup(name: string, pinned: boolean): Promise<RekordboxBackup[]>;
   /** Puts a backup back; resolves to the backup of the library it replaced. */

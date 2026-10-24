@@ -54,13 +54,15 @@ export function ImportChoices({ options, onChange, canConvert }: Props) {
     </select>;
   return <div className="sync-card import-choices">
     <h2>When importing</h2>
-    <div className="choice-grid">
-      <label>Convert lossless files (FLAC, WAV, AIFF, ALAC) to {pick(LOSSLESS, "lossless")}</label>
-      <label>Convert lossy files (MP3, AAC, OGG) to {pick(LOSSY, "lossy")}</label>
-    </div>
-    <p className="settings-copy">{canConvert
-      ? "Files already in the chosen format are not converted. Converting lossy files to MP3 loses a little more quality."
-      : "Converting needs ffmpeg, which was not found on this computer, so files go in as they are."}</p>
+    <label className="setting-row">
+      <span><strong>Convert lossless files to</strong><small>FLAC, WAV, AIFF and ALAC. Files already in the chosen format are left as they are.</small></span>
+      {pick(LOSSLESS, "lossless")}
+    </label>
+    <label className="setting-row">
+      <span><strong>Convert lossy files to</strong><small>MP3, AAC and OGG. Converting them to MP3 loses a little more quality.</small></span>
+      {pick(LOSSY, "lossy")}
+    </label>
+    {!canConvert && <p className="settings-copy">Converting needs ffmpeg, which was not found on this computer, so files go in as they are.</p>}
     <label className="setting-row">
       <span><strong>Tidy names</strong><small>{"Removes stray separators and spaces, such as the \";\" in \"Artist;\", and splits \"A;B\" into \"A, B\", before folders and file names are made."}</small></span>
       <input type="checkbox" checked={options.tidy} onChange={(event) => change({ ...options, tidy: event.target.checked })} />

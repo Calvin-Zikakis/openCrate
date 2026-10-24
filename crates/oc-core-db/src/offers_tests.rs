@@ -321,3 +321,110 @@ fn an_offer_and_its_setting_are_written_together() {
         Some("{\"new\":[1]}")
     );
 }
+
+/// A database read in which rekordbox has `night` as track 777, in playlist 900123 inside folder
+/// 950000.
+fn database_with(night: &Path) -> xml::Collection {
+    let mut collection = rekordbox_has(&[night]);
+    collection.tracks[0].id = 777;
+    let named = |name: &str, kind: &str, id: &str| {
+        xml::Attributes::from([
+            ("Name".to_owned(), name.to_owned()),
+            ("Type".to_owned(), kind.to_owned()),
+            (oc_rekordbox::db::REKORDBOX_ID.to_owned(), id.to_owned()),
+        ])
+    };
+    collection.playlists = vec![xml::PlaylistNode::Folder {
+        attributes: named("ROOT", "0", "root"),
+        children: vec![xml::PlaylistNode::Folder {
+            attributes: named("House", "0", "950000"),
+            children: vec![xml::PlaylistNode::Playlist {
+                attributes: named("Deep", "1", "900123"),
+                track_ids: vec![777],
+            }],
+        }],
+    }];
+    collection.unresolved_track_ids.clear();
+    collection
+}
+
+fn playlist_named(library: &Library, name: &str) -> i64 {
+    library
+        .service
+        .playlists()
+        .unwrap()
+        .into_iter()
+        .find(|row| row.name == name)
+        .unwrap()
+        .id
+}
+
+#[test]
+fn a_playlist_from_a_database_read_knows_its_rekordbox_id() {
+    let library = library();
+    let night = library.file("A/01 - Night Drive.aif", "Night Drive");
+    library.scan();
+    library
+        .service
+        .import_database(Path::new("/rekordbox/master.db"), database_with(&night))
+        .unwrap();
+    let deep = playlist_named(&library, "Deep");
+    assert_eq!(
+        library.service.rekordbox_playlist_key(deep).unwrap(),
+        Some("900123".to_owned())
+    );
+    let house = playlist_named(&library, "House");
+    assert_eq!(
+        library.service.rekordbox_playlist_key(house).unwrap(),
+        Some("950000".to_owned())
+    );
+}
+
+#[test]
+fn a_playlist_from_an_xml_export_has_no_rekordbox_id() {
+    let library = library();
+    let night = library.file("A/01 - Night Drive.aif", "Night Drive");
+    library.scan();
+    let track = NewTrack {
+        path: night.as_os_str().as_encoded_bytes().to_vec(),
+        name: "Night Drive".into(),
+        artist: String::new(),
+        album: String::new(),
+        year: None,
+        total_seconds: 0,
+        size: 0,
+        kind: "AIFF".into(),
+    };
+    // Even an export carrying the attribute: only a database read names rekordbox's rows.
+    let text = write_offer(&[track], "Deep", "1")
+        .replace("Name=\"Deep\"", "Name=\"Deep\" RekordboxId=\"900123\"");
+    let export = library.folder.path().join("rekordbox.xml");
+    fs::write(&export, text).unwrap();
+    library.service.import_export(&export).unwrap();
+    let deep = playlist_named(&library, "Deep");
+    assert_eq!(library.service.rekordbox_playlist_key(deep).unwrap(), None);
+}
+
+#[test]
+fn tracks_map_to_their_rekordbox_row_or_to_the_file_to_add() {
+    let library = library();
+    let night = library.file("A/01 - Night Drive.aif", "Night Drive");
+    let soft = library.file("A/02 - Soft Focus.aif", "Soft Focus");
+    library.scan();
+    library
+        .service
+        .import_database(Path::new("/rekordbox/master.db"), database_with(&night))
+        .unwrap();
+    let ids = track_ids(&library);
+    let members = library
+        .service
+        .rekordbox_members(&[ids["Night Drive"], ids["Soft Focus"]])
+        .unwrap();
+    assert_eq!(
+        members,
+        [
+            crate::offers::RekordboxMember::Known("777".into()),
+            crate::offers::RekordboxMember::File(soft),
+        ]
+    );
+}

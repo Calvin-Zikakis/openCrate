@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { startPolling } from "../library/poller";
 import { PlanTable } from "./PlanTable";
 import { Icon } from "./Icon";
@@ -27,6 +27,23 @@ function contents(release: DownloadRelease): string {
   return parts.length > 0 ? parts.join(", ") : "No audio files";
 }
 
+const keyOf = (release: DownloadRelease) => `${release.folderId}:${release.loose ? "f" : "d"}:${release.name}`;
+
+/** A plan read for one release, with what it was read against so a stale one is never shown. */
+interface Planned { stamp: string; plan: ImportPlan | null; error: string }
+
+/** Something a person should see before importing: a file that cannot go, a guessed value, or a warning. */
+function needsLook(plan: ImportPlan): boolean {
+  return plan.blocked > 0 || plan.files.some((file) => (file.tags?.warnings.length ?? 0) > 0 || (file.tags?.fields.some((field) => field.guessed) ?? false));
+}
+
+/** One line for a closed row: where a single file goes, or how many are ready. */
+function summary(plan: ImportPlan): string {
+  const only = plan.files.length === 1 ? plan.files[0] : undefined;
+  if (only?.destination) return `Goes to ${only.destination}`;
+  return `${plan.ready} ${plan.ready === 1 ? "file" : "files"} ready to go into ${plan.rootLabel}`;
+}
+
 function folderNote(folder: DownloadFolderState): string | null {
   if (folder.state === "off") return `${folder.label} is switched off in Settings.`;
   if (folder.state === "offline") return `${folder.label} cannot be reached right now. It will be picked up again when it returns.`;
@@ -52,12 +69,14 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   const [error, setError] = useState("");
   const [roots, setRoots] = useState<FolderInfo[]>([]);
   const [rootId, setRootId] = useState<number | null>(null);
-  const [previewKey, setPreviewKey] = useState<string | null>(null);
-  const [plan, setPlan] = useState<ImportPlan | null>(null);
-  const [planning, setPlanning] = useState(false);
-  const [planError, setPlanError] = useState("");
-  const [importing, setImporting] = useState<"copying" | "scanning" | null>(null);
-  const [result, setResult] = useState<ReleaseImport | null>(null);
+  /** Rows opened or closed by hand; the rest open by themselves when something needs a look. */
+  const [chosen, setChosen] = useState<Map<string, boolean>>(new Map());
+  const [plans, setPlans] = useState<Map<string, Planned>>(new Map());
+  const [importing, setImporting] = useState<{ key: string; step: "copying" | "scanning" } | null>(null);
+  const [results, setResults] = useState<Map<string, ReleaseImport>>(new Map());
+  const [importErrors, setImportErrors] = useState<Map<string, string>>(new Map());
+  /** What happened to the new tracks in rekordbox after the last import. */
+  const [rekordboxNote, setRekordboxNote] = useState("");
   const [options, setOptions] = useState<ImportOptions>(loadOptions);
   const [canConvert, setCanConvert] = useState(false);
 
@@ -75,7 +94,8 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   // Converting needs ffmpeg; without it the choice is shown but not sent.
   const sent: ImportOptions = canConvert ? options : { ...options, convert: { lossless: null, lossy: null } };
 
-  /** New files join the library the way any file does: by a scan of the folder. */
+  /** New files join the library the way any file does: by a scan of the folder. With writing
+   * to rekordbox on, they then go straight into rekordbox's Imported playlist. */
   const rescan = async (root: number) => {
     await admin.scan(root).catch(() => undefined);
     for (let waited = 0; waited < SCAN_WAIT_MS; waited += 500) {
@@ -83,39 +103,45 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     onImported?.();
-  };
-
-  const preview = async (release: DownloadRelease, key: string) => {
-    if (previewKey === key) { setPreviewKey(null); return; }
-    setPreviewKey(key);
-    setPlan(null);
-    setPlanError("");
-    setResult(null);
-    if (rootId === null) { setPlanError("Add a music folder in Settings first, so there is somewhere to put it."); return; }
-    setPlanning(true);
+    const rekordbox = await admin.rekordboxDatabase().catch(() => null);
+    if (!rekordbox?.writeEnabled || rekordbox.writeNeedsConfirmation || !rekordbox.writeTested) return;
     try {
-      setPlan(await admin.planRelease(release.folderId, release.name, rootId, sent));
+      const done = await admin.sendNewToRekordbox();
+      setRekordboxNote(done.added > 0
+        ? `Added ${done.added} ${done.added === 1 ? "track" : "tracks"} to rekordbox's Imported playlist.`
+        : "");
+      onImported?.();
     } catch (reason) {
-      setPlanError(message(reason));
-    } finally {
-      setPlanning(false);
+      setRekordboxNote(`Not added to rekordbox yet: ${message(reason)} They wait on the rekordbox screen until then.`);
     }
   };
 
+  // Plans are read against these; changing either reads every plan again.
+  const against = JSON.stringify([sent, rootId]);
+  const latest = useRef(against);
+  latest.current = against;
+  const stampOf = (release: DownloadRelease) => `${release.audioFiles}:${release.newestModifiedMs}:${against}`;
+  const planned = (release: DownloadRelease) => {
+    const entry = plans.get(keyOf(release));
+    return entry?.stamp === stampOf(release) ? entry : undefined;
+  };
+
+  const choose = (key: string, open: boolean) => setChosen((current) => new Map(current).set(key, open));
+
   const importNow = async (release: DownloadRelease) => {
+    const key = keyOf(release);
     if (rootId === null || importing) return;
-    setImporting("copying");
-    setPlanError("");
+    setImporting({ key, step: "copying" });
+    setImportErrors((current) => { const next = new Map(current); next.delete(key); return next; });
     try {
       const done = await admin.importRelease(release.folderId, release.name, rootId, sent);
-      setResult(done);
-      setPlan(null);
+      setResults((current) => new Map(current).set(key, done));
       if (done.filed > 0) {
-        setImporting("scanning");
+        setImporting({ key, step: "scanning" });
         await rescan(done.rootId);
       }
     } catch (reason) {
-      setPlanError(message(reason));
+      setImportErrors((current) => new Map(current).set(key, message(reason)));
     } finally {
       setImporting(null);
     }
@@ -138,29 +164,70 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   const imported = releases.filter((release) => release.imported);
   const notes = (snapshot?.folders ?? []).map(folderNote).filter((note): note is string => note !== null);
   const ready = fresh.filter((release) => release.state === "ready").length;
+
+  // Every finished new release has its tags read without asking, one at a time, so problems show
+  // in the list; any other row is read when it is opened.
+  const wanted = releases.filter((release) => !release.imported && ((fresh.includes(release) && release.state === "ready") || chosen.get(keyOf(release)) === true));
+  const reading = useRef(new Set<string>());
+  const todo = rootId === null ? [] : wanted.filter((release) => !planned(release) && !reading.current.has(`${keyOf(release)}|${stampOf(release)}`));
+  const todoKey = todo.map((release) => `${keyOf(release)}|${stampOf(release)}`).join("\n");
+  useEffect(() => {
+    if (todo.length === 0 || rootId === null) return;
+    for (const release of todo) reading.current.add(`${keyOf(release)}|${stampOf(release)}`);
+    void (async () => {
+      for (const release of todo) {
+        const stamp = stampOf(release);
+        let entry: Planned;
+        try {
+          entry = { stamp, plan: await admin.planRelease(release.folderId, release.name, rootId, sent), error: "" };
+        } catch (reason) {
+          entry = { stamp, plan: null, error: message(reason) };
+        }
+        reading.current.delete(`${keyOf(release)}|${stamp}`);
+        // A plan read against choices that have since changed is dropped.
+        if (stamp.endsWith(latest.current)) setPlans((current) => new Map(current).set(keyOf(release), entry));
+      }
+    })();
+    // todoKey names exactly the releases still to read.
+  }, [admin, todoKey]);
   const row = (release: DownloadRelease) => {
-    const { text, tone } = release.imported ? { text: "Imported", tone: "available" } : badge(release);
-    const key = `${release.folderId}:${release.loose ? "f" : "d"}:${release.name}`;
+    const key = keyOf(release);
+    const entry = planned(release);
+    const plan = release.imported ? null : entry?.plan ?? null;
+    const result = results.get(key);
+    const step = importing?.key === key ? importing.step : null;
+    const auto = release.imported ? result !== undefined : plan !== null && needsLook(plan);
+    const open = chosen.get(key) ?? auto;
+    const { text, tone } = release.imported
+      ? { text: "Imported", tone: "available" }
+      : plan && plan.blocked > 0 ? { text: "Needs attention", tone: "unavailable" }
+      : plan && needsLook(plan) ? { text: "Check the tags", tone: "unavailable" }
+      : badge(release);
+    const available = roots.filter((folder) => folder.availability === "available");
+    const waiting = !entry && wanted.includes(release) && rootId !== null;
     return <li key={key} className="folder-row">
       <div className="folder-text">
         <strong>{release.name}</strong>
         <small>{contents(release)} - in {release.folderLabel}</small>
+        {!open && plan && <small className="plan-summary">{summary(plan)}</small>}
       </div>
       <span className={`folder-badge ${tone}`}>{text}</span>
-      <button className="secondary-button" aria-expanded={previewKey === key} aria-label={`Preview ${release.name}`} onClick={() => void preview(release, key)}>{previewKey === key ? "Hide preview" : "Preview..."}</button>
-      {previewKey === key && <div className="plan-panel">
-        {roots.filter((folder) => folder.availability === "available").length > 1 && <label className="plan-root">Put it in <select value={rootId ?? ""} onChange={(event) => { setRootId(Number(event.target.value)); setPreviewKey(null); }}>{roots.filter((folder) => folder.availability === "available").map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>}
-        {planning && <p className="settings-copy" role="status">Reading the tags...</p>}
-        {importing && <p className="settings-copy" role="status">{importing === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</p>}
-        {planError && <p role="alert" className="inline-error">{planError}</p>}
-        {result && !importing && <div className="import-result" role="status">
+      <button className="secondary-button" aria-expanded={open} aria-label={`Preview ${release.name}`} onClick={() => choose(key, !open)}>{open ? "Hide preview" : "Preview..."}</button>
+      {open && <div className="plan-panel">
+        {available.length > 1 && <label className="plan-root">Put it in <select value={rootId ?? ""} onChange={(event) => setRootId(Number(event.target.value))}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>}
+        {rootId === null && <p role="alert" className="inline-error">Add a music folder in Settings first, so there is somewhere to put it.</p>}
+        {waiting && <p className="settings-copy" role="status">Reading the tags...</p>}
+        {step && <p className="settings-copy" role="status">{step === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</p>}
+        {entry?.error && !release.imported && <p role="alert" className="inline-error">{entry.error}</p>}
+        {importErrors.get(key) && <p role="alert" className="inline-error">{importErrors.get(key)}</p>}
+        {result && !step && <div className="import-result" role="status">
           <p className="settings-copy">{result.filed === 0 ? "Nothing was imported." : `${result.filed} ${result.filed === 1 ? "file is" : "files are"} now in ${result.rootLabel}.`} The originals are still in {release.folderLabel}.</p>
           {result.skipped.length > 0 && <>
             <p className="settings-copy">Left where they are:</p>
             <ul className="skipped-list">{result.skipped.map((item) => <li key={item.source}><strong>{item.source}</strong> {item.problem}</li>)}</ul>
           </>}
         </div>}
-        {plan && <>
+        {plan && !result && <>
           <p className="settings-copy">{plan.ready} {plan.ready === 1 ? "file is" : "files are"} ready to go into {plan.rootLabel}{plan.blocked > 0 ? `; ${plan.blocked} ${plan.blocked === 1 ? "needs attention and stays" : "need attention and stay"} in the download folder` : ""}. Importing copies them; the originals stay in {release.folderLabel}. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
           {plan.ready > 0 && <button className="import-button" disabled={importing !== null || release.state !== "ready"} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
           {release.state !== "ready" && <p className="settings-copy">It can be imported once it has finished downloading.</p>}
@@ -174,17 +241,18 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     <div className="feature-empty sync-hero">
       <div className="empty-icon"><Icon name="folder" size={36} /></div>
       <h1>Import</h1>
-      <p>Releases in your download folders, and whether they have finished downloading. Preview one to check its tags and import it. Importing copies files into your music folder; the download folder is never changed.</p>
+      <p>Releases in your download folders, and whether they have finished downloading. Their tags are read as they arrive, and any that need a look open by themselves. Importing copies files into your music folder; the download folder is never changed.</p>
     </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {!snapshot && !error && <p className="settings-copy" role="status">Looking at your download folders...</p>}
     {snapshot && snapshot.folders.length === 0 && <div className="sync-card">
       <h2>No download folders yet</h2>
-      <p className="settings-copy">Choose the folders where Bandcamp and Soulseek put your downloads.</p>
+      <p className="settings-copy">Choose the folders your downloads land in.</p>
       <button className="secondary-button" onClick={onOpenSettings}>Choose in Settings...</button>
     </div>}
     {notes.map((note) => <p key={note} className="settings-copy" role="status">{note}</p>)}
-    {snapshot && snapshot.folders.length > 0 && <ImportChoices options={options} canConvert={canConvert} onChange={(next) => { setOptions(next); setPreviewKey(null); setPlan(null); }} />}
+    {rekordboxNote && <p className="settings-copy rekordbox-note" role="status">{rekordboxNote}</p>}
+    {snapshot && snapshot.folders.length > 0 && <ImportChoices options={options} canConvert={canConvert} onChange={setOptions} />}
     {snapshot && snapshot.folders.length > 0 && <div className="sync-card">
       <h2>New since you added the folder</h2>
       {fresh.length === 0

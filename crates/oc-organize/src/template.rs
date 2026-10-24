@@ -150,13 +150,7 @@ impl Template {
         let mut folders = Vec::new();
         let mut file = String::new();
         for (index, level) in self.levels.iter().enumerate() {
-            let mut text = String::new();
-            for part in level {
-                match part {
-                    Part::Literal(literal) => text.push_str(literal),
-                    Part::Field { field, width } => text.push_str(&value(fields, *field, *width)?),
-                }
-            }
+            let text = render_level(level, fields)?;
             if index + 1 == self.levels.len() {
                 file = sanitize_file_name(&text, extension);
             } else {
@@ -164,6 +158,45 @@ impl Template {
             }
         }
         Ok(RenderedName { folders, file })
+    }
+}
+
+/// One folder or file name. A missing track, disc or year is left out with the separator after
+/// it, or before it when it ends the name; a name left with nothing in it is still an error.
+fn render_level(level: &[Part], fields: &Fields) -> Result<String, TemplateError> {
+    let mut pieces = Vec::with_capacity(level.len());
+    let mut first_missing = None;
+    for part in level {
+        pieces.push(match part {
+            Part::Literal(literal) => Some(literal.clone()),
+            Part::Field { field, width } => match value(fields, *field, *width) {
+                Ok(text) => Some(text),
+                Err(TemplateError::Missing(name)) if field.is_number() => {
+                    first_missing.get_or_insert(name);
+                    None
+                }
+                Err(error) => return Err(error),
+            },
+        });
+    }
+    let mut keep = vec![true; level.len()];
+    for index in (0..level.len()).filter(|&index| pieces[index].is_none()) {
+        keep[index] = false;
+        let literal = |at: usize| matches!(level.get(at), Some(Part::Literal(_)));
+        if literal(index + 1) {
+            keep[index + 1] = false;
+        } else if index > 0 && literal(index - 1) {
+            keep[index - 1] = false;
+        }
+    }
+    let text: String = pieces
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(piece, kept)| piece.filter(|_| kept))
+        .collect();
+    match first_missing {
+        Some(name) if text.trim().is_empty() => Err(TemplateError::Missing(name)),
+        _ => Ok(text),
     }
 }
 
@@ -295,14 +328,34 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_value_is_an_error_not_a_blank() {
+    fn a_missing_number_is_left_out_with_its_separator() {
         let mut f = fields();
         f.track = None;
+        f.year = None;
+        f.disc = None;
+        let render = |text: &str| Template::parse(text).unwrap().render(&f, "aif");
+        let plain = render(DEFAULT_TEMPLATE).unwrap();
+        assert_eq!(plain.file, "Studio 001 - Night Drive (X Remix).aif");
         assert_eq!(
-            Template::parse(DEFAULT_TEMPLATE).unwrap().render(&f, "aif"),
-            Err(TemplateError::Missing("track"))
+            render("{folder_artist}/{year} - {release}/{artist} - {title} - {year}")
+                .unwrap()
+                .components()[1..],
+            ["Between Spaces", "Studio 001 - Night Drive (X Remix).aif"]
         );
-        f.track = Some(1);
+        assert_eq!(
+            render("{disc}-{track:02} {title}").unwrap().file,
+            "Night Drive (X Remix).aif"
+        );
+        assert_eq!(
+            render("{folder_artist}/{year}/{title}"),
+            Err(TemplateError::Missing("year")),
+            "a folder made of nothing but a missing number is still an error"
+        );
+    }
+
+    #[test]
+    fn a_missing_value_is_an_error_not_a_blank() {
+        let mut f = fields();
         f.release = Some("   ".into());
         assert_eq!(
             Template::parse(DEFAULT_TEMPLATE).unwrap().render(&f, "aif"),

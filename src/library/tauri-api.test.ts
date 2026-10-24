@@ -302,7 +302,7 @@ describe("managing folders", () => {
   it("reads the library check and refuses an unreadable one", async () => {
     const health = {
       files: 5,
-      untidy: [{ rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
+      untidy: [{ rootId: 7, rootLabel: "Music", folder: "Studio 001;", suggested: "Studio 001", files: 1 }],
       duplicates: [{ artist: "Studio 001", title: "Soft Focus", files: ["a/x.aif", "b/x.aif"] }],
     };
     const invoke = vi.fn().mockResolvedValue(health);
@@ -450,14 +450,21 @@ describe("rekordbox database", () => {
   const status = {
     installed: true, appVersion: "7.2.19.0342", running: false, enabled: true,
     confirmedVersion: "7.2.19.0342", needsConfirmation: false,
+    writeEnabled: true, writeConfirmedVersion: "7.2.19.0342", writeNeedsConfirmation: false, writeTested: true,
   };
+  const written = { playlist: "Imported", added: 2, imported: 1, leftOut: ["x.mp3: not audio"], readError: null };
+  const change = { rbKey: 777, trackId: 3, title: "Night Drive", artist: "Studio 001", field: "title", base: null, ours: "A", theirs: "B", direction: "toOpenCrate" };
+  const applied = { toRekordbox: 0, toOpencrate: 1, skipped: [] };
   const backup = { name: "20261023-120000-read", takenMs: 5, reason: "read", pinned: false, appVersion: "7.2.19.0342", tracks: 40, playlists: 3 };
   const imported = { sourceId: 4, generation: 1, unchanged: false, entries: 40, matched: 0, derivedSet: 0 };
   const admin = (invoke: Invoke) => new TauriLibraryApi(invoke, { canManageFolders: true, persistent: true }).admin!;
 
   it("uses the matching commands and argument names", async () => {
     const invoke = vi.fn(async (command: string) => {
-      if (command === "rekordbox_db_status" || command === "rekordbox_db_enable") return status;
+      if (command === "rekordbox_db_status" || command === "rekordbox_db_enable" || command === "rekordbox_db_enable_write") return status;
+      if (command === "rekordbox_add_to_playlist" || command === "rekordbox_send_new") return written;
+      if (command === "rekordbox_merge_review") return { changes: [change], canWrite: true };
+      if (command === "rekordbox_merge_apply") return applied;
       if (command === "rekordbox_db_read") return imported;
       if (command === "rekordbox_backups" || command === "rekordbox_backup_pin") return [backup];
       if (command === "rekordbox_restore") return { ...backup, reason: "before-restore", pinned: true };
@@ -470,6 +477,13 @@ describe("rekordbox database", () => {
     expect(await db.rekordboxBackups()).toEqual([backup]);
     expect(await db.pinRekordboxBackup(backup.name, true)).toEqual([backup]);
     expect((await db.restoreRekordboxBackup(backup.name)).reason).toBe("before-restore");
+    expect(await db.setRekordboxWrite(true)).toEqual(status);
+    expect(await db.addToRekordboxPlaylist(9, [3, 4])).toEqual(written);
+    expect(await db.sendNewToRekordbox()).toEqual(written);
+    expect(await db.sendNewToRekordbox([5])).toEqual(written);
+    expect(await db.reviewRekordboxMerge()).toEqual({ changes: [change], canWrite: true });
+    const choice = { rbKey: 777, field: "title" as const, keep: "rekordbox" as const, ours: "A", theirs: "B" };
+    expect(await db.applyRekordboxMerge([choice])).toEqual(applied);
     expect(invoke.mock.calls).toEqual([
       ["rekordbox_db_status"],
       ["rekordbox_db_enable", { enabled: true }],
@@ -477,6 +491,12 @@ describe("rekordbox database", () => {
       ["rekordbox_backups"],
       ["rekordbox_backup_pin", { name: backup.name, pinned: true }],
       ["rekordbox_restore", { name: backup.name }],
+      ["rekordbox_db_enable_write", { enabled: true }],
+      ["rekordbox_add_to_playlist", { playlistId: 9, trackIds: [3, 4] }],
+      ["rekordbox_send_new", { fileIds: null }],
+      ["rekordbox_send_new", { fileIds: [5] }],
+      ["rekordbox_merge_review"],
+      ["rekordbox_merge_apply", { choices: [choice] }],
     ]);
   });
 
@@ -486,6 +506,10 @@ describe("rekordbox database", () => {
     await expect(reply({ ...status, appVersion: 7 }).rekordboxDatabase()).rejects.toThrow("unreadable");
     await expect(reply([{ ...backup, tracks: -1 }]).rekordboxBackups()).rejects.toThrow("unreadable");
     await expect(reply("no").rekordboxBackups()).rejects.toThrow("unreadable");
+    await expect(reply({ ...status, writeTested: "yes" }).rekordboxDatabase()).rejects.toThrow("unreadable");
+    await expect(reply({ ...written, leftOut: "none" }).sendNewToRekordbox()).rejects.toThrow("unreadable");
+    await expect(reply({ changes: [{ ...change, field: "genre" }], canWrite: true }).reviewRekordboxMerge()).rejects.toThrow("unreadable");
+    await expect(reply({ changes: [{ ...change, direction: "sideways" }], canWrite: true }).reviewRekordboxMerge()).rejects.toThrow("unreadable");
     const refused = admin(vi.fn().mockRejectedValue("rekordbox is running. Quit it first."));
     await expect(refused.readRekordboxDatabase()).rejects.toThrow("rekordbox is running");
   });

@@ -54,6 +54,9 @@ fn id(text: &str) -> Result<u64, DbError> {
         .map_err(|_| DbError::Schema(format!("a rekordbox id is not a number: {text:?}")))
 }
 
+/// The attribute holding a playlist's or folder's id in rekordbox's library.
+pub const REKORDBOX_ID: &str = "RekordboxId";
+
 fn named(name: &str, kind: &str) -> Attributes {
     let mut attributes = Attributes::new();
     attributes.insert("Name".into(), name.to_owned());
@@ -258,12 +261,16 @@ fn build(
         .into_iter()
         .map(|node| {
             if node.folder {
+                let mut attributes = named(&node.name, "0");
+                // So a change made in openCrate reaches exactly this folder or playlist.
+                attributes.insert(REKORDBOX_ID.into(), node.id.clone());
                 PlaylistNode::Folder {
-                    attributes: named(&node.name, "0"),
+                    attributes,
                     children: build(children, items, &node.id, depth + 1),
                 }
             } else {
                 let mut attributes = named(&node.name, "1");
+                attributes.insert(REKORDBOX_ID.into(), node.id.clone());
                 if node.smart {
                     attributes.insert("Smart".into(), "1".into());
                 }

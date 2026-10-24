@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type PointerEvent } from "react";
 import { cueLabel } from "./Analysis";
 import type { TrackCue, WaveBands, WaveDetail } from "../library/types";
 
@@ -29,15 +29,27 @@ export function byLevel(column: Column): ["low" | "mid" | "high", number][] {
   return BANDS.map((band) => [band, column[band]] as ["low" | "mid" | "high", number]).sort((a, b) => b[1] - a[1]);
 }
 
-/** What each of `width` pixel columns shows, sampled at its centre, with the playhead at
- * `positionMs` in the middle and `seconds` across; null before the start or past the end. */
+/** What each of `width` pixel columns shows, with the playhead at `positionMs` in the middle and
+ * `seconds` across: the loudest of the slices the column covers, so a short peak never falls
+ * between two samples and blinks as the picture scrolls. Null where the column's centre is before
+ * the start or past the end. */
 export function columns(detail: WaveDetail, positionMs: number, width: number, seconds: number): (Column | null)[] {
   const msPerPixel = (seconds * 1000) / Math.max(1, width);
+  const slice = (ms: number) => (ms * detail.perSecond) / 1000;
+  const count = detail.low.length;
   return Array.from({ length: Math.max(0, width) }, (_, x) => {
-    const at = positionMs + (x + 0.5 - width / 2) * msPerPixel;
-    const index = Math.floor((at * detail.perSecond) / 1000 + 1e-9);
-    if (at < 0 || index >= detail.low.length) return null;
-    return { low: detail.low[index] ?? 0, mid: detail.mid[index] ?? 0, high: detail.high[index] ?? 0 };
+    const start = positionMs + (x - width / 2) * msPerPixel;
+    const centre = start + msPerPixel / 2;
+    if (centre < 0 || Math.floor(slice(centre) + 1e-9) >= count) return null;
+    const from = Math.max(0, Math.floor(slice(start) + 1e-9));
+    const to = Math.min(count, Math.max(from + 1, Math.ceil(slice(start + msPerPixel) - 1e-9)));
+    const column = { low: 0, mid: 0, high: 0 };
+    for (let index = from; index < to; index += 1) {
+      column.low = Math.max(column.low, detail.low[index] ?? 0);
+      column.mid = Math.max(column.mid, detail.mid[index] ?? 0);
+      column.high = Math.max(column.high, detail.high[index] ?? 0);
+    }
+    return column;
   });
 }
 
@@ -46,20 +58,37 @@ interface Props {
   cues: TrackCue[];
   positionMs: number;
   durationMs: number;
-  /** The native slider on top, so dragging, clicking and the keyboard all seek. */
+  /** Where the pointer is, as a share of the track; `done` when it is let go. */
+  onSeek: (fraction: number, done: boolean) => void;
+  /** The native slider, for the keyboard and screen readers; the pointer is handled here, so a
+   * click lands exactly where it points, even on the slider's own thumb. */
   children: React.ReactNode;
 }
 
 /** The whole track by sound (lows at the back, highs in front), the played part bright and
  * rekordbox's cues marked. */
-export function Waveform({ bands, cues, positionMs, durationMs, children }: Props) {
+export function Waveform({ bands, cues, positionMs, durationMs, onSeek, children }: Props) {
   const bars = bands ? foldBands(bands, BARS) : null;
   const loudest = bars ? Math.max(1, ...bars.low, ...bars.mid, ...bars.high) : 1;
   const played = durationMs > 0 ? Math.min(1, positionMs / durationMs) : 0;
   const marks = durationMs > 0
     ? cues.filter((cue) => cue.kind !== 3 && cue.startSeconds * 1000 <= durationMs)
     : [];
-  return <div className="waveform" data-testid="waveform">
+  const scrubbing = useRef(false);
+  const pick = (event: PointerEvent<HTMLDivElement>, done: boolean) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    onSeek(Math.min(1, Math.max(0, (event.clientX - box.left) / Math.max(1, box.width))), done);
+  };
+  return <div className="waveform" data-testid="waveform"
+    onPointerDown={(event) => {
+      if (event.button !== 0) return;
+      scrubbing.current = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pick(event, false);
+    }}
+    onPointerMove={(event) => { if (scrubbing.current) pick(event, false); }}
+    onPointerUp={(event) => { if (scrubbing.current) { scrubbing.current = false; pick(event, true); } }}
+    onPointerCancel={() => { scrubbing.current = false; }}>
     <svg viewBox={`0 0 ${BARS} 24`} preserveAspectRatio="none" aria-hidden="true">
       {!bars || bars.low.length === 0
         ? <rect x="0" y="11.5" width={BARS} height="1" className="wave-empty" />
@@ -87,6 +116,12 @@ interface ScopeProps {
   playing: boolean;
 }
 
+/** Above this gap between where the picture is and where the player says it is, the picture jumps
+ * (a seek); below it, the picture eases over, so the uneven timing of the reports never shows. */
+const SNAP_MS = 300;
+/** The share of the gap made up each frame. */
+const EASE = 0.1;
+
 /** The close-up that scrolls past a fixed playhead, coloured by sound like `MiniMeters`'
  * multi-band waveform. Between the player's position reports it moves on by the clock. */
 export function Scope({ detail, cues, positionMs, playing }: ScopeProps) {
@@ -99,23 +134,44 @@ export function Scope({ detail, cues, positionMs, playing }: ScopeProps) {
     const context = element?.getContext("2d");
     if (!element || !context || !detail) return;
     let frame = 0;
+    let frames = 0;
+    let fills = { low: "", mid: "", high: "" };
+    // Where the picture is, kept apart from the reports so it moves on smoothly.
+    let shown: number | null = null;
+    let last = performance.now();
+    let drawn = "";
     const draw = () => {
+      frame = requestAnimationFrame(draw);
+      const now = performance.now();
+      const report = reported.current;
+      const target = report.positionMs + (report.playing ? now - report.at : 0);
+      const moved = shown === null ? target : shown + (report.playing ? now - last : 0);
+      const gap = target - moved;
+      shown = !report.playing || Math.abs(gap) > SNAP_MS ? target : moved + gap * EASE;
+      last = now;
+
       const ratio = window.devicePixelRatio || 1;
       const width = Math.max(1, Math.round(element.clientWidth * ratio));
       const height = Math.max(1, Math.round(element.clientHeight * ratio));
+      // Paused and unchanged: nothing to draw.
+      const state = `${shown}:${width}:${height}`;
+      if (state === drawn && !report.playing) return;
+      drawn = state;
       if (element.width !== width || element.height !== height) {
         element.width = width;
         element.height = height;
       }
-      const now = reported.current;
-      const at = now.positionMs + (now.playing ? performance.now() - now.at : 0);
-      const style = getComputedStyle(element);
-      const colour = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-      const fills = { low: colour("--wave-low", "#3d7cff"), mid: colour("--wave-mid", "#ff7a3d"), high: colour("--scope-high", "#f4f4f6") };
+      // The theme's colours, read again now and then rather than every frame.
+      if (frames % 60 === 0) {
+        const style = getComputedStyle(element);
+        const colour = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+        fills = { low: colour("--wave-low", "#3d7cff"), mid: colour("--wave-mid", "#ff7a3d"), high: colour("--scope-high", "#f4f4f6") };
+      }
+      frames += 1;
+      const at = shown;
       context.clearRect(0, 0, width, height);
-      const shown = columns(detail, at, width, WINDOW_SECONDS);
       const middle = height / 2;
-      shown.forEach((column, x) => {
+      columns(detail, at, width, WINDOW_SECONDS).forEach((column, x) => {
         if (!column) return;
         for (const [band, level] of byLevel(column)) {
           const half = Math.max(band === "low" ? 0.5 : 0, (level / 255) * middle * 0.96);
@@ -137,11 +193,10 @@ export function Scope({ detail, cues, positionMs, playing }: ScopeProps) {
       }
       context.fillStyle = "#ffffff";
       context.fillRect(Math.floor(width / 2) - Math.round(ratio / 2), 0, Math.max(1, Math.round(ratio)), height);
-      if (reported.current.playing) frame = requestAnimationFrame(draw);
     };
     draw();
     return () => cancelAnimationFrame(frame);
-  }, [detail, cues, positionMs, playing]);
+  }, [detail, cues]);
 
   return <canvas ref={canvas} className="scope" data-testid="scope" aria-hidden="true" />;
 }

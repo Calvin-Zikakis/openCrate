@@ -103,6 +103,14 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .track-row.is-selected { background: #ff7a3d0e; }
 .track-row.is-selected strong { color: var(--accent-text); }
 .track-number { font-size: 10px; color: var(--faint); }
+/* The play button pops in over the track number when the row is hovered. */
+.virtual-row > [role="listitem"] { position: relative; }
+.row-play { position: absolute; left: 6px; top: 0; width: 34px; display: grid; place-items: center; color: var(--text); opacity: 0; transform: scale(.55) translateX(-6px); transition: opacity .14s ease, transform .18s cubic-bezier(.3, 1.5, .6, 1); pointer-events: none; }
+.row-play svg { width: 26px; height: 26px; padding: 6px; border-radius: 99px; background: var(--accent); color: var(--base); box-shadow: 0 4px 12px #0006; }
+[role="listitem"]:hover .row-play, .row-play:focus-visible { opacity: 1; transform: none; pointer-events: auto; }
+[role="listitem"]:hover .track-number { opacity: 0; }
+.track-number { transition: opacity .12s ease; }
+.row-menu { min-width: 150px; }
 .track-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .track-identity strong, .track-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .track-identity strong { font-weight: 500; font-size: 12px; color: var(--text); }
@@ -148,7 +156,7 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .seek { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; align-items: center; gap: 8px; margin-top: 8px; font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .seek span:first-child { text-align: right; }
 .player-meta .volume { accent-color: var(--accent); width: 100%; height: 14px; margin: 0; }
-.waveform { position: relative; height: 28px; min-width: 0; border-radius: 4px; }
+.waveform { position: relative; height: 28px; min-width: 0; border-radius: 4px; cursor: pointer; touch-action: none; }
 .waveform svg { position: absolute; inset: 2px 0; width: 100%; height: 24px; }
 .waveform .band-low { fill: var(--wave-low); }
 .waveform .band-mid { fill: var(--wave-mid); }
@@ -156,7 +164,8 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .waveform .wave-rest { opacity: .38; }
 .waveform .wave-empty { fill: var(--mute); }
 .scope { grid-column: 1/-1; display: block; width: 100%; height: 58px; border-radius: 6px; background: var(--scope-bg); margin-bottom: -2px; }
-.waveform input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+/* Keyboard and screen readers only: the waveform itself takes the pointer. */
+.waveform input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
 .waveform:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cue-mark { position: absolute; top: -3px; width: 2px; height: 34px; margin-left: -1px; background: var(--cue); opacity: .7; pointer-events: none; }
 .cue-mark.hot { background: var(--hot); opacity: .9; }
@@ -280,9 +289,12 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .check-list small { color: var(--secondary); margin-left: 4px; }
 .check-list ul { padding-left: 16px; margin: 0 0 4px; }
 .check-list code { font-size: 11px; overflow-wrap: anywhere; }
-.choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 20px; margin-bottom: 8px; }
-.choice-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--secondary); }
-.choice-grid select { max-width: 220px; }
+/* Each control sits beside its explanation, not at the far edge of a wide window. */
+.import-choices .setting-row { justify-content: flex-start; }
+.import-choices .setting-row > span { flex: 0 1 460px; }
+.import-choices .setting-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.import-choices select { color: var(--text); font-size: 12px; background: var(--raised); border: 1px solid var(--line); padding: 7px 10px; min-width: 170px; max-width: none; }
+.import-choices select:disabled { opacity: .5; }
 .import-all { margin: 0 0 14px; }
 .import-review { background: var(--raised); border-radius: 8px; padding: 14px 16px; margin: 4px 0 14px; }
 .import-review h3 { font-size: 13px; margin: 12px 0 4px; }
@@ -364,7 +376,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-list ul { list-style: none; margin: 4px 0 0; padding: 0; }
 .crate-empty, .crate-note, .crate-error { font-size: 11px; line-height: 1.6; color: var(--secondary); margin: 6px 12px; }
 .crate-error { color: var(--danger); }
-.crate-item.is-drop-target { background: #ff7a3d22; outline: 1px dashed var(--accent); }
+.crate-item.is-drop-target, .tree-playlist.is-drop-target { background: #ff7a3d22; outline: 1px dashed var(--accent); }
 .crate-name-input { width: calc(100% - 12px); margin: 2px 6px; padding: 6px 8px; font-size: 12px; color: var(--text); background: var(--raised); border: 1px solid var(--accent); border-radius: 6px; }
 .crate-confirm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; color: var(--warn); padding: 6px 12px; }
 .track-row[draggable="true"] { cursor: grab; }
@@ -387,3 +399,32 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .track-row.is-drag-source { opacity: .4; }
 .track-row.is-drag-gap { opacity: 0; }
 .drag-preview { position: fixed; top: -100px; left: -1000px; max-width: 320px; padding: 8px 12px; border-radius: 8px; background: var(--raised); color: var(--text); border: 1px solid var(--accent); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 10px 28px #0009; }
+
+/* Play a whole release, artist, crate or playlist. */
+.play-all { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; padding: 9px 16px 9px 13px; border-radius: 99px; background: var(--accent); color: var(--base); font-size: 12px; font-weight: 650; transition: transform .12s ease; }
+.play-all:hover { transform: scale(1.04); }
+
+/* The queue: a count on its button, a panel above the player, and the player as a drop target. */
+.player-bar { position: relative; }
+.player-bar.is-drop-target { outline: 2px dashed var(--accent); outline-offset: -4px; }
+.queue-button { position: relative; }
+.queue-button.is-open { color: var(--accent-text); }
+.queue-count { position: absolute; top: -3px; right: -5px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 99px; background: var(--accent); color: var(--base); font-size: 9px; font-weight: 700; line-height: 15px; text-align: center; }
+.queue-panel { position: absolute; right: 16px; bottom: calc(100% + 8px); z-index: 40; width: 320px; max-height: min(420px, 60vh); overflow: auto; padding: 14px 16px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 44px #0009; }
+.queue-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.queue-heading h2 { margin: 0; font-size: 13px; }
+.queue-panel ol { list-style: none; margin: 0; padding: 0; }
+.queue-panel li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 11px; }
+.queue-panel li:last-child { border-bottom: 0; }
+.queue-panel li strong { display: block; font-weight: 500; color: var(--text); }
+.queue-panel li small { display: block; color: var(--secondary); }
+
+/* The merge review: one group per direction, each change a row with its tick box. */
+.merge-group { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 4px; margin: 14px 0; }
+.merge-group legend { padding: 0 6px; font-size: 12px; font-weight: 600; }
+.merge-actions { display: flex; gap: 14px; margin: 4px 0; }
+.merge-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.merge-row:last-child { border-bottom: 0; }
+.merge-sides { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: var(--secondary); }
+.merge-sides label { display: inline-flex; align-items: center; gap: 5px; }
+.merge-sides input { accent-color: var(--accent); }

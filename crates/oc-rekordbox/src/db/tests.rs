@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use rbl_db::fixture::{self, Shape};
 use rbl_db::{Library, LibraryLocation, OpenMode};
 
+use super::snapshot::windows_install_version;
 use super::*;
 
 const NOW: i64 = 1_792_800_000_000; // 2026-10-24 00:00 UTC
@@ -121,6 +122,27 @@ fn the_plist_version_is_read() {
                  <key>CFBundleShortVersionString</key>\n\t<string>7.2.19.0342</string>\n</dict></plist>";
     assert_eq!(plist_version(plist).as_deref(), Some("7.2.19.0342"));
     assert_eq!(plist_version("<plist/>"), None);
+}
+
+#[test]
+fn the_windows_version_comes_from_the_install_folder() {
+    let program_files = tempfile::tempdir().unwrap();
+    let install = |folder: &str, exe: bool| {
+        let dir = program_files.path().join(folder);
+        fs::create_dir_all(&dir).unwrap();
+        if exe {
+            fs::write(dir.join("rekordbox.exe"), b"").unwrap();
+        }
+    };
+    install("rekordbox/rekordbox 7.2.14", true);
+    install("Pioneer/rekordbox 6.8.5", true);
+    install("rekordbox 7.2.19", true);
+    // A folder without the program, and one not named for a version, do not count.
+    install("rekordbox/rekordbox 7.9.0", false);
+    install("rekordbox/rekordbox beta", true);
+    let bases = [program_files.path().to_path_buf()];
+    assert_eq!(windows_install_version(&bases).as_deref(), Some("7.2.19"));
+    assert_eq!(windows_install_version(&[]), None);
 }
 
 #[test]
@@ -255,6 +277,35 @@ fn folders_nest_and_follow_their_order() {
         panic!("House is a folder")
     };
     assert_eq!(names(children), ["Playlist 2", "Playlist 0"]);
+}
+
+#[test]
+fn each_playlist_and_folder_carries_its_rekordbox_id() {
+    let (live, backups) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let snapshot = snapshot_of(live.path(), backups.path(), |connection| {
+        connection
+            .execute_batch(
+                "INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, rb_local_deleted, created_at, updated_at)
+                 VALUES ('950000', 0, 'House', 1, 'root', 0, '', '');",
+            )
+            .unwrap();
+    });
+    let collection = read(&snapshot);
+    let ids: Vec<(String, String)> = root_children(&collection)
+        .iter()
+        .map(|node| match node {
+            crate::xml::PlaylistNode::Folder { attributes, .. }
+            | crate::xml::PlaylistNode::Playlist { attributes, .. } => (
+                attributes["Name"].clone(),
+                attributes.get("RekordboxId").cloned().unwrap_or_default(),
+            ),
+        })
+        .collect();
+    assert!(ids.contains(&("House".into(), "950000".into())), "{ids:?}");
+    assert!(
+        ids.contains(&("Playlist 1".into(), fixture::playlist_id(1))),
+        "{ids:?}"
+    );
 }
 
 #[test]

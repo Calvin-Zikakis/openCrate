@@ -25,7 +25,7 @@ use thiserror::Error;
 pub use cover::{embedded_cover, folder_cover, Cover, MAX_COVER_BYTES};
 pub use guess::guess_from_path;
 pub use tidy::{tidy, tidy_name};
-pub use write::write_tags;
+pub use write::{rewrite_tags, write_tags, TextTag};
 
 /// Longest text kept from any one tag field.
 const MAX_TEXT_CHARS: usize = 512;
