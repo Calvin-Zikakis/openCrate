@@ -219,3 +219,66 @@ fn genres_spelled_alike_are_grouped_and_merged_into_one() {
         ("House", 3)
     );
 }
+
+#[test]
+fn every_edit_is_remembered_and_the_last_one_can_be_undone() {
+    use crate::editor::{edit_history, undo_last};
+    let setup = setup(&["Night Drive", "Soft Focus"]);
+    let ids = ids(&setup.service);
+    assert_eq!(edit_history(&setup.service).unwrap().len(), 0);
+    edit_tracks(
+        &setup.service,
+        &[ids["Night Drive"], ids["Soft Focus"]],
+        &[FieldChange {
+            field: "genre".into(),
+            value: "Deep House".into(),
+        }],
+    )
+    .unwrap();
+    edit_tracks(
+        &setup.service,
+        &[ids["Night Drive"]],
+        &[FieldChange {
+            field: "title".into(),
+            value: "Night Drive (Extended)".into(),
+        }],
+    )
+    .unwrap();
+    let history = edit_history(&setup.service).unwrap();
+    assert_eq!(history.len(), 2, "one entry per save, newest first");
+    assert_eq!(
+        (history[0].tracks, history[0].fields.as_slice()),
+        (1, &["title".to_owned()][..])
+    );
+    assert_eq!(
+        (history[1].tracks, history[1].fields.as_slice()),
+        (2, &["genre".to_owned()][..])
+    );
+
+    let undone = undo_last(&setup.service).unwrap();
+    assert_eq!(undone.files, 1);
+    let tags = oc_tag::read_file(&setup.files[0]).unwrap().tags;
+    assert_eq!(
+        tags.title.as_deref(),
+        Some("Night Drive"),
+        "the title is back"
+    );
+    assert_eq!(
+        tags.genre.as_deref(),
+        Some("Deep House"),
+        "the earlier edit stays"
+    );
+    assert_eq!(edit_history(&setup.service).unwrap().len(), 1);
+
+    let undone = undo_last(&setup.service).unwrap();
+    assert_eq!(undone.files, 2);
+    for file in &setup.files {
+        assert_eq!(
+            oc_tag::read_file(file).unwrap().tags.genre.as_deref(),
+            Some("House"),
+            "the genre is back"
+        );
+    }
+    assert_eq!(edit_history(&setup.service).unwrap().len(), 0);
+    assert!(undo_last(&setup.service).is_err(), "nothing left to undo");
+}

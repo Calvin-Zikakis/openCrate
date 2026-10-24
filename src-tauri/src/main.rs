@@ -666,6 +666,26 @@ async fn library_export(
     .map_err(|error| error.to_string())?
 }
 
+/// Every save of the track editor, newest first.
+#[tauri::command]
+async fn library_edit_history(
+    state: State<'_, AppState>,
+) -> Result<Vec<editor::EditBatchDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::edit_history(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Put back what the files held before the newest save of the track editor.
+#[tauri::command]
+async fn library_undo_last_edit(state: State<'_, AppState>) -> Result<editor::EditedDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || editor::undo_last(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Which lookup keys are saved, by their last four characters only.
 #[tauri::command]
 async fn lookup_keys(state: State<'_, AppState>) -> Result<lookup::KeysDto, String> {
@@ -1342,6 +1362,8 @@ fn main() -> Result<(), tauri::Error> {
             library_track_tags,
             library_edit_tracks,
             library_edit_each,
+            library_edit_history,
+            library_undo_last_edit,
             library_export,
             library_releases_without_art,
             library_set_release_art,

@@ -289,6 +289,17 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return { files: 2, left: [] };
             case "library_remove_release_art":
               return { files: 2, left: [] };
+            case "library_edit_history": {
+              const undone = (window as any).__undone ?? 0;
+              const all = [
+                { id: 2, savedMs: Date.UTC(2026, 9, 24, 3, 5), tracks: 1, fields: ["title"] },
+                { id: 1, savedMs: Date.UTC(2026, 9, 24, 3, 0), tracks: 2, fields: ["genre", "label"] },
+              ];
+              return all.slice(undone);
+            }
+            case "library_undo_last_edit":
+              (window as any).__undone = ((window as any).__undone ?? 0) + 1;
+              return { files: 1, left: [] };
             case "library_track_tags":
               return ((args?.trackIds ?? []) as number[]).map((id) => ({
                 trackId: id, title: `${String(id).padStart(2, "0")} - RUST TRACK ${String(id).padStart(4, "0")}`, artist: "Backend Artist",
@@ -1431,6 +1442,19 @@ test("a release page can choose, find or remove its cover", async ({ page }) => 
   await cover.getByRole("button", { name: "Choose cover..." }).click();
   const sent = (await calls(page)).filter((call) => /release_art/.test(call.command)).map((call) => [call.command, call.args.releaseId]);
   expect(sent).toEqual([["library_remove_release_art", 1], ["library_set_release_art", 1]]);
+});
+
+test("clean up: the newest save is undone and the list moves on", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const recent = page.getByRole("region", { name: "Recent changes" });
+  await expect(recent.getByRole("list", { name: "Saves" }).getByRole("listitem")).toHaveCount(2);
+  await recent.getByRole("button", { name: /^Undo: title of 1 track/ }).click();
+  await expect(recent.getByRole("status")).toContainText("1 file is back as before.");
+  await expect(recent.getByRole("button", { name: /^Undo: genre, label of 2 tracks/ })).toBeVisible();
+  await recent.getByRole("button", { name: /^Undo: genre, label of 2 tracks/ }).click();
+  await expect(recent).toContainText("No changes yet.");
 });
 
 test("clean up: releases without a cover are listed and filled from beside their files", async ({ page }) => {

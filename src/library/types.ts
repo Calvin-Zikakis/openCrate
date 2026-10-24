@@ -423,6 +423,9 @@ export interface TrackTags {
 
 export type EditField = "title" | "artist" | "album" | "albumArtist" | "genre" | "label" | "year" | "track";
 
+/** One save of the track editor. */
+export interface EditBatch { id: number; savedMs: number; tracks: number; fields: string[] }
+
 /** What saving edits did. */
 export interface EditedTracks {
   files: number;
@@ -592,6 +595,10 @@ export interface LibraryAdmin {
   editTracks(trackIds: number[], changes: { field: EditField; value: string }[]): Promise<EditedTracks>;
   /** Each track's own changes, written in one pass. */
   editEach(edits: { trackId: number; changes: { field: EditField; value: string }[] }[]): Promise<EditedTracks>;
+  /** Every save of the track editor, newest first. */
+  editHistory(): Promise<EditBatch[]>;
+  /** Put back what the files held before the newest save. */
+  undoLastEdit(): Promise<EditedTracks>;
   /** Every track's title and artist, for checking them against the cleanup rules. */
   trackNames(): Promise<TrackName[]>;
   /** Genres with their track counts, and the ones spelled alike. */

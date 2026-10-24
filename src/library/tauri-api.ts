@@ -732,6 +732,16 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     },
     removeReleaseArt: async (releaseId) => toArtChanged(await invoke("library_remove_release_art", { releaseId }).catch((error: unknown) => { throw failure(error); })),
     editEach: async (edits) => toEdited(await invoke("library_edit_each", { edits }).catch((error: unknown) => { throw failure(error); })),
+    editHistory: async () => {
+      const value: unknown = await invoke("library_edit_history").catch((error: unknown) => { throw failure(error); });
+      const what = "edit history";
+      if (!Array.isArray(value)) throw new Error(`The library returned unreadable ${what}.`);
+      return value.map((item: unknown) => {
+        if (!isRecord(item) || !Array.isArray(item.fields)) throw new Error(`The library returned unreadable ${what}.`);
+        return { id: whole(item.id, what), savedMs: whole(item.savedMs, what), tracks: whole(item.tracks, what), fields: item.fields.map((field: unknown) => text(field, what)) };
+      });
+    },
+    undoLastEdit: async () => toEdited(await invoke("library_undo_last_edit").catch((error: unknown) => { throw failure(error); })),
     trackNames: async () => {
       const value: unknown = await invoke("library_track_names").catch((error: unknown) => { throw failure(error); });
       const what = "track names";

@@ -474,3 +474,5 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 /* Cover actions on a release page. */
 .cover-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-top: 10px; font-size: 11px; }
 .cover-actions small { color: var(--secondary); }
+
+.history-list { margin: 6px 0 12px; padding-left: 18px; font-size: 11px; color: var(--secondary); line-height: 1.8; }

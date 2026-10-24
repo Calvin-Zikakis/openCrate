@@ -525,6 +525,22 @@ impl LibraryService {
         }))
     }
 
+    /// Remember one save of the track editor.
+    pub fn record_edits(&self, items: Vec<crate::edits::EditItem>) -> Result<i64> {
+        self.writer
+            .run(move |database| database.record_edits(&items, now_ms()))?
+    }
+
+    /// Every save of the track editor, newest first.
+    pub fn edit_history(&self) -> Result<Vec<crate::edits::EditBatch>> {
+        crate::edits::history(self.pool.lease().connection())
+    }
+
+    /// Take the newest save out of the history; `None` when there is none.
+    pub fn take_last_edits(&self) -> Result<Option<Vec<crate::edits::EditItem>>> {
+        self.writer.run(Database::take_last_edits)?
+    }
+
     /// Every track with a present file: its id, title and artist, for library-wide cleanup.
     pub fn track_names(&self) -> Result<Vec<(i64, String, String)>> {
         let lease = self.pool.lease();

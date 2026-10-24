@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { proposeFixes, type ProposedFix } from "../library/cleanup";
-import type { Genres, LibraryAdmin, MissingArt } from "../library/types";
+import type { EditBatch, Genres, LibraryAdmin, MissingArt } from "../library/types";
 import { Icon } from "./Icon";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -23,6 +23,7 @@ export function CleanUp({ admin, onChanged }: Props) {
       <h1>Clean up</h1>
       <p>Fix what is untidy across your whole library. Nothing changes until you choose; changes go into the files' tags, and the next Sync with rekordbox offers them to rekordbox.</p>
     </div>
+    <HistoryCard admin={admin} onChanged={onChanged} />
     <GenresCard admin={admin} onChanged={onChanged} />
     <TitlesCard admin={admin} onChanged={onChanged} />
     <ArtCard admin={admin} onChanged={onChanged} />
@@ -222,6 +223,53 @@ function ArtCard({ admin, onChanged }: Props) {
         <button className="secondary-button" disabled={busy !== null} aria-label={`Choose an image for ${release.title}`} onClick={() => void fill(release, "choose")}>Choose image...</button>
       </li>)}</ul>
       {missing.length > DRAWN && <p className="settings-copy">{`And ${missing.length - DRAWN} more.`}</p>}
+    </>}
+  </section>;
+}
+
+const FIELD_NAMES: Record<string, string> = { title: "title", artist: "artist", album: "album", albumArtist: "album artist", genre: "genre", label: "label", year: "year", track: "track number" };
+const when = (ms: number) => new Date(ms).toLocaleString();
+
+function HistoryCard({ admin, onChanged }: Props) {
+  const [history, setHistory] = useState<EditBatch[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      setHistory(await admin.editHistory());
+    } catch (reason) {
+      setError(message(reason));
+    }
+  }, [admin]);
+  useEffect(() => { void load(); }, [load]);
+
+  const undo = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const done = await admin.undoLastEdit();
+      setNote(`${plural(done.files, "file is", "files are")} back as before.${done.left.length > 0 ? ` ${plural(done.left.length, "file was", "files were")} left as they were.` : ""}`);
+      await load();
+      onChanged();
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const describe = (batch: EditBatch) => `${batch.fields.map((field) => FIELD_NAMES[field] ?? field).join(", ")} of ${plural(batch.tracks, "track", "tracks")}, ${when(batch.savedMs)}`;
+
+  return <section className="sync-card" role="region" aria-label="Recent changes">
+    <h2>Recent changes</h2>
+    <p className="settings-copy">Every save from the editor and this screen is remembered with what the files held before. Undo puts the newest one back.</p>
+    {error && <p role="alert" className="inline-error">{error}</p>}
+    {note && <p role="status" className="settings-copy">{note}</p>}
+    {history && history.length === 0 && <p className="settings-copy">No changes yet.</p>}
+    {history && history.length > 0 && <>
+      <ol className="history-list" aria-label="Saves">{history.slice(0, 10).map((batch) => <li key={batch.id}>{describe(batch)}</li>)}</ol>
+      <button className="secondary-button" disabled={busy} onClick={() => void undo()}>{`Undo: ${describe(history[0]!)}`}</button>
     </>}
   </section>;
 }
