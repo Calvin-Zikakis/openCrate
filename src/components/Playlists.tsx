@@ -23,6 +23,9 @@ interface Props {
 
 type Kind = "folder" | "playlist";
 
+/** On a Mac, Control-click is a right-click: it opens the menu and must not also open the row. */
+const macRightClick = (event: React.MouseEvent) => event.ctrlKey && /Mac/i.test(navigator.platform);
+
 /** rekordbox's own tree starts at an invisible root folder; show what is inside it. */
 export function startOf(rows: PlaylistInfo[]): number | null {
   const top = rows.filter((row) => row.parentId === null);
@@ -223,7 +226,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
   });
   const render = (parent: number | null, depth: number) => (children.get(parent) ?? []).map((row) => row.isFolder
     ? <li key={row.id}>
-      <button className={`tree-folder${over === row.id ? " is-drop-target" : ""}`} aria-expanded={open.has(row.id)} style={{ paddingLeft: 12 + depth * 12 }} onClick={() => toggle(row.id)} {...crateTarget(row)}
+      <button className={`tree-folder${over === row.id ? " is-drop-target" : ""}`} aria-expanded={open.has(row.id)} style={{ paddingLeft: 12 + depth * 12 }} onClick={(event) => { if (!macRightClick(event)) toggle(row.id); }} {...crateTarget(row)}
         onContextMenu={(event) => openMenu(event, row)} onKeyDown={menuKeys(row)}>
         <span aria-hidden="true">{open.has(row.id) ? "v" : ">"}</span><span className="truncate">{row.name}</span>
       </button>
@@ -231,7 +234,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
     </li>
     : <li key={row.id}>
       <button className={`tree-playlist${over === row.id ? " is-drop-target" : ""}`} aria-current={activeId === row.id ? "true" : undefined} style={{ paddingLeft: 12 + depth * 12 }}
-        title={`${row.inLibrary} of ${row.entries} entries are in your library`} onClick={() => onOpen(row)}
+        title={`${row.inLibrary} of ${row.entries} entries are in your library`} onClick={(event) => { if (!macRightClick(event)) onOpen(row); }}
         onContextMenu={(event) => openMenu(event, parentOf(row))} onKeyDown={menuKeys(parentOf(row))}
         onDragOver={(event) => {
           if (!carriesTracks(event.dataTransfer) || busy) return;
@@ -300,7 +303,7 @@ export function PlaylistBrowser({ admin, version, folderId, onFolder, onOpen }: 
       <button className="browser-card" onClick={() => (row.isFolder ? onFolder(row.id) : onOpen(row))}>
         <span className={`browser-icon${row.isFolder ? " is-folder" : ""}`} aria-hidden="true"><Icon name={row.isFolder ? "folder" : "queue"} size={30} /></span>
         <strong className="truncate">{row.name}</strong>
-        <small>{row.isFolder ? `${inside(row)} ${inside(row) === 1 ? "item" : "items"}` : `${row.inLibrary} of ${row.entries} in your library`}</small>
+        <small>{row.isFolder ? `${inside(row)} ${inside(row) === 1 ? "item" : "items"}` : row.entries === 0 ? "Empty" : `${row.inLibrary} of ${row.entries} in your library`}</small>
       </button>
     </li>)}</ul>}
   </div>;

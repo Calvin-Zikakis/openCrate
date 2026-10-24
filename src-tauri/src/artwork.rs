@@ -32,27 +32,48 @@ enum Lookup {
     Unknown,
 }
 
+type Entries = Mutex<HashMap<i64, Entry>>;
+
 #[derive(Default)]
 pub struct ArtCache {
-    entries: Mutex<HashMap<i64, Entry>>,
+    entries: Entries,
+    /// Each track's own picture, for track rows and the player.
+    tracks: Entries,
     /// An image the owner picked in the editor, held until it is saved or another is picked.
     picked: Mutex<Option<Arc<Cover>>>,
 }
 
-impl ArtCache {
-    fn lookup(&self, release_id: i64) -> Lookup {
-        let entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
-        match entries.get(&release_id) {
-            Some(Entry::Found(cover)) => Lookup::Found(Arc::clone(cover)),
-            Some(Entry::Missing(at)) if at.elapsed() < MISS_TTL => Lookup::KnownMissing,
-            _ => Lookup::Unknown,
-        }
+fn lookup(entries: &Entries, id: i64) -> Lookup {
+    let entries = entries.lock().unwrap_or_else(PoisonError::into_inner);
+    match entries.get(&id) {
+        Some(Entry::Found(cover)) => Lookup::Found(Arc::clone(cover)),
+        Some(Entry::Missing(at)) if at.elapsed() < MISS_TTL => Lookup::KnownMissing,
+        _ => Lookup::Unknown,
     }
+}
 
+fn store(entries: &Entries, id: i64, cover: Option<Arc<Cover>>) {
+    let mut entries = entries.lock().unwrap_or_else(PoisonError::into_inner);
+    if entries.len() >= MAX_ENTRIES {
+        entries.clear();
+    }
+    entries.insert(
+        id,
+        cover.map_or_else(|| Entry::Missing(Instant::now()), Entry::Found),
+    );
+}
+
+impl ArtCache {
     /// Forget a release after its files changed, so the next request reads them again.
     pub fn forget(&self, release_id: i64) {
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         entries.remove(&release_id);
+    }
+
+    /// Forget a track's picture after its files changed.
+    pub fn forget_track(&self, track_id: i64) {
+        let mut entries = self.tracks.lock().unwrap_or_else(PoisonError::into_inner);
+        entries.remove(&track_id);
     }
 
     /// Hold a picked image until the editor saves it.
@@ -67,17 +88,6 @@ impl ArtCache {
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
-
-    fn store(&self, release_id: i64, cover: Option<Arc<Cover>>) {
-        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
-        if entries.len() >= MAX_ENTRIES {
-            entries.clear();
-        }
-        entries.insert(
-            release_id,
-            cover.map_or_else(|| Entry::Missing(Instant::now()), Entry::Found),
-        );
-    }
 }
 
 /// The cover for a release: embedded in one of its files, else an image beside the first.
@@ -86,7 +96,7 @@ pub fn cover_for(
     cache: &ArtCache,
     release_id: i64,
 ) -> Option<Arc<Cover>> {
-    match cache.lookup(release_id) {
+    match lookup(&cache.entries, release_id) {
         Lookup::Found(cover) => return Some(cover),
         Lookup::KnownMissing => return None,
         Lookup::Unknown => {}
@@ -102,7 +112,26 @@ pub fn cover_for(
                 .and_then(folder_cover)
         })
         .map(Arc::new);
-    cache.store(release_id, found.clone());
+    store(&cache.entries, release_id, found.clone());
+    found
+}
+
+/// A track's own picture: embedded in its file, else an image beside it.
+pub fn track_cover_for(
+    service: &LibraryService,
+    cache: &ArtCache,
+    track_id: i64,
+) -> Option<Arc<Cover>> {
+    match lookup(&cache.tracks, track_id) {
+        Lookup::Found(cover) => return Some(cover),
+        Lookup::KnownMissing => return None,
+        Lookup::Unknown => {}
+    }
+    let file = service.track_file(track_id).ok()??;
+    let found = embedded_cover(&file)
+        .or_else(|| file.parent().and_then(folder_cover))
+        .map(Arc::new);
+    store(&cache.tracks, track_id, found.clone());
     found
 }
 
@@ -149,19 +178,16 @@ pub fn respond(
     let Some(service) = service else {
         return plain(StatusCode::NOT_FOUND);
     };
-    // A track's picture and a picked one change while the editor is open, so neither is kept.
-    let (cover, keep) = if path == "/picked" {
-        (cache.picked(), false)
+    // The window asks again each time it shows a cover (no-cache), so a changed one shows at
+    // once; the answer comes from the cache above, which a change clears. A picked image is never
+    // kept by the window at all.
+    let picked = path == "/picked";
+    let cover = if picked {
+        cache.picked()
     } else if let Some(track_id) = path.strip_prefix("/track-").and_then(number) {
-        (
-            crate::art_fix::track_cover(service, track_id).map(Arc::new),
-            false,
-        )
+        track_cover_for(service, cache, track_id)
     } else {
-        match parse(path) {
-            Some(release_id) => (cover_for(service, cache, release_id), true),
-            None => (None, false),
-        }
+        parse(path).and_then(|release_id| cover_for(service, cache, release_id))
     };
     let Some(cover) = cover else {
         return plain(StatusCode::NOT_FOUND);
@@ -173,10 +199,10 @@ pub fn respond(
         .header("X-Content-Type-Options", "nosniff")
         .header(
             header::CACHE_CONTROL,
-            if keep {
-                "private, max-age=300"
-            } else {
+            if picked {
                 "no-store"
+            } else {
+                "private, no-cache"
             },
         )
         .body(cover.data.clone())

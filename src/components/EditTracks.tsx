@@ -35,9 +35,10 @@ const recipeValues = (values: Partial<Record<EditField, string>>) =>
 /** A picked image's address, changed with each pick so the window does not show the last one. */
 const withVersion = (url: string | null | undefined, version: number) => (url ? `${url}${url.includes("?") ? "&" : "?"}v=${version}` : null);
 
+/** A field's value as the editor shows it; a track number or year of 0 is none. */
 const valueOf = (tags: TrackTags, field: EditField): string => {
   const value = tags[field];
-  return value === null ? "" : String(value);
+  return value === null || value === 0 ? "" : String(value);
 };
 
 interface Props {

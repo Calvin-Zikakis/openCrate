@@ -359,7 +359,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_track_tags":
               return ((args?.trackIds ?? []) as number[]).map((id) => ({
                 trackId: id, title: `${String(id).padStart(2, "0")} - RUST TRACK ${String(id).padStart(4, "0")}`, artist: "Backend Artist",
-                album: "Backend Release", albumArtist: null, genre: "House", label: null, year: 2019, track: id,
+                album: "Backend Release", albumArtist: null, genre: "House", label: null, year: 2019, track: id === 7 ? 0 : id,
               }));
             case "library_edit_tracks":
               (window as any).__edits = [...((window as any).__edits ?? []), { trackIds: args?.trackIds, changes: args?.changes }];
@@ -1613,6 +1613,16 @@ test("editing: a cover is chosen, removed or taken from the folder, and waits fo
   expect(await page.evaluate(() => (window as any).__editEach)).toBeUndefined();
 });
 
+test("editing: a track number of 0 shows as none", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByTestId("track-row").filter({ hasText: "Rust Track 0007" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Edit details..." }).click();
+  const editor = page.getByRole("dialog", { name: "Edit details" });
+  await expect(editor.getByLabel("Track number")).toHaveValue("");
+  await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+});
+
 test("editing: custom fields are kept per track and shared across a selection", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.goto("/");
@@ -2070,7 +2080,8 @@ test("covers are loaded from the library, and a release without one keeps its dr
   await page.goto("/");
   const row = page.getByRole("button", { name: /Rust Track 0001/ });
   const image = row.locator("img.art-image");
-  await expect(image).toHaveAttribute("src", "/__artwork/2");
+  // A track row shows the track's own picture.
+  await expect(image).toHaveAttribute("src", "/__artwork/track-1");
   await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(1);
 
   hasCover = false;

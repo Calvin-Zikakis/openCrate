@@ -181,11 +181,6 @@ pub fn track_covers(service: &LibraryService, track_ids: &[i64]) -> Result<Track
     })
 }
 
-/// The picture in a track's first file, for the editor to show.
-pub fn track_cover(service: &LibraryService, track_id: i64) -> Option<Cover> {
-    embedded_cover(&service.track_file(track_id).ok()??)
-}
-
 /// A cover for chosen tracks: the image the owner picked (held until saved), each track's own
 /// image beside its files, or none.
 pub enum TrackArt<'a> {
@@ -232,6 +227,7 @@ pub fn set_tracks_art(
                 Err(error) => left.push(format!("{}: {error}", path.display())),
             }
         }
+        cache.forget_track(*track_id);
         if let Some(release_id) = service
             .track_release(*track_id)
             .map_err(|error| error.to_string())?

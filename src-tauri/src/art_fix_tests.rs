@@ -228,9 +228,19 @@ fn the_editor_sees_a_track_picture_and_a_picked_one_never_kept() {
     use tauri::http::{header, StatusCode};
     let setup = setup();
     let cache = ArtCache::default();
-    let night = track_named(&setup, "Night Drive");
-    let path = format!("/track-{night}");
+    let (night, late) = (
+        track_named(&setup, "Night Drive"),
+        track_named(&setup, "Late Train"),
+    );
     let service = Some(&setup.service);
+    // A track's own picture: the image beside it when its file has none; none at all is a 404.
+    let served = crate::artwork::respond(service, &cache, &format!("/track-{night}"));
+    assert_eq!(
+        (served.status(), served.body().as_slice()),
+        (StatusCode::OK, PNG)
+    );
+    assert_eq!(served.headers()[header::CACHE_CONTROL], "private, no-cache");
+    let path = format!("/track-{late}");
     assert_eq!(
         crate::artwork::respond(service, &cache, &path).status(),
         StatusCode::NOT_FOUND
@@ -239,27 +249,38 @@ fn the_editor_sees_a_track_picture_and_a_picked_one_never_kept() {
         crate::artwork::respond(service, &cache, "/picked").status(),
         StatusCode::NOT_FOUND
     );
+    // A cover saved from the editor shows at once, though the miss was remembered.
+    let jpeg = Cover {
+        mime: "image/jpeg",
+        data: vec![
+            0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, b'J', b'F', b'I', b'F', 0, 1,
+        ],
+    };
     crate::art_fix::set_tracks_art(
         &setup.service,
         &cache,
-        &[night],
-        &crate::art_fix::TrackArt::Folder,
+        &[late],
+        &crate::art_fix::TrackArt::Picked(&jpeg),
     )
     .unwrap();
     let served = crate::artwork::respond(service, &cache, &path);
     assert_eq!(
-        (served.status(), served.body().as_slice()),
-        (StatusCode::OK, PNG)
+        (served.status(), served.body()),
+        (StatusCode::OK, &jpeg.data)
     );
-    assert_eq!(served.headers()[header::CACHE_CONTROL], "no-store");
+    // The other track of that release keeps having none.
+    let dawn = track_named(&setup, "Dawn");
+    assert_eq!(
+        crate::artwork::respond(service, &cache, &format!("/track-{dawn}")).status(),
+        StatusCode::NOT_FOUND
+    );
     cache.pick(Cover {
         mime: "image/png",
         data: PNG.to_vec(),
     });
-    assert_eq!(
-        crate::artwork::respond(service, &cache, "/picked").body(),
-        PNG
-    );
+    let served = crate::artwork::respond(service, &cache, "/picked");
+    assert_eq!(served.body(), PNG);
+    assert_eq!(served.headers()[header::CACHE_CONTROL], "no-store");
     for bad in ["/track-", "/track-x", "/track-1/2", "/picked/1", "/track/1"] {
         assert_eq!(
             crate::artwork::respond(service, &cache, bad).status(),

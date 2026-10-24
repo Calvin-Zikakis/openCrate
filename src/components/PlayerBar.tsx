@@ -256,7 +256,7 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
     }}>
     {admin && playing && detail && <Scope detail={detail} cues={cues} positionMs={position} playing={isPlaying && dragMs === null} />}
     <div className="now-playing">
-      <Artwork color={shown?.color ?? 0} src={shown && shown.kind !== "artists" ? api.artworkUrl?.(shown.releaseId) ?? null : null} />
+      <Artwork color={shown?.color ?? 0} src={shown && shown.kind !== "artists" ? (shown.kind === "tracks" ? api.coverUrl?.(shown.id) : null) ?? api.artworkUrl?.(shown.releaseId) ?? null : null} />
       <div><strong>{shown?.title ?? "Nothing selected"}</strong><span>{shown?.artist ?? "Select a track"}</span></div>
     </div>
     <div className="player-center">
