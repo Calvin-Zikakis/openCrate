@@ -40,7 +40,7 @@ fn library() -> Library {
     let staging = folder.path().join("staging");
     fs::create_dir_all(&music).unwrap();
     fs::create_dir_all(&staging).unwrap();
-    let music = music.canonicalize().unwrap();
+    let music = oc_paths::canonical(&music).unwrap();
     let data = tempdir().unwrap();
     let service = LibraryService::open(data.path(), 2).unwrap();
     let root = service.add_root(&music, "Music").unwrap();
@@ -79,7 +79,8 @@ fn rekordbox_has(library: &Library, title: &str, year: &str, label: &str) {
     if !label.is_empty() {
         attributes.insert("Label".into(), label.into());
     }
-    let location = library.night.to_string_lossy().into_owned();
+    // As rekordbox stores it: forward slashes, on Windows too.
+    let location = library.night.to_string_lossy().replace('\\', "/");
     let collection = xml::Collection {
         attributes: xml::Attributes::new(),
         product: None,

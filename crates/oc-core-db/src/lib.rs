@@ -236,7 +236,7 @@ impl Database {
 
 fn own_directory(directory: &Path) -> Result<(PathBuf, OwnerLock)> {
     fs::create_dir_all(directory)?;
-    let directory = directory.canonicalize()?;
+    let directory = oc_paths::canonical(directory)?;
     let lock_path = directory.join("owner.lock");
     regular_file_exists(&lock_path)?;
     let owner = OpenOptions::new()

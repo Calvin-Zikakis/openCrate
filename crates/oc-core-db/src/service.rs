@@ -122,7 +122,7 @@ impl LibraryService {
         Ok(Self {
             writer: Writer::spawn(database),
             pool,
-            data_directory: directory.canonicalize()?,
+            data_directory: oc_paths::canonical(directory)?,
         })
     }
 

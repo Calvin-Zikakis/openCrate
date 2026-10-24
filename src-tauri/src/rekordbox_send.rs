@@ -407,7 +407,7 @@ mod tests {
         let staging = folder.path().join("staging");
         fs::create_dir_all(&music).unwrap();
         fs::create_dir_all(&staging).unwrap();
-        let music = music.canonicalize().unwrap();
+        let music = oc_paths::canonical(&music).unwrap();
         let data = tempfile::tempdir().unwrap();
         let service = LibraryService::open(data.path(), 2).unwrap();
         let root = service.add_root(&music, "Music").unwrap();

@@ -21,7 +21,7 @@ pub use location::{
     prefix_histogram, resolve, LocationError, LocationPath, Resolution, RootAliases, Shape,
 };
 pub use probe::{
-    check_new_root, probe_root, relation, Axis, FileId, Probe, RootError, RootRelation,
+    canonical, check_new_root, probe_root, relation, Axis, FileId, Probe, RootError, RootRelation,
 };
 pub use profile::{first_collision, NameKey, NameProfile, KEY_SCHEME_VERSION};
 pub use state::{

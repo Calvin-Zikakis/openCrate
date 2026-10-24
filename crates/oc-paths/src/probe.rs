@@ -254,6 +254,13 @@ pub enum RootError {
     Io(#[from] io::Error),
 }
 
+/// A path with links and `..` resolved, in its plain form: on Windows `C:\Music`, not the
+/// `\\?\C:\Music` the standard library returns, which rekordbox's paths, the xml links and
+/// every comparison with a stored root would not match. Every stored path is made with this.
+pub fn canonical(path: &Path) -> io::Result<PathBuf> {
+    dunce::canonicalize(path)
+}
+
 /// Validate a new library root without changing anything. Returns its canonical
 /// path. `roots` and `reserved` (app data, staging, download folders) are
 /// canonical paths; roots must not overlap or alias either.
@@ -262,7 +269,7 @@ pub fn check_new_root(
     roots: &[&Path],
     reserved: &[&Path],
 ) -> Result<PathBuf, RootError> {
-    let canonical = fs::canonicalize(candidate)?;
+    let canonical = canonical(candidate)?;
     if !fs::metadata(&canonical)?.is_dir() {
         return Err(RootError::NotADirectory);
     }
@@ -368,7 +375,7 @@ mod tests {
     #[test]
     fn the_probed_profile_is_never_coarser_than_the_volume() {
         let dir = tempdir().unwrap();
-        let canonical = fs::canonicalize(dir.path()).unwrap();
+        let canonical = canonical(dir.path()).unwrap();
         for name in ["Track.aif", "Caf\u{e9}.aif", "A-B.aif"] {
             touch(&canonical.join(name));
         }
@@ -393,7 +400,7 @@ mod tests {
 
     #[test]
     fn root_relations() {
-        let base = fs::canonicalize(tempdir().unwrap().keep()).unwrap();
+        let base = canonical(&tempdir().unwrap().keep()).unwrap();
         let (a, b, c) = (base.join("a"), base.join("a").join("b"), base.join("c"));
         for dir in [&a, &b, &c] {
             fs::create_dir_all(dir).unwrap();
@@ -422,7 +429,7 @@ mod tests {
     #[test]
     fn registration_refuses_overlaps_aliases_and_files() {
         use std::os::unix::fs::symlink;
-        let base = fs::canonicalize(tempdir().unwrap().keep()).unwrap();
+        let base = canonical(&tempdir().unwrap().keep()).unwrap();
         let (music, nested, other) = (
             base.join("music"),
             base.join("music/sub"),
@@ -478,7 +485,7 @@ mod tests {
 
     #[test]
     fn a_case_only_alias_of_a_root_is_the_same_root_when_the_volume_says_so() {
-        let base = fs::canonicalize(tempdir().unwrap().keep()).unwrap();
+        let base = canonical(&tempdir().unwrap().keep()).unwrap();
         let music = base.join("Music");
         fs::create_dir(&music).unwrap();
         let alias = base.join("music");

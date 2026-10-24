@@ -239,7 +239,9 @@ fn snapshot_includes_committed_wal_and_restores_without_sidecars() {
     );
     assert_eq!(
         restored_path,
-        target.path().canonicalize().unwrap().join(DATABASE_NAME)
+        oc_paths::canonical(target.path())
+            .unwrap()
+            .join(DATABASE_NAME)
     );
     assert_eq!(
         fs::read_dir(snapshot.parent().unwrap())

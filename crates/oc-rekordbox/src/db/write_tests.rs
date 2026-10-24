@@ -51,7 +51,12 @@ fn wav(path: &Path) -> PathBuf {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
     // rekordbox stores the path as the operating system gives it; resolve temp-folder links.
-    path.canonicalize().unwrap()
+    dunce::canonicalize(path).unwrap()
+}
+
+/// A path as rekordbox stores it: forward slashes, on Windows too.
+fn rekordbox_form(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn members_of(location: &LibraryLocation, playlist: &str) -> Vec<String> {
@@ -367,7 +372,7 @@ fn moved_files_are_relocated_and_keep_their_playlists() {
     assert_eq!(backup.reason, "before-write");
     assert_eq!(
         folder_path(&world.location, &content),
-        moved.to_string_lossy()
+        rekordbox_form(&moved)
     );
     assert_eq!(
         members_of(&world.location, &playlist),
@@ -395,13 +400,7 @@ fn a_relocation_to_a_missing_file_is_refused_and_rekordbox_is_put_back() {
     assert_eq!(folder_path(&world.location, &content), was);
     assert_ne!(
         folder_path(&world.location, &fixture::track_id(1)),
-        world
-            .music
-            .path()
-            .join("a.wav")
-            .canonicalize()
-            .unwrap()
-            .to_string_lossy(),
+        rekordbox_form(&dunce::canonicalize(world.music.path().join("a.wav")).unwrap()),
         "the one that worked is undone too"
     );
 }

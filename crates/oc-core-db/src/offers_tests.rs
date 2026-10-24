@@ -51,7 +51,7 @@ fn tagged(path: &Path, title: &str) {
 impl Library {
     /// Resolved, as the library stores its roots; imports file under that form.
     fn music(&self) -> PathBuf {
-        self.folder.path().join("Music").canonicalize().unwrap()
+        oc_paths::canonical(&self.folder.path().join("Music")).unwrap()
     }
 
     /// Put a file in the library the way an import does: staged, then published.

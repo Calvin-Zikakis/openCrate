@@ -13,6 +13,7 @@ license = "GPL-3.0-or-later"
 publish = false
 
 [workspace.dependencies]
+dunce = "1.0.5"
 oc-paths = { path = "crates/oc-paths" }
 oc-ingest = { path = "crates/oc-ingest" }
 oc-publish = { path = "crates/oc-publish" }

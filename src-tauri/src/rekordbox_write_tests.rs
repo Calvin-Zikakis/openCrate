@@ -10,6 +10,11 @@ use crate::rekordbox_db::{self, Probe};
 use crate::rekordbox_merge::{self, ChoiceDto, Keep};
 use crate::rekordbox_write::{add_to_playlist, send_new, set_enabled, IMPORTED};
 
+/// A path as rekordbox stores it: forward slashes, on Windows too.
+fn rekordbox_form(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 struct Setup {
     _data: tempfile::TempDir,
     _folder: tempfile::TempDir,
@@ -27,7 +32,7 @@ fn setup(titles: &[&str], version: &str) -> Setup {
     let staging = folder.path().join("staging");
     fs::create_dir_all(&music).unwrap();
     fs::create_dir_all(&staging).unwrap();
-    let music = music.canonicalize().unwrap();
+    let music = oc_paths::canonical(&music).unwrap();
     let data = tempfile::tempdir().unwrap();
     let service = LibraryService::open(data.path(), 2).unwrap();
     let root = service.add_root(&music, "Music").unwrap();
@@ -55,7 +60,7 @@ fn setup(titles: &[&str], version: &str) -> Setup {
     let rekordbox = tempfile::tempdir().unwrap();
     let location = fixture::build(rekordbox.path(), Shape::default()).unwrap();
     if let Some(first) = files.first() {
-        fixture::point_at_audio(&location, 0, &first.to_string_lossy(), 2).unwrap();
+        fixture::point_at_audio(&location, 0, &rekordbox_form(first), 2).unwrap();
     }
     Setup {
         service,

@@ -64,7 +64,8 @@ pub fn add_to_playlist(
     let files: Vec<PathBuf> = members
         .iter()
         .filter_map(|member| match member {
-            Member::File(path) => Some(path.clone()),
+            // The plain form: rekordbox stores `C:/...`, never `\\?\C:\...`.
+            Member::File(path) => Some(dunce::simplified(path).to_path_buf()),
             Member::Known(_) => None,
         })
         .collect();
@@ -430,6 +431,7 @@ pub fn merge_duplicates(
 
 /// A path as rekordbox stores it: with forward slashes on Windows, as rekordbox writes its own.
 fn stored_form(path: &Path) -> PathBuf {
+    let path = dunce::simplified(path);
     if cfg!(windows) {
         PathBuf::from(path.to_string_lossy().replace('\\', "/"))
     } else {

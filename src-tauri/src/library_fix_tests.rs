@@ -9,6 +9,11 @@ use rbl_db::fixture::{self, Shape};
 use crate::library_fix::{duplicate_copies, resolve_duplicate, tidy_folder};
 use crate::rekordbox_db::{self, Probe};
 
+/// A path as rekordbox stores it: forward slashes, on Windows too.
+fn rekordbox_form(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 struct Setup {
     _data: tempfile::TempDir,
     _folder: tempfile::TempDir,
@@ -27,7 +32,7 @@ fn setup(paths: &[&str], rekordbox_has_first: bool) -> Setup {
     let staging = folder.path().join("staging");
     fs::create_dir_all(&music).unwrap();
     fs::create_dir_all(&staging).unwrap();
-    let music = music.canonicalize().unwrap();
+    let music = oc_paths::canonical(&music).unwrap();
     let data = tempfile::tempdir().unwrap();
     let service = LibraryService::open(data.path(), 2).unwrap();
     let root = service.add_root(&music, "Music").unwrap();
@@ -51,7 +56,7 @@ fn setup(paths: &[&str], rekordbox_has_first: bool) -> Setup {
     let rekordbox = tempfile::tempdir().unwrap();
     let location = fixture::build(rekordbox.path(), Shape::default()).unwrap();
     if rekordbox_has_first {
-        fixture::point_at_audio(&location, 0, &music.join(paths[0]).to_string_lossy(), 2).unwrap();
+        fixture::point_at_audio(&location, 0, &rekordbox_form(&music.join(paths[0])), 2).unwrap();
     }
     let probe = Probe::new(Some(location), Some("7.2.19".into())).running_from(|| false);
     rekordbox_db::set_enabled(&service, &probe, true).unwrap();
@@ -108,7 +113,7 @@ fn a_folder_rekordbox_uses_is_tidied_and_rekordbox_follows_the_files() {
         !setup.music.join("Studio 001;").exists(),
         "the emptied folder is removed"
     );
-    assert_eq!(stored_path(&setup), moved.to_string_lossy());
+    assert_eq!(stored_path(&setup), rekordbox_form(&moved));
     assert_eq!(untidy(&setup), Vec::<String>::new());
 }
 
@@ -166,7 +171,7 @@ fn duplicates(both: bool) -> (Setup, Vec<i64>) {
     let setup = setup(&[FIRST, SECOND], true);
     let location = setup.probe.location.clone().unwrap();
     if both {
-        fixture::point_at_audio(&location, 1, &setup.music.join(SECOND).to_string_lossy(), 2)
+        fixture::point_at_audio(&location, 1, &rekordbox_form(&setup.music.join(SECOND)), 2)
             .unwrap();
     }
     // Same artist and title: the scan files both under one track title, as a duplicate.

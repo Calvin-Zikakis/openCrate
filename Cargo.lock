@@ -2630,6 +2630,7 @@ dependencies = [
 name = "oc-paths"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
@@ -2661,6 +2662,7 @@ dependencies = [
 name = "oc-rekordbox"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "percent-encoding",
  "quick-xml 0.38.4",
  "rbl-db",
