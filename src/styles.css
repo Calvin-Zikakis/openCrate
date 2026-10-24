@@ -412,6 +412,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-hint { color: var(--secondary); margin-left: 10px; }
 /* Room for the crate heading and a few crates however short the window. */
 .sidebar-lists { flex: 1; min-height: 120px; margin-top: 10px; padding-top: 2px; border-top: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
+/* A soft edge where the lists run on past the fold (the rekordbox folders were easy to miss under the
+   crates). The base-coloured covers scroll with the content and hide each edge at its end. */
+.sidebar-lists {
+  background:
+    linear-gradient(var(--base) 40%, transparent) top / 100% 28px no-repeat local,
+    linear-gradient(transparent, var(--base) 60%) bottom / 100% 28px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgb(var(--ink) / .16), transparent) top / 100% 12px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgb(var(--ink) / .16), transparent) bottom / 100% 12px no-repeat scroll;
+}
 .sidebar-lists .playlist-tree { flex: none; min-height: auto; overflow: visible; }
 .sidebar > * { flex-shrink: 0; }
 .sidebar > .sidebar-lists { flex-shrink: 1; }
