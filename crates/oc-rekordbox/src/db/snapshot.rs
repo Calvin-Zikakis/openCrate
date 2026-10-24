@@ -221,7 +221,7 @@ pub fn rekordbox_app_version() -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let mut apps: Vec<PathBuf> = fs::read_dir("/Applications")
+    let versions = fs::read_dir("/Applications")
         .ok()?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
@@ -229,12 +229,22 @@ pub fn rekordbox_app_version() -> Option<String> {
             path.file_name()
                 .is_some_and(|name| name.to_string_lossy().starts_with("rekordbox"))
         })
-        .collect();
-    apps.sort();
-    apps.iter().rev().find_map(|folder| {
-        let plist = folder.join("rekordbox.app/Contents/Info.plist");
-        plist_version(&fs::read_to_string(plist).ok()?)
-    })
+        .filter_map(|folder| {
+            let plist = folder.join("rekordbox.app/Contents/Info.plist");
+            plist_version(&fs::read_to_string(plist).ok()?)
+        });
+    newest_version(versions)
+}
+
+/// The highest version, compared part by part as numbers ("10.0" is newer than "7.2").
+pub(super) fn newest_version(versions: impl Iterator<Item = String>) -> Option<String> {
+    let parts = |version: &str| -> Vec<u64> {
+        version
+            .split('.')
+            .map(|part| part.trim().parse().unwrap_or(0))
+            .collect()
+    };
+    versions.max_by(|a, b| parts(a).cmp(&parts(b)))
 }
 
 pub(super) fn plist_version(text: &str) -> Option<String> {

@@ -15,14 +15,18 @@ jobs:
         include:
           - os: windows-latest
             bundles: nsis
-            artifact: src-tauri/target/release/bundle/nsis/*.exe
+            # A short absolute build folder keeps OpenSSL's build under Windows path limits.
+            target: C:/t
+            artifact: C:/t/release/bundle/nsis/*.exe
           - os: macos-latest
             bundles: app,dmg
-            artifact: src-tauri/target/release/bundle/dmg/*.dmg
+            target: ${{ github.workspace }}/target
+            artifact: ${{ github.workspace }}/target/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
     env:
-      CARGO_TARGET_DIR: ${{ matrix.os == 'windows-latest' && 'C:/t' || 'src-tauri/target' }}
+      # Absolute, because the Tauri CLI runs cargo from src-tauri and a relative path would land there.
+      CARGO_TARGET_DIR: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,12 +40,12 @@ jobs:
         run: npm ci
       - name: Build the installer
         run: npm run tauri -- build --bundles ${{ matrix.bundles }}
-      - name: Collect it (Windows builds outside the repository)
-        if: matrix.os == 'windows-latest'
+      - name: Check that an installer was made
         shell: bash
-        run: mkdir -p out && cp C:/t/release/bundle/nsis/*.exe out/
+        run: ls ${{ matrix.artifact }}
       - uses: actions/upload-artifact@v4
         with:
           name: openCrate-${{ matrix.os }}
-          path: ${{ matrix.os == 'windows-latest' && 'out/*.exe' || matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
           retention-days: 7

@@ -20,5 +20,5 @@ pub fn rekordbox_running() -> bool {
 }
 pub use read::read_snapshot;
 #[cfg(test)]
-use snapshot::{folder_stamp, plist_version};
+use snapshot::{folder_stamp, newest_version, plist_version};
 pub use snapshot::{rekordbox_app_version, take_snapshot, Snapshot};

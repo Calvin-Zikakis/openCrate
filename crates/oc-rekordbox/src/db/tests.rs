@@ -124,6 +124,20 @@ fn the_plist_version_is_read() {
 }
 
 #[test]
+fn the_newest_installed_version_wins_numerically() {
+    let versions = ["7.2.19.0342", "10.0.1.0001", "7.10.0.0001", "7.9.0.0001"];
+    assert_eq!(
+        newest_version(versions.iter().map(|v| (*v).to_owned())).as_deref(),
+        Some("10.0.1.0001")
+    );
+    assert_eq!(
+        newest_version(["7.9.0", "7.10.0"].iter().map(|v| (*v).to_owned())).as_deref(),
+        Some("7.10.0")
+    );
+    assert_eq!(newest_version(std::iter::empty()), None);
+}
+
+#[test]
 fn folder_names_use_the_utc_date() {
     // 2026-10-23 01:20:00 UTC
     assert_eq!(folder_stamp(1_792_718_400_000), "20261023-012000");
@@ -589,4 +603,55 @@ fn restore_works_when_the_current_library_is_damaged() {
         damaged,
         "the damaged library is kept as it was"
     );
+}
+
+#[test]
+fn restoring_a_raw_backup_keeps_what_was_still_in_its_log() {
+    let (live, backups) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let location = library(live.path());
+    // A change that stays in the write-ahead log, as a crash would leave it.
+    {
+        let mut open = Library::open(location.clone(), OpenMode::ReadWrite).unwrap();
+        let connection = open.connection_mut();
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .unwrap();
+        connection
+            .pragma_update(None, "wal_autocheckpoint", 0)
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE djmdPlaylist SET Name = 'Only in the WAL' WHERE ID = ?1",
+                [fixture::playlist_id(0)],
+            )
+            .unwrap();
+        // Saved raw while the writer still holds the log open, as keep_raw does for a damaged library.
+        let raw =
+            snapshot::keep_raw(&location, backups.path(), "before-restore-damaged", NOW).unwrap();
+        assert!(
+            raw.dir.join("master.db-wal").is_file(),
+            "the log was saved beside the copy"
+        );
+        drop(open);
+        // Then the live library moves on, so the restore has something to undo.
+        let mut open = Library::open(location.clone(), OpenMode::ReadWrite).unwrap();
+        open.connection_mut()
+            .execute(
+                "UPDATE djmdPlaylist SET Name = 'Later' WHERE ID = ?1",
+                [fixture::playlist_id(0)],
+            )
+            .unwrap();
+        drop(open);
+        restore(&raw.dir, &location, backups.path(), false, NOW + 1000).unwrap();
+    }
+    let name: String = Library::open(location, OpenMode::ReadOnly)
+        .unwrap()
+        .connection()
+        .query_row(
+            "SELECT Name FROM djmdPlaylist WHERE ID = ?1",
+            [fixture::playlist_id(0)],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(name, "Only in the WAL");
 }

@@ -86,6 +86,11 @@ fn restore_through(
     incoming: &PathBuf,
 ) -> Result<Snapshot, DbError> {
     fs::copy(backup.join("master.db"), incoming)?;
+    // A raw backup of a damaged library keeps its log beside it; `check` folds it in.
+    let log = backup.join("master.db-wal");
+    if log.is_file() {
+        fs::copy(&log, sibling(incoming, "-wal"))?;
+    }
     check(location, incoming)?;
     // A library too damaged to check is still kept, byte for byte, before it is replaced.
     let mut saved = match take_snapshot(location, backups, "before-restore", false, now_ms) {
