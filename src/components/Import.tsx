@@ -111,9 +111,12 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
 
   /** New files join the library the way any file does: by a scan of the folder. With writing
    * to rekordbox on, they then go straight into rekordbox's Imported playlist. */
+  /** Bumped by every import, filed or refused: an import can take the place another release meant
+   * to use, so what was read before it, or is being read as it happens, no longer counts. */
+  const [generation, setGeneration] = useState(0);
+  const readAgain = () => setGeneration((current) => current + 1);
   const rescan = async (root: number) => {
-    // What was read before may no longer hold: an import can take the place another release meant to use.
-    setPlans(new Map());
+    readAgain();
     await admin.scan(root).catch(() => undefined);
     for (let waited = 0; waited < SCAN_WAIT_MS; waited += 500) {
       if ((await admin.scanStatus().catch(() => null))?.state !== "running") break;
@@ -134,7 +137,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   };
 
   // Plans are read against these; changing either reads every plan again.
-  const against = JSON.stringify([sent, rootId]);
+  const against = JSON.stringify([sent, rootId, generation]);
   const latest = useRef(against);
   latest.current = against;
   const stampOf = (release: DownloadRelease) => `${release.audioFiles}:${release.newestModifiedMs}:${against}`;
@@ -153,12 +156,14 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     try {
       const done = await admin.importRelease(release.folderId, release.name, rootId, sent);
       setResults((current) => new Map(current).set(key, done));
+      if (done.filed === 0) readAgain();
       if (done.filed > 0) {
         setImporting({ key, step: "scanning" });
         await rescan(done.rootId);
       }
     } catch (reason) {
       setImportErrors((current) => new Map(current).set(key, message(reason)));
+      readAgain();
     } finally {
       setImporting(null);
     }
@@ -334,7 +339,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
         : <>
           <p className="settings-copy">{ready} of {fresh.length} {fresh.length === 1 ? "release has" : "releases have"} finished downloading.</p>
           {rootChoice}
-          <ImportAll admin={admin} releases={fresh.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} />
+          <ImportAll admin={admin} releases={fresh.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} onFinished={readAgain} />
           {view === "table" ? table(fresh) : <ul className="folder-list">{fresh.map(row)}</ul>}
         </>}
     </div>}
@@ -342,13 +347,13 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
       <h2>Imported</h2>
       <p className="settings-copy">Already copied into your music folder. The originals are still in the download folder.</p>
       <ul className="folder-list">{shownImported.map(row)}</ul>
-      {imported.length > IMPORTED_SHOWN && <button className="link-button" aria-expanded={allImported} onClick={() => setAllImported((current) => !current)}>{allImported ? "Show fewer" : `Show all ${imported.length}`}</button>}
+      {(allImported ? imported.length > IMPORTED_SHOWN : shownImported.length < imported.length) && <button className="link-button" aria-expanded={allImported} onClick={() => setAllImported((current) => !current)}>{allImported ? "Show fewer" : `Show all ${imported.length}`}</button>}
     </div>}
     {older.length > 0 && <div className="sync-card">
       <h2>Already there when you added the folder</h2>
       <p className="settings-copy">These are not picked up on their own. They stay out of the way until you choose to bring them in, one at a time or all together.</p>
       {rootChoice}
-      <ImportAll admin={admin} releases={older.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan}
+      <ImportAll admin={admin} releases={older.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} onFinished={readAgain}
         label={(count) => `Import all ${count} ${count === 1 ? "release" : "releases"} already there...`} />
       {view === "table" ? table(older) : <ul className="folder-list">{older.map(row)}</ul>}
     </div>}

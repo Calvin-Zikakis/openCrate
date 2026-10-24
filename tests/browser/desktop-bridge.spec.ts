@@ -1154,13 +1154,15 @@ test("import: in one table a release's heading stays in view sideways, says when
   await expect(clean.getByRole("status")).toContainText("Nothing was imported. Left where they are: Clean Single/01.aif (A file is already there.).");
   await expect(button).toHaveCount(0);
 
-  // Changing a choice reads each release once more, never twice.
+  // A refused import reads every release again (it may have been refused for a place another took);
+  // changing a choice reads each once more, never twice.
   const reads = async () => (await calls(page)).filter((call) => call.command === "library_plan_release").map((call) => call.args.name);
-  await expect.poll(async () => (await reads()).length).toBe(3);
-  await page.getByRole("checkbox", { name: /Tidy names/ }).click();
   await expect.poll(async () => (await reads()).length).toBe(6);
+  await page.getByRole("checkbox", { name: /Tidy names/ }).click();
+  await expect.poll(async () => (await reads()).length).toBe(9);
   await page.waitForTimeout(3500);
-  expect((await reads()).sort()).toEqual(["Between Spaces", "Between Spaces", "Clean Single", "Clean Single", "Old Favourites", "Old Favourites"]);
+  const names = ["Between Spaces", "Clean Single", "Old Favourites"];
+  expect((await reads()).sort()).toEqual([...names, ...names, ...names].sort());
 });
 
 test("import: a long list of imported releases waits behind Show all", async ({ page }) => {

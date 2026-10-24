@@ -7,3 +7,7 @@ ALTER TABLE track ADD COLUMN label TEXT NOT NULL DEFAULT '';
 UPDATE track SET year = (SELECT year FROM release WHERE release.id = track.release_id),
                  label = (SELECT label FROM release WHERE release.id = track.release_id);
 UPDATE file SET tags_mtime_ms = NULL;
+-- What was agreed for year and label was agreed on the release's values. A track whose own tag
+-- differs would otherwise look edited in openCrate and be offered for clearing in rekordbox; with
+-- no agreed value, the first comparison takes rekordbox's side, as it does for a new track.
+DELETE FROM merge_base WHERE field IN ('year', 'label');

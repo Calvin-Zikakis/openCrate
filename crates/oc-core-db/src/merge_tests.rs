@@ -230,6 +230,37 @@ fn a_year_and_label_edited_in_opencrate_flow_to_rekordbox() {
 }
 
 #[test]
+fn a_file_that_can_no_longer_be_read_keeps_its_year_and_label() {
+    let library = library();
+    write_tags(
+        &library.night,
+        &TagInfo {
+            title: Some("Night Drive".into()),
+            artist: Some("Studio 001".into()),
+            album: Some("Between Spaces".into()),
+            year: Some(2019),
+            label: Some("Test Label".into()),
+            ..TagInfo::default()
+        },
+    );
+    let root = library.service.roots().unwrap()[0].root.id;
+    library
+        .service
+        .scan_root(root, &ScanOptions::default())
+        .unwrap();
+    rekordbox_has(&library, "Night Drive", "2019", "Test Label");
+    assert_eq!(found(&library), []);
+    // The file is damaged: the scan falls back to what its path says, which has no year or
+    // label. That must not read as openCrate clearing them.
+    fs::write(&library.night, b"not audio any more").unwrap();
+    library
+        .service
+        .scan_root(root, &ScanOptions::default())
+        .unwrap();
+    assert_eq!(found(&library), []);
+}
+
+#[test]
 fn a_label_added_in_rekordbox_flows_to_opencrate() {
     let library = library();
     rekordbox_has(&library, "Night Drive", "", "");

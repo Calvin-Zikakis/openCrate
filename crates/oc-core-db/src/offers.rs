@@ -39,7 +39,7 @@ pub fn candidates(connection: &Connection) -> Result<Vec<Candidate>> {
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let mut details = connection.prepare_cached(
-        "SELECT t.title, a.name, r.title, COALESCE(t.year, r.year), COALESCE(f.duration_ms, t.duration_ms, 0), \
+        "SELECT t.title, a.name, r.title, t.year, COALESCE(f.duration_ms, t.duration_ms, 0), \
                 f.size, f.container, o.offered_ms, h.file_id IS NOT NULL \
          FROM file f \
          LEFT JOIN track t ON t.id = f.track_id \
@@ -264,7 +264,7 @@ pub fn crate_tracks(connection: &Connection, crate_id: i64) -> Result<(String, V
         .optional()?
         .ok_or(Error::UnknownCrate(crate_id))?;
     let mut items = connection.prepare_cached(
-        "SELECT t.id, t.title, a.name, r.title, COALESCE(t.year, r.year) FROM crate_item ci \
+        "SELECT t.id, t.title, a.name, r.title, t.year FROM crate_item ci \
          JOIN track t ON t.id = ci.track_id \
          LEFT JOIN artist a ON a.id = t.artist_id LEFT JOIN release r ON r.id = t.release_id \
          WHERE ci.crate_id = ?1 ORDER BY ci.position, ci.track_id",

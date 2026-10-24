@@ -220,12 +220,15 @@ fn find_or_create_release(
     Ok(id)
 }
 
-/// Create or refresh the artist, release and track for one file.
+/// Create or refresh the artist, release and track for one file. `read` is false when the tags
+/// could not be read: what the path suggests stands in, and a track keeps the year and label it had.
+#[allow(clippy::too_many_arguments)]
 fn catalog_file(
     connection: &Connection,
     file_id: i64,
     file: &FileRow,
     tags: &TagInfo,
+    read: bool,
     duration_ms: i64,
     now_ms: i64,
     outcome: &mut CatalogOutcome,
@@ -269,7 +272,8 @@ fn catalog_file(
         connection.execute(
             "UPDATE track SET release_id = ?2, artist_id = ?3, disc_no = ?4, track_no = ?5, \
              title = ?6, title_key = ?7, artist_key = ?8, duration_ms = ?9, genre = ?10, \
-             year = ?11, label = ?12 WHERE id = ?1",
+             year = CASE WHEN ?13 THEN ?11 ELSE year END, \
+             label = CASE WHEN ?13 THEN ?12 ELSE label END WHERE id = ?1",
             params![
                 track_id,
                 release_id,
@@ -282,7 +286,8 @@ fn catalog_file(
                 duration_ms,
                 genre,
                 tags.year,
-                label
+                label,
+                read
             ],
         )?;
         connection.execute("DELETE FROM track_fts WHERE rowid = ?1", [track_id])?;
@@ -394,6 +399,7 @@ impl Database {
                 result.file_id,
                 &file,
                 &tags,
+                result.outcome.is_ok(),
                 duration_ms,
                 now_ms,
                 &mut outcome,

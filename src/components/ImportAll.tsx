@@ -61,12 +61,14 @@ interface Props {
   options: ImportOptions;
   /** Brings new files into the lists: a scan of the music folder, then a refresh. */
   rescan: (rootId: number) => Promise<void>;
+  /** Called once the run is over, whatever it filed, so releases are read again. */
+  onFinished?: () => void;
   /** The button's words; by default "Import all N finished releases...". */
   label?: (count: number) => string;
 }
 
 /** Import every finished release at once, after a look at what will happen. */
-export function ImportAll({ admin, releases, rootId, options, rescan, label }: Props) {
+export function ImportAll({ admin, releases, rootId, options, rescan, onFinished, label }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
   const [lookups, setLookups] = useState<Record<string, Lookup>>({});
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
@@ -127,6 +129,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan, label }: P
       await rescan(rootId);
     }
     setStage({ kind: "finished", filed, skipped, failed });
+    onFinished?.();
   };
 
   if (releases.length === 0 && stage.kind === "idle") return null;
