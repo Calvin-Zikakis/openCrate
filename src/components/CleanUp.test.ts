@@ -11,8 +11,9 @@ describe("files left as they were", () => {
     const left = ["a", "b", "c", "d"].map((name) => `/Music/Oak/${name}.aif: ${damaged}`);
     left.push("C:\\Music\\e.mp3: file could not be opened: denied");
     left.push(`/Music2/Oak/a.aif: ${damaged}`);
+    left.push("/Music/Live: Part 1.mp3: file could not be opened: busy");
     expect(leftOut(left)).toBe(
-      " 6 files were left as they were. a.aif (2 copies), b.aif, c.aif and 1 more: its embedded picture is damaged. e.mp3: file could not be opened: denied.",
+      " 7 files were left as they were. a.aif (2 copies), b.aif, c.aif and 1 more: its embedded picture is damaged. e.mp3: file could not be opened: denied. Live: Part 1.mp3: file could not be opened: busy.",
     );
   });
 });

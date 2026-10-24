@@ -9,7 +9,7 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },
     // The desktop app runs on WebKit on macOS; drag and drop is where the engines differ most.
-    { name: "webkit", use: { browserName: "webkit" }, grep: /crates:|arrange:|player:/ },
+    { name: "webkit", use: { browserName: "webkit" }, grep: /crates:|arrange:|player:|sidebar:/ },
   ],
   webServer: {
     command: "npm run preview",

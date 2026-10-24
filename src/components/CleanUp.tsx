@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onlyCasing, proposeFixes, type ProposedFix } from "../library/cleanup";
 import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, Sort } from "../library/types";
 import { Icon } from "./Icon";
@@ -12,7 +12,9 @@ export function leftOut(left: string[]): string {
   if (left.length === 0) return "";
   const byReason = new Map<string, string[]>();
   for (const item of left) {
-    const at = item.indexOf(": ");
+    // "path: why": the path ends at its audio file's extension, as a name may hold ": " too.
+    const named = /^.*?\.(?:aiff?|wav|mp3|flac|m4a|aac|ogg|opus|alac): /i.exec(item);
+    const at = named ? named[0].length - 2 : item.indexOf(": ");
     const path = at < 0 ? "" : item.slice(0, at);
     const why = at < 0 ? item : item.slice(at + 2);
     const name = path.split(/[\\/]/).pop() ?? path;
@@ -281,9 +283,13 @@ function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
 
+  // Only the newest read is shown: two reads close together may answer out of order.
+  const reads = useRef(0);
   const load = useCallback(async () => {
+    const read = ++reads.current;
     try {
-      setHistory(await admin.editHistory());
+      const found = await admin.editHistory();
+      if (read === reads.current) setHistory(found);
     } catch (reason) {
       setError(message(reason));
     }
@@ -296,6 +302,8 @@ function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
     try {
       const done = await admin.undoLastEdit();
       setNote(`${plural(done.files, "file is", "files are")} back as before.${leftOut(done.left)}`);
+      // The button stays off until the list says what the next undo would be.
+      await load();
       onChanged();
     } catch (reason) {
       setError(message(reason));

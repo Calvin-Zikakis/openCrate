@@ -125,7 +125,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
     const key = folder?.id ?? -1;
     return {
       onDragOver: (event: DragEvent) => {
-        if (!carriesCrate(event.dataTransfer)) return;
+        if (!carriesCrate(event.dataTransfer) || busy) return;
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = "copy";
@@ -149,8 +149,8 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
       if (stale) return;
       setRows(next);
       setFailed(false);
-      // A folder named in an open question may have changed; ask again after a drop.
-      setAsking(null);
+      // A question about a folder that has gone is dropped; any other stays open.
+      setAsking((current) => current?.folder && !next.some((row) => row.id === current.folder?.id) ? null : current);
       if (!opened.current && next.length > 0) {
         opened.current = true;
         const first = startOf(next);
@@ -177,12 +177,13 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
     {asking && <div className="crate-confirm" role="alertdialog" aria-label={`Make a rekordbox playlist from ${asking.crate.name}?`}
       onKeyDown={(event) => { if (event.key === "Escape") setAsking(null); }}>
       <span>Make a rekordbox playlist from {asking.crate.name} {asking.folder ? `in ${asking.folder.name}` : "at the top of rekordbox's playlists"}? The crate stays as it is.</span>
-      <button className="link-button" autoFocus disabled={busy} onClick={() => void makePlaylist(asking.crate, asking.folder)}>Make playlist</button>
-      <button className="link-button" onClick={() => setAsking(null)}>Cancel</button>
+      <button className="link-button" disabled={busy} onClick={() => void makePlaylist(asking.crate, asking.folder)}>Make playlist</button>
+      {/* Focus starts on Cancel: Enter alone should not write to rekordbox. */}
+      <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
     </div>}
     {note && <p className={note.failed ? "crate-error" : "crate-note"} role={note.failed ? "alert" : "status"}>{note.text}</p>}
     {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={`${menu.folder.name} actions`} style={{ left: menu.x, top: menu.y }}>
-      <button type="button" role="menuitem" onClick={() => startFolder(menu.folder)}>New folder inside</button>
+      <button type="button" role="menuitem" disabled={busy} onClick={() => startFolder(menu.folder)}>New folder inside</button>
     </div>}
   </>;
   if (rows.length === 0) {
@@ -214,7 +215,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged }: Props
       <button className={`tree-playlist${over === row.id ? " is-drop-target" : ""}`} aria-current={activeId === row.id ? "true" : undefined} style={{ paddingLeft: 12 + depth * 12 }}
         title={`${row.inLibrary} of ${row.entries} entries are in your library`} onClick={() => onOpen(row)}
         onDragOver={(event) => {
-          if (!carriesTracks(event.dataTransfer)) return;
+          if (!carriesTracks(event.dataTransfer) || busy) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = "copy";
           setOver(row.id);

@@ -585,7 +585,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 id: i + 1, kind: query.view, title: `Rust Track ${String(i + 1).padStart(4, "0")}`,
                 artist: "Backend Artist", artistId: 1, release: "Backend Release", releaseId: 2,
                 bpm: i % 5 === 0 ? null : 120, musicalKey: "8A", durationMs: 200_000,
-                format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 > 1, rekordboxKey: i % 5 !== 1,
+                format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 !== 1, rekordboxKey: i % 5 !== 1,
               });
               if ((query as { sort?: string }).sort === "custom" && libraryOrder) {
                 return { items: libraryOrder.slice(start, start + count).map((id) => row(id - 1)), total: libraryOrder.length, start };
@@ -601,7 +601,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                   id: i + 1, kind: query.view, title: `Rust Track ${String(i + 1).padStart(4, "0")}`,
                   artist: "Backend Artist", artistId: 1, release: "Backend Release", releaseId: 2,
                   bpm: i % 5 === 0 ? null : 120, musicalKey: "8A", durationMs: 200_000,
-                  format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 > 1, rekordboxKey: i % 5 !== 1,
+                  format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 !== 1, rekordboxKey: i % 5 !== 1,
                 });
               }
               return { items, total, start };
@@ -2194,10 +2194,12 @@ test("BPM and key say whether rekordbox analysed them or they come from the file
   await expect(bpm("0003")).toHaveAttribute("title", "Analysed by rekordbox");
   await expect(bpm("0003")).toHaveClass(/is-analysed/);
   await expect(bpm("0002")).toHaveText("120");
-  await expect(bpm("0002")).toHaveAttribute("title", "From the file's tags. rekordbox has not analysed this track yet.");
+  await expect(bpm("0002")).toHaveAttribute("title", "From the file's tags. rekordbox has not analysed a BPM for it.");
   await expect(bpm("0002")).toHaveClass(/from-tags/);
+  // Analysed, but with no BPM: no dot beside "--", and no claim about where a BPM came from.
   await expect(bpm("0001")).toHaveText("--");
   await expect(bpm("0001")).not.toHaveClass(/is-analysed|from-tags/);
+  await expect(bpm("0001")).not.toHaveAttribute("title", /.+/);
   // rekordbox can have a key without a BPM; the key says where it came from on its own.
   const key = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` }).locator(".track-key");
   await expect(key("0001")).toHaveAttribute("title", "From rekordbox");
@@ -2217,7 +2219,7 @@ test("names and tags are typed as they are: no autocorrect, capitals or spelling
   }
 });
 
-test("a rekordbox folder is made from the sidebar, at the top or inside another folder", async ({ page }) => {
+test("sidebar: a rekordbox folder is made from the sidebar, at the top or inside another folder", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.addInitScript(() => { (window as any).__rbEnabled = true; (window as any).__rbWriting = true; });
   await page.goto("/");
@@ -2267,11 +2269,14 @@ test("crates: a crate dropped on a rekordbox folder becomes a playlist there onc
   // A crate is not tracks: a playlist does not take it.
   await crate.dragTo(playlists.getByRole("button", { name: "Closers" }));
   await expect(playlists.getByRole("alertdialog")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__rbAdded)).toBeUndefined();
 
   // On a folder it asks first; Cancel writes nothing.
   await crate.dragTo(playlists.getByRole("button", { name: "Sets" }));
   const ask = playlists.getByRole("alertdialog", { name: "Make a rekordbox playlist from Warm-up?" });
   await expect(ask).toContainText("in Sets? The crate stays as it is.");
+  // Enter alone does not write: focus starts on Cancel.
+  await expect(ask.getByRole("button", { name: "Cancel" })).toBeFocused();
   await ask.getByRole("button", { name: "Cancel" }).click();
   await expect(ask).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__rbCratePlaylists)).toBeUndefined();
