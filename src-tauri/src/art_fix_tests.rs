@@ -150,3 +150,121 @@ fn a_chosen_image_is_embedded_and_can_be_removed_again() {
     )
     .is_err());
 }
+
+fn track_named(setup: &Setup, title: &str) -> i64 {
+    setup
+        .service
+        .read_page(
+            &oc_core_db::library::LibraryQuery::new(oc_core_db::library::View::Tracks),
+            0,
+            50,
+        )
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.title == title)
+        .unwrap()
+        .id
+}
+
+#[test]
+fn a_cover_goes_into_the_chosen_tracks_only_and_their_state_follows() {
+    use crate::art_fix::{set_tracks_art, track_covers, TrackArt};
+    let setup = setup();
+    let cache = ArtCache::default();
+    let (night, soft, late) = (
+        track_named(&setup, "Night Drive"),
+        track_named(&setup, "Soft Focus"),
+        track_named(&setup, "Late Train"),
+    );
+    let covers = track_covers(&setup.service, &[night, late]).unwrap();
+    assert_eq!((covers.state, covers.folder_image), ("none", true));
+
+    let picked = Cover {
+        mime: "image/png",
+        data: PNG.to_vec(),
+    };
+    let done = set_tracks_art(&setup.service, &cache, &[late], &TrackArt::Picked(&picked)).unwrap();
+    assert_eq!((done.files, done.left.len()), (1, 0));
+    assert_eq!(embedded_cover(&setup.files[2]).unwrap().data, PNG);
+    assert_eq!(
+        embedded_cover(&setup.files[3]),
+        None,
+        "the other track of the release is left"
+    );
+    assert_eq!(track_covers(&setup.service, &[late]).unwrap().state, "same");
+    assert_eq!(
+        track_covers(&setup.service, &[late, night]).unwrap().state,
+        "mixed"
+    );
+
+    // From the image beside the files: a track with none there is left, and says so.
+    let done = set_tracks_art(&setup.service, &cache, &[night, late], &TrackArt::Folder).unwrap();
+    assert_eq!(done.files, 1);
+    assert!(
+        done.left[0].contains("Late Train.aif: there is no image beside it"),
+        "{:?}",
+        done.left
+    );
+    assert_eq!(embedded_cover(&setup.files[0]).unwrap().data, PNG);
+    assert_eq!(embedded_cover(&setup.files[1]), None);
+    assert_eq!(
+        track_covers(&setup.service, &[night, late]).unwrap().state,
+        "same"
+    );
+
+    let done = set_tracks_art(&setup.service, &cache, &[night, soft], &TrackArt::Remove).unwrap();
+    assert_eq!(done.files, 2);
+    assert_eq!(embedded_cover(&setup.files[0]), None);
+    assert_eq!(
+        embedded_cover(&setup.files[2]).unwrap().data,
+        PNG,
+        "not chosen, not touched"
+    );
+}
+
+#[test]
+fn the_editor_sees_a_track_picture_and_a_picked_one_never_kept() {
+    use tauri::http::{header, StatusCode};
+    let setup = setup();
+    let cache = ArtCache::default();
+    let night = track_named(&setup, "Night Drive");
+    let path = format!("/track-{night}");
+    let service = Some(&setup.service);
+    assert_eq!(
+        crate::artwork::respond(service, &cache, &path).status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        crate::artwork::respond(service, &cache, "/picked").status(),
+        StatusCode::NOT_FOUND
+    );
+    crate::art_fix::set_tracks_art(
+        &setup.service,
+        &cache,
+        &[night],
+        &crate::art_fix::TrackArt::Folder,
+    )
+    .unwrap();
+    let served = crate::artwork::respond(service, &cache, &path);
+    assert_eq!(
+        (served.status(), served.body().as_slice()),
+        (StatusCode::OK, PNG)
+    );
+    assert_eq!(served.headers()[header::CACHE_CONTROL], "no-store");
+    cache.pick(Cover {
+        mime: "image/png",
+        data: PNG.to_vec(),
+    });
+    assert_eq!(
+        crate::artwork::respond(service, &cache, "/picked").body(),
+        PNG
+    );
+    for bad in ["/track-", "/track-x", "/track-1/2", "/picked/1", "/track/1"] {
+        assert_eq!(
+            crate::artwork::respond(service, &cache, bad).status(),
+            StatusCode::NOT_FOUND,
+            "{bad}"
+        );
+    }
+}

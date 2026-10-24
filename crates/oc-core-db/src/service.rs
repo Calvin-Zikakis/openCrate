@@ -537,6 +537,20 @@ impl LibraryService {
             .flatten())
     }
 
+    /// The release a track is on, if the track is still in the library.
+    pub fn track_release(&self, track_id: i64) -> Result<Option<i64>> {
+        Ok(self
+            .pool
+            .lease()
+            .connection()
+            .query_row(
+                "SELECT release_id FROM track WHERE id = ?1",
+                [track_id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     /// Copies of a duplicate archived out of the music folders leave the library; see
     /// [`crate::Database::forget_archived`].
     pub fn forget_archived(&self, kept: i64, archived: Vec<i64>) -> Result<()> {

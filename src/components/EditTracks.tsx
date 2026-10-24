@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { fixCasing, removeJunk, removeNumberPrefix, tidySeparators } from "../library/cleanup";
 import { loadRecipes, saveRecipes, type Recipe } from "../library/recipes";
-import type { CustomFields, EditField, LibraryAdmin, TrackTags } from "../library/types";
+import type { CustomFields, EditField, LibraryAdmin, TrackArt, TrackCovers, TrackTags } from "../library/types";
+import { Artwork } from "./Artwork";
 import { Icon } from "./Icon";
 import { PLAIN_TEXT } from "./plainText";
 
@@ -31,6 +32,9 @@ const RULES: { id: string; label: string; fields: EditField[]; apply: (value: st
 const recipeValues = (values: Partial<Record<EditField, string>>) =>
   Object.fromEntries(Object.entries(values).filter(([field]) => field !== "track")) as Partial<Record<EditField, string>>;
 
+/** A picked image's address, changed with each pick so the window does not show the last one. */
+const withVersion = (url: string | null | undefined, version: number) => (url ? `${url}${url.includes("?") ? "&" : "?"}v=${version}` : null);
+
 const valueOf = (tags: TrackTags, field: EditField): string => {
   const value = tags[field];
   return value === null ? "" : String(value);
@@ -38,6 +42,8 @@ const valueOf = (tags: TrackTags, field: EditField): string => {
 
 interface Props {
   admin: LibraryAdmin;
+  /** Where a track's own picture, or the one picked and not yet saved, can be shown. */
+  coverUrl?: (of: number | "picked") => string | null;
   trackIds: number[];
   onClose: () => void;
   /** Files were rewritten: the library should be read again. */
@@ -47,7 +53,7 @@ interface Props {
 /** Edit the details of one or more tracks. A field all of them share shows its value; one that
  * differs shows "Several values" and is left alone unless typed in. Cleanup rules change each
  * track's own values, shown before saving. Changes go into the files' tags. */
-export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
+export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [tracks, setTracks] = useState<TrackTags[] | null>(null);
   /** Fields typed in, applied to every track. */
@@ -69,11 +75,17 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
   const [custom, setCustom] = useState<CustomFields | null>(null);
   const [newField, setNewField] = useState({ name: "", value: "" });
   const [customError, setCustomError] = useState("");
+  /** The chosen tracks' pictures, and the cover change waiting for Save. */
+  const [covers, setCovers] = useState<TrackCovers | null>(null);
+  const [art, setArt] = useState<TrackArt | null>(null);
+  /** Bumped on each pick, so the preview loads the new image. */
+  const [picks, setPicks] = useState(0);
 
   useEffect(() => {
     dialog.current?.showModal();
     admin.trackTags(trackIds).then(setTracks, (reason: unknown) => setError(message(reason)));
     admin.customFields(trackIds).then(setCustom, () => setCustom({ fields: [], names: [] }));
+    admin.trackCovers(trackIds).then(setCovers, () => setCovers(null));
   }, [admin, trackIds]);
 
   const single = trackIds.length === 1;
@@ -134,7 +146,21 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
       .filter(([field, value]) => track && typed[field as EditField] === undefined && value !== valueOf(track, field as EditField))
       .map(([field, value]) => ({ trackId, title: track?.title ?? "", field: field as EditField, from: track ? valueOf(track, field as EditField) : "", to: value ?? "" }));
   });
-  const nothing = typedChanges.length === 0 && cleanedChanges.length === 0;
+  const nothing = typedChanges.length === 0 && cleanedChanges.length === 0 && art === null;
+  const changeCount = typedChanges.length + cleanedChanges.length + (art === null ? 0 : 1);
+  const coverNow = covers?.state === "none" ? "no picture" : covers?.state === "mixed" ? "several pictures" : "the current picture";
+
+  const pick = async () => {
+    setError("");
+    try {
+      if (await admin.pickCover()) {
+        setArt("picked");
+        setPicks((count) => count + 1);
+      }
+    } catch (reason) {
+      setError(message(reason));
+    }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -147,19 +173,23 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
           changes: [...typedChanges, ...cleanedChanges.filter((change) => change.trackId === trackId).map(({ field, to }) => ({ field, value: to }))],
         }))
         .filter((edit) => edit.changes.length > 0);
-      const done = await admin.editEach(edits);
+      const done = edits.length > 0 ? await admin.editEach(edits) : { left: [] as string[] };
+      const covered = art === null ? { left: [] as string[] } : await admin.setTracksArt(trackIds, art);
       onSaved();
-      if (done.left.length === 0) {
+      const leftOver = [...done.left, ...covered.left];
+      if (leftOver.length === 0) {
         onClose();
         return;
       }
       // Some files changed and some did not: show what the files hold now, so a second Save
       // starts from there rather than from the values the editor opened with.
-      setLeft(done.left);
+      setLeft(leftOver);
       setTyped({});
       setCleaned(new Map());
+      setArt(null);
       setNote("");
       setTracks(await admin.trackTags(trackIds));
+      setCovers(await admin.trackCovers(trackIds));
     } catch (reason) {
       // Files may have changed before the failure; the list should show what they hold.
       onSaved();
@@ -196,6 +226,19 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
     <div className="dialog-body">
       {!tracks && !error && <p className="settings-copy" role="status">Reading the tags...</p>}
       {tracks && <>
+        <div className="editor-cover" role="group" aria-label="Cover">
+          <Artwork color={1} src={art === "picked" ? withVersion(coverUrl?.("picked"), picks) : art === null && covers?.state === "same" ? coverUrl?.(trackIds[0]!) ?? null : null} />
+          <div>
+            <span>Cover</span>
+            <small>{art === "picked" ? "The image you chose, written when you save." : art === "folder" ? "Each track's own image beside its files, written when you save." : art === "remove" ? "Removed when you save." : covers === null ? "Reading..." : covers.state === "none" ? (single ? "This track has no picture." : "These tracks have no picture.") : covers.state === "mixed" ? "These tracks have different pictures." : single ? "The picture in this track's file." : "The picture these tracks share."}</small>
+            <div className="cover-actions">
+              <button className="link-button" disabled={busy} onClick={() => void pick()}>Choose image...</button>
+              {covers?.folderImage && art !== "folder" && <button className="link-button" disabled={busy} onClick={() => setArt("folder")}>Use folder image</button>}
+              {(covers?.state ?? "none") !== "none" && art !== "remove" && <button className="link-button" disabled={busy} onClick={() => setArt("remove")}>Remove cover</button>}
+              {art !== null && <button className="link-button" disabled={busy} onClick={() => setArt(null)}>Keep the current cover</button>}
+            </div>
+          </div>
+        </div>
         <div className="editor-fields">{FIELDS.filter((field) => single || !field.single).map((field) => {
           const common = shared(field.id);
           return <label key={field.id} className="editor-field">
@@ -261,7 +304,10 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
         <p className="settings-copy">{single ? "Each rule changes this track's own details." : "Each rule changes each track's own details."} What it would change is listed before you save.</p>
         <div className="cleanup-buttons">{RULES.map((rule) => <button key={rule.id} className="secondary-button" disabled={busy} onClick={() => setNote(applyRules([rule]))}>{rule.label}</button>)}</div>
         {note && <p className="settings-copy" role="status">{note}</p>}
-        {typedChanges.length > 0 && <ul className="cleanup-changes" aria-label="Typed changes">{typedChanges.map((change) => {
+        {(typedChanges.length > 0 || art !== null) && <ul className="cleanup-changes" aria-label="Changes to save">{art !== null && <li className={art === "remove" ? "emptied" : undefined}>
+          <strong>{single ? tracks[0]?.title || "Untitled" : `All ${trackIds.length} tracks`}</strong>
+          <small>{`Cover: ${coverNow} -> `}{art === "remove" ? <em>no picture, the picture is removed</em> : art === "picked" ? "the image you chose" : "each track's image beside its files"}</small>
+        </li>}{typedChanges.map((change) => {
           const from = shared(change.field);
           const emptied = change.value.trim() === "";
           return <li key={change.field} className={emptied ? "emptied" : undefined}>
@@ -272,11 +318,11 @@ export function EditTracks({ admin, trackIds, onClose, onSaved }: Props) {
         {cleanedChanges.length > 0 && <ul className="cleanup-changes" aria-label="Cleanup changes">{cleanedChanges.map((change) => <li key={`${change.trackId}:${change.field}`}>
           <strong>{change.title || "Untitled"}</strong><small>{`${label(change.field)}: ${change.from || "(empty)"} -> ${change.to || "(empty)"}`}</small>
         </li>)}</ul>}
-        <p className="settings-copy">Saving writes into the files' tags. If rekordbox has these tracks, the next Sync with rekordbox offers the change to it.</p>
+        <p className="settings-copy">Saving writes into the files' tags. If rekordbox has these tracks, the next Sync with rekordbox offers the change to it.{art !== null ? " A cover change is not kept in Recent changes, so Undo cannot bring the old picture back, and rekordbox keeps its own copy of the artwork until it reads the file again." : ""}</p>
         {left.length > 0 && <div role="alert" className="inline-error"><p>Some files were left as they were:</p><ul>{left.map((why) => <li key={why}>{why}</li>)}</ul></div>}
         {error && <p role="alert" className="inline-error">{error}</p>}
         <div className="warning-actions">
-          <button className="import-button" disabled={busy || nothing} onClick={() => void save()}>{busy ? "Saving..." : nothing ? "Save" : `Save ${plural(typedChanges.length + cleanedChanges.length, "change", "changes")}`}</button>
+          <button className="import-button" disabled={busy || nothing} onClick={() => void save()}>{busy ? "Saving..." : nothing ? "Save" : `Save ${plural(changeCount, "change", "changes")}`}</button>
           <button className="secondary-button" disabled={busy} onClick={onClose}>{left.length > 0 ? "Close" : "Cancel"}</button>
         </div>
       </>}

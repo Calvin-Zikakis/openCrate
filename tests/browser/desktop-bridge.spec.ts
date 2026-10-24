@@ -300,6 +300,13 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return { files: 2, left: [] };
             case "library_remove_release_art":
               return { files: 2, left: [] };
+            case "library_track_covers":
+              return { state: (args?.trackIds ?? []).length > 1 ? "mixed" : "same", folderImage: true };
+            case "library_pick_cover":
+              return (window as any).__pickCancelled ? false : true;
+            case "library_set_tracks_art":
+              (window as any).__tracksArt = [...((window as any).__tracksArt ?? []), { trackIds: args?.trackIds, source: args?.source }];
+              return { files: (args?.trackIds ?? []).length, left: [] };
             case "library_merge_crates": {
               const into = crateById(args?.into);
               let added = 0;
@@ -1540,7 +1547,7 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   await expect(preview).toContainText("Title: 02 - RUST TRACK 0002 -> Rust Track 0002");
   await expect(preview).toContainText("Title: 04 - RUST TRACK 0004 -> Rust Track 0004");
   // What was typed is listed too, before saving.
-  await expect(editor.getByRole("list", { name: "Typed changes" })).toHaveText("All 2 tracksGenre: House -> Deep House");
+  await expect(editor.getByRole("list", { name: "Changes to save" })).toHaveText("All 2 tracksGenre: House -> Deep House");
   await editor.getByRole("button", { name: "Save 3 changes" }).click();
   await expect(editor).toHaveCount(0);
   // Typed values and cleanup go in one call: one save, one Undo.
@@ -1558,6 +1565,47 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Edit 4 tracks" })).toHaveCount(0);
+});
+
+test("editing: a cover is chosen, removed or taken from the folder, and waits for Save", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0002").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Edit details..." }).click();
+  const editor = page.getByRole("dialog", { name: "Edit details" });
+  const cover = editor.getByRole("group", { name: "Cover" });
+  await expect(cover.locator("small")).toHaveText("The picture in this track's file.");
+  // Removing is listed before saving, and can be taken back.
+  await cover.getByRole("button", { name: "Remove cover" }).click();
+  const changes = editor.getByRole("list", { name: "Changes to save" });
+  await expect(changes.locator("li.emptied")).toContainText("Cover: the current picture -> no picture, the picture is removed");
+  await expect(editor).toContainText("Undo cannot bring the old picture back");
+  await cover.getByRole("button", { name: "Keep the current cover" }).click();
+  await expect(changes).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  // A picked image is shown and saved with the typed changes.
+  await cover.getByRole("button", { name: "Choose image..." }).click();
+  await expect(cover.locator("small")).toHaveText("The image you chose, written when you save.");
+  await editor.getByLabel("Genre").fill("Techno");
+  await editor.getByRole("button", { name: "Save 2 changes" }).click();
+  await expect(editor).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__tracksArt)).toEqual([{ trackIds: [2], source: "picked" }]);
+  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([{ trackId: 2, changes: [{ field: "genre", value: "Techno" }] }]);
+
+  // Several tracks with different pictures take each one's own folder image; a cover alone saves.
+  await row("0002").click();
+  await row("0004").click({ modifiers: ["ControlOrMeta"] });
+  await page.keyboard.press("ControlOrMeta+KeyI");
+  const both = page.getByRole("dialog", { name: "Edit 2 tracks" });
+  await expect(both.getByRole("group", { name: "Cover" }).locator("small")).toHaveText("These tracks have different pictures.");
+  await both.getByRole("button", { name: "Use folder image" }).click();
+  await expect(both.getByRole("list", { name: "Changes to save" })).toContainText("All 2 tracksCover: several pictures -> each track's image beside its files");
+  await page.evaluate(() => { (window as any).__editEach = undefined; });
+  await both.getByRole("button", { name: "Save 1 change" }).click();
+  await expect(both).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__tracksArt?.[1])).toEqual({ trackIds: [2, 4], source: "folder" });
+  expect(await page.evaluate(() => (window as any).__editEach)).toBeUndefined();
 });
 
 test("editing: custom fields are kept per track and shared across a selection", async ({ page }) => {
@@ -1598,7 +1646,7 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
   // A field emptied by mistake is plain to see before saving.
   await editor.getByLabel("Label").fill("Night Label");
   await editor.getByLabel("Genre").fill("");
-  const typed = editor.getByRole("list", { name: "Typed changes" });
+  const typed = editor.getByRole("list", { name: "Changes to save" });
   await expect(typed.locator("li.emptied")).toHaveText("02 - RUST TRACK 0002Genre: House -> (empty), the tag is removed");
   await expect(typed).toContainText("Label: (empty) -> Night Label");
   await editor.getByLabel("Label").fill("");
@@ -1820,7 +1868,7 @@ test("a release page can choose, find or remove its cover", async ({ page }) => 
   await page.getByTestId("library-card").first().click();
   const cover = page.getByRole("group", { name: "Cover" });
   await cover.getByRole("button", { name: "Remove cover" }).click();
-  await expect(cover.getByRole("status")).toContainText("The cover was removed from 2 files.");
+  await expect(cover.locator("small")).toContainText("The cover was removed from 2 files.");
   await cover.getByRole("button", { name: "Choose cover..." }).click();
   const sent = (await calls(page)).filter((call) => /release_art/.test(call.command)).map((call) => [call.command, call.args.releaseId]);
   expect(sent).toEqual([["library_remove_release_art", 1], ["library_set_release_art", 1]]);

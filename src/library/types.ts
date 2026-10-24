@@ -467,6 +467,10 @@ export interface MissingArt {
 }
 export type ArtSource = "folder" | "online" | "choose";
 export interface ArtChanged { files: number; left: string[] }
+/** Whether chosen tracks carry a picture ("same": each the same one), and whether any has an image beside its files. */
+export interface TrackCovers { state: "none" | "same" | "mixed"; folderImage: boolean }
+/** A cover for chosen tracks: the image picked with `pickCover`, each track's own folder image, or none. */
+export type TrackArt = "picked" | "folder" | "remove";
 
 export type ExportFormat = "m3u8" | "csv";
 export interface Exported { path: string; tracks: number; withoutFile: number }
@@ -648,6 +652,10 @@ export interface LibraryAdmin {
   setReleaseArt(releaseId: number, source: ArtSource): Promise<ArtChanged | null>;
   /** Strip every picture from a release's files. */
   removeReleaseArt(releaseId: number): Promise<ArtChanged>;
+  trackCovers(trackIds: number[]): Promise<TrackCovers>;
+  /** Pick a cover image with the system picker and hold it until `setTracksArt(…, "picked")`; false when cancelled. */
+  pickCover(): Promise<boolean>;
+  setTracksArt(trackIds: number[], art: TrackArt): Promise<ArtChanged>;
   /** Move a folder the check names to its tidy name; rekordbox follows the files it uses. */
   tidyFolder(rootId: number, folder: string): Promise<TidiedFolder>;
   folderLayout(): Promise<FolderLayout>;
@@ -741,6 +749,8 @@ export interface WaveDetail {
 export interface LibraryApi {
   /** Where the window can load a release's cover, or nothing when there is no library to ask. */
   artworkUrl?(releaseId: number): string | null;
+  /** Where the editor can load a track's own picture, or the image picked and not yet saved. */
+  coverUrl?(of: number | "picked"): string | null;
   /** Up to four of an artist's releases that have a cover, newest first. */
   artistCovers?(artistId: number): Promise<number[]>;
   /** Why the library the owner asked for could not be opened, if it could not. */

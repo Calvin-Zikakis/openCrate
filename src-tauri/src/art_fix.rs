@@ -142,6 +142,111 @@ pub fn remove_release_art(
     rewrite_all(service, cache, release_id, None)
 }
 
+/// Tracks compared for "the same cover" before the answer is "they differ".
+const TRACKS_COMPARED: usize = 60;
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackCoversDto {
+    /// "none" (no chosen track has a picture), "same" (each has the same one) or "mixed".
+    pub state: &'static str,
+    /// An image such as cover.jpg sits beside the files of at least one chosen track.
+    pub folder_image: bool,
+}
+
+/// Whether the chosen tracks carry a picture, and the same one; read from each track's first file.
+pub fn track_covers(service: &LibraryService, track_ids: &[i64]) -> Result<TrackCoversDto, String> {
+    let mut covers = Vec::new();
+    let mut folder_image = false;
+    for track_id in track_ids.iter().take(TRACKS_COMPARED) {
+        let path = service
+            .track_file(*track_id)
+            .map_err(|error| error.to_string())?;
+        let Some(path) = path else { continue };
+        folder_image = folder_image || path.parent().and_then(folder_cover).is_some();
+        covers.push(embedded_cover(&path).map(|cover| cover.data));
+    }
+    let state = if track_ids.len() > TRACKS_COMPARED {
+        "mixed"
+    } else if covers.iter().all(Option::is_none) {
+        "none"
+    } else if covers.windows(2).all(|pair| pair[0] == pair[1]) {
+        "same"
+    } else {
+        "mixed"
+    };
+    Ok(TrackCoversDto {
+        state,
+        folder_image,
+    })
+}
+
+/// The picture in a track's first file, for the editor to show.
+pub fn track_cover(service: &LibraryService, track_id: i64) -> Option<Cover> {
+    embedded_cover(&service.track_file(track_id).ok()??)
+}
+
+/// A cover for chosen tracks: the image the owner picked (held until saved), each track's own
+/// image beside its files, or none.
+pub enum TrackArt<'a> {
+    Picked(&'a Cover),
+    Folder,
+    Remove,
+}
+
+/// Give every file of the chosen tracks a cover, or strip theirs. A track with no image beside
+/// its files is left as it is when the cover comes from there.
+pub fn set_tracks_art(
+    service: &LibraryService,
+    cache: &ArtCache,
+    track_ids: &[i64],
+    art: &TrackArt<'_>,
+) -> Result<ArtChangedDto, String> {
+    let mut files = 0;
+    let mut left = Vec::new();
+    for track_id in track_ids {
+        let paths = service
+            .track_files(*track_id)
+            .map_err(|error| error.to_string())?;
+        let folder;
+        let cover = match art {
+            TrackArt::Picked(cover) => Some(*cover),
+            TrackArt::Remove => None,
+            TrackArt::Folder => {
+                folder = paths
+                    .first()
+                    .and_then(|(_, path)| path.parent())
+                    .and_then(folder_cover);
+                if folder.is_none() {
+                    if let Some((_, path)) = paths.first() {
+                        left.push(format!("{}: there is no image beside it", path.display()));
+                    }
+                    continue;
+                }
+                folder.as_ref()
+            }
+        };
+        for (_, path) in &paths {
+            match oc_tag::rewrite_cover(path, cover) {
+                Ok(()) => files += 1,
+                Err(error) => left.push(format!("{}: {error}", path.display())),
+            }
+        }
+        if let Some(release_id) = service
+            .track_release(*track_id)
+            .map_err(|error| error.to_string())?
+        {
+            cache.forget(release_id);
+        }
+    }
+    Ok(ArtChangedDto { files, left })
+}
+
+/// Read and check an image the owner picked, to hold until the editor saves.
+pub fn picked_cover(path: &Path) -> Result<Cover, String> {
+    cover_from_file(path)
+}
+
 /// The front cover the Cover Art Archive holds for the MusicBrainz release that best matches
 /// `artist` and `title`, with `files` tracks. Two or three requests; nothing is written.
 pub fn find_online(

@@ -1,7 +1,9 @@
 //! Album art for the window. The page asks for `artwork://localhost/<release id>` (or
 //! `http://artwork.localhost/<release id>` on Windows); the answer is the cover found for that
 //! release in its own files, or a 404 that the page turns into a drawn cover. The request carries
-//! only a number, never a path, and only files the index lists are opened, read only.
+//! only a number, never a path, and only files the index lists are opened, read only. The editor
+//! also asks for `/track-<track id>` (the picture in that track's first file) and `/picked` (an
+//! image the owner chose and has not saved yet).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -33,6 +35,8 @@ enum Lookup {
 #[derive(Default)]
 pub struct ArtCache {
     entries: Mutex<HashMap<i64, Entry>>,
+    /// An image the owner picked in the editor, held until it is saved or another is picked.
+    picked: Mutex<Option<Arc<Cover>>>,
 }
 
 impl ArtCache {
@@ -49,6 +53,19 @@ impl ArtCache {
     pub fn forget(&self, release_id: i64) {
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         entries.remove(&release_id);
+    }
+
+    /// Hold a picked image until the editor saves it.
+    pub fn pick(&self, cover: Cover) {
+        *self.picked.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(cover));
+    }
+
+    /// The image picked last, if any.
+    pub fn picked(&self) -> Option<Arc<Cover>> {
+        self.picked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     fn store(&self, release_id: i64, cover: Option<Arc<Cover>>) {
@@ -106,7 +123,10 @@ pub fn artist_covers(service: &LibraryService, cache: &ArtCache, artist_id: i64)
 
 /// The release id in `/<id>`, and nothing else.
 fn parse(path: &str) -> Option<i64> {
-    let id = path.strip_prefix('/')?;
+    number(path.strip_prefix('/')?)
+}
+
+fn number(id: &str) -> Option<i64> {
     if id.is_empty() || id.len() > 18 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
@@ -126,10 +146,24 @@ pub fn respond(
     cache: &ArtCache,
     path: &str,
 ) -> Response<Vec<u8>> {
-    let (Some(service), Some(release_id)) = (service, parse(path)) else {
+    let Some(service) = service else {
         return plain(StatusCode::NOT_FOUND);
     };
-    let Some(cover) = cover_for(service, cache, release_id) else {
+    // A track's picture and a picked one change while the editor is open, so neither is kept.
+    let (cover, keep) = if path == "/picked" {
+        (cache.picked(), false)
+    } else if let Some(track_id) = path.strip_prefix("/track-").and_then(number) {
+        (
+            crate::art_fix::track_cover(service, track_id).map(Arc::new),
+            false,
+        )
+    } else {
+        match parse(path) {
+            Some(release_id) => (cover_for(service, cache, release_id), true),
+            None => (None, false),
+        }
+    };
+    let Some(cover) = cover else {
         return plain(StatusCode::NOT_FOUND);
     };
     Response::builder()
@@ -137,7 +171,14 @@ pub fn respond(
         .header(header::CONTENT_TYPE, cover.mime)
         // The page sniffs nothing: the type above came from the picture's own bytes.
         .header("X-Content-Type-Options", "nosniff")
-        .header(header::CACHE_CONTROL, "private, max-age=300")
+        .header(
+            header::CACHE_CONTROL,
+            if keep {
+                "private, max-age=300"
+            } else {
+                "no-store"
+            },
+        )
         .body(cover.data.clone())
         .unwrap_or_default()
 }

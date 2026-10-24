@@ -628,6 +628,72 @@ async fn library_remove_release_art(
     .map_err(|error| error.to_string())?
 }
 
+/// Whether the chosen tracks carry a picture, the same one or several.
+#[tauri::command]
+async fn library_track_covers(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+) -> Result<art_fix::TrackCoversDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || art_fix::track_covers(&service, &track_ids))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Pick a cover image with the system picker and hold it for the editor (shown at
+/// `artwork://localhost/picked`) until it is saved. `false` means the picker was cancelled.
+#[tauri::command]
+async fn library_pick_cover(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let art = Arc::clone(&state.art);
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(picked) = app
+            .dialog()
+            .file()
+            .set_title("Choose a cover image")
+            .add_filter("Images", &["jpg", "jpeg", "png", "webp", "gif"])
+            .blocking_pick_file()
+        else {
+            return Ok(false);
+        };
+        let path = picked.into_path().map_err(|error| error.to_string())?;
+        art.pick(art_fix::picked_cover(&path)?);
+        Ok(true)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Give the chosen tracks' files a cover: "picked" (the image held by `library_pick_cover`),
+/// "folder" (each track's own image beside its files) or "remove".
+#[tauri::command]
+async fn library_set_tracks_art(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+    source: String,
+) -> Result<art_fix::ArtChangedDto, String> {
+    let service = state.library()?;
+    let art = Arc::clone(&state.art);
+    tauri::async_runtime::spawn_blocking(move || {
+        let picked = art.picked();
+        let source = match source.as_str() {
+            "picked" => art_fix::TrackArt::Picked(
+                picked
+                    .as_deref()
+                    .ok_or_else(|| "Choose the image again: it is no longer held.".to_owned())?,
+            ),
+            "folder" => art_fix::TrackArt::Folder,
+            "remove" => art_fix::TrackArt::Remove,
+            other => return Err(format!("{other} is not a place a cover can come from.")),
+        };
+        art_fix::set_tracks_art(&service, &art, &track_ids, &source)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Export the tracks a query lists to an M3U8 or CSV file the owner picks with the system dialog.
 /// `name` is the suggested file name. `None` means the dialog was cancelled.
 #[tauri::command]
@@ -1505,6 +1571,9 @@ fn main() -> Result<(), tauri::Error> {
             library_releases_without_art,
             library_set_release_art,
             library_remove_release_art,
+            library_track_covers,
+            library_pick_cover,
+            library_set_tracks_art,
             library_track_names,
             library_genres,
             library_rename_genres,

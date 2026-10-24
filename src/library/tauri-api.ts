@@ -12,6 +12,7 @@ import {
   type LibraryQuery,
   type EditedTracks,
   type ArtChanged,
+  type TrackCovers,
   type LookupKeys,
   type MergeApplied,
   type MergeChange,
@@ -75,11 +76,12 @@ interface PageWire {
 const VIEWS: readonly string[] = ["tracks", "releases", "artists"];
 const FORMATS: readonly string[] = ["AIFF", "MP3", "FLAC"];
 
-/** How the desktop app turns a release id into an address the window can load, if it can. */
-export function tauriArtwork(): ((releaseId: number) => string) | null {
+/** How the desktop app turns a release id (or "track-7", "picked") into an address the window
+ * can load, if it can. */
+export function tauriArtwork(): ((key: number | string) => string) | null {
   const internals = (globalThis as { __TAURI_INTERNALS__?: { convertFileSrc?: (path: string, protocol: string) => string } }).__TAURI_INTERNALS__;
   const convert = internals?.convertFileSrc;
-  return typeof convert === "function" ? (releaseId) => convert.call(internals, String(releaseId), "artwork") : null;
+  return typeof convert === "function" ? (key) => convert.call(internals, String(key), "artwork") : null;
 }
 
 /** Tauri's bridge when running inside the desktop app, otherwise null. */
@@ -776,6 +778,13 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       return value === null ? null : toArtChanged(value);
     },
     removeReleaseArt: async (releaseId) => toArtChanged(await invoke("library_remove_release_art", { releaseId }).catch((error: unknown) => { throw failure(error); })),
+    trackCovers: async (trackIds) => {
+      const value: unknown = await invoke("library_track_covers", { trackIds }).catch((error: unknown) => { throw failure(error); });
+      if (!isRecord(value) || !["none", "same", "mixed"].includes(value.state as string)) throw new Error("The library returned unreadable covers.");
+      return { state: value.state as TrackCovers["state"], folderImage: flag(value.folderImage, "covers") };
+    },
+    pickCover: async () => (await invoke("library_pick_cover").catch((error: unknown) => { throw failure(error); })) === true,
+    setTracksArt: async (trackIds, art) => toArtChanged(await invoke("library_set_tracks_art", { trackIds, source: art }).catch((error: unknown) => { throw failure(error); })),
     editEach: async (edits) => toEdited(await invoke("library_edit_each", { edits }).catch((error: unknown) => { throw failure(error); })),
     customFields: async (trackIds) => {
       const value: unknown = await invoke("library_custom_fields", { trackIds }).catch((error: unknown) => { throw failure(error); });
@@ -972,7 +981,7 @@ export class TauriLibraryApi implements LibraryApi {
   constructor(
     private readonly invoke: Invoke,
     mode: LibraryMode = { canManageFolders: false, persistent: false },
-    private readonly artwork: ((releaseId: number) => string) | null = null,
+    private readonly artwork: ((key: number | string) => string) | null = null,
   ) {
     if (mode.canManageFolders) this.admin = adminFor(invoke, mode.persistent);
   }
@@ -994,6 +1003,12 @@ export class TauriLibraryApi implements LibraryApi {
 
   artworkUrl(releaseId: number): string | null {
     return this.artwork && Number.isInteger(releaseId) && releaseId > 0 ? this.artwork(releaseId) : null;
+  }
+
+  coverUrl(of: number | "picked"): string | null {
+    if (!this.artwork) return null;
+    if (of === "picked") return this.artwork("picked");
+    return Number.isInteger(of) && of > 0 ? this.artwork(`track-${of}`) : null;
   }
 
   read(query: LibraryQuery, start: number, count: number, signal: AbortSignal): Promise<LibraryPage> {
