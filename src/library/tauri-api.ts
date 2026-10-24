@@ -13,6 +13,9 @@ import {
   type EditedTracks,
   type ArtChanged,
   type TrackCovers,
+  type MovedFile,
+  type MovedFiles,
+  type Relinked,
   type LookupKeys,
   type MergeApplied,
   type MergeChange,
@@ -525,6 +528,29 @@ function toMergeApplied(value: unknown): MergeApplied {
   };
 }
 
+function toMovedFile(value: unknown): MovedFile {
+  const what = "moved file";
+  if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  return { fileId: whole(value.fileId, what), title: text(value.title, what), artist: text(value.artist, what), path: text(value.path, what) };
+}
+
+function toMovedFiles(value: unknown): MovedFiles {
+  if (!isRecord(value) || !Array.isArray(value.moved) || !Array.isArray(value.unmatched)) throw new Error("The library returned unreadable moved files.");
+  return {
+    moved: value.moved.map((item: unknown) => {
+      if (!isRecord(item)) throw new Error("The library returned unreadable moved files.");
+      return { missing: toMovedFile(item.missing), found: toMovedFile(item.found), sameFile: flag(item.sameFile, "moved file") };
+    }),
+    unmatched: value.unmatched.map(toMovedFile),
+  };
+}
+
+function toRelinked(value: unknown): Relinked {
+  const what = "relink";
+  if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
+  return { relinked: whole(value.relinked, what), relocated: whole(value.relocated, what), left: value.left.map((item) => text(item, what)) };
+}
+
 function toArtChanged(value: unknown): ArtChanged {
   const what = "art change";
   if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
@@ -782,6 +808,12 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       const value: unknown = await invoke("library_track_covers", { trackIds }).catch((error: unknown) => { throw failure(error); });
       if (!isRecord(value) || !["none", "same", "mixed"].includes(value.state as string)) throw new Error("The library returned unreadable covers.");
       return { state: value.state as TrackCovers["state"], folderImage: flag(value.folderImage, "covers") };
+    },
+    movedFiles: async () => toMovedFiles(await invoke("library_moved_files").catch((error: unknown) => { throw failure(error); })),
+    relink: async (pairs) => toRelinked(await invoke("library_relink", { pairs }).catch((error: unknown) => { throw failure(error); })),
+    relinkChosen: async (missing) => {
+      const value: unknown = await invoke("library_relink_chosen", { missing }).catch((error: unknown) => { throw failure(error); });
+      return value === null ? null : toRelinked(value);
     },
     pickCover: async () => (await invoke("library_pick_cover").catch((error: unknown) => { throw failure(error); })) === true,
     setTracksArt: async (trackIds, art) => toArtChanged(await invoke("library_set_tracks_art", { trackIds, source: art }).catch((error: unknown) => { throw failure(error); })),

@@ -558,6 +558,27 @@ impl LibraryService {
             .run(move |database| database.forget_archived(kept, &archived))?
     }
 
+    /// Missing files and the file each most likely is now; see [`crate::moved::moved`].
+    pub fn moved_files(&self) -> Result<Vec<crate::moved::Moved>> {
+        crate::moved::moved(self.pool.lease().connection())
+    }
+
+    /// Track, music folder and path of library files, present or missing.
+    pub fn describe_files(&self, file_ids: &[i64]) -> Result<Vec<crate::moved::Described>> {
+        crate::moved::describe(self.pool.lease().connection(), file_ids)
+    }
+
+    /// Every missing file with a track, as `(file_id, track_id)`.
+    pub fn missing_files(&self) -> Result<Vec<(i64, i64)>> {
+        crate::moved::missing(self.pool.lease().connection())
+    }
+
+    /// A missing file takes the place of a present one; see [`crate::Database::relink`].
+    pub fn relink(&self, missing: i64, found: i64) -> Result<()> {
+        self.writer
+            .run(move |database| database.relink(missing, found))?
+    }
+
     /// Every rekordbox id the last direct read matched to a library file.
     pub fn rekordbox_file_keys(&self, file_id: i64) -> Result<Vec<String>> {
         crate::offers::rekordbox_file_keys(self.pool.lease().connection(), file_id)

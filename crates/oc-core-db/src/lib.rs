@@ -10,6 +10,7 @@ pub mod library;
 pub mod matching;
 pub mod merge;
 pub mod mirror;
+pub mod moved;
 pub mod offers;
 pub mod publish_store;
 mod recovery;
@@ -130,6 +131,9 @@ pub enum Error {
     NameCollision,
     #[error("stored {0} is not valid")]
     InvalidStoredValue(&'static str),
+    /// A change refused for a reason the owner can read as it is.
+    #[error("{0}")]
+    Refused(String),
     #[error("the writer worker has stopped")]
     WorkerStopped,
     #[error("a job on the writer worker panicked")]
@@ -380,6 +384,8 @@ mod identity_tests;
 mod merge_tests;
 #[cfg(test)]
 mod mirror_tests;
+#[cfg(test)]
+mod moved_tests;
 #[cfg(test)]
 mod offers_tests;
 #[cfg(test)]

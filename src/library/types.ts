@@ -471,6 +471,11 @@ export interface ArtChanged { files: number; left: string[] }
 export interface TrackCovers { state: "none" | "same" | "mixed"; folderImage: boolean }
 /** A cover for chosen tracks: the image picked with `pickCover`, each track's own folder image, or none. */
 export type TrackArt = "picked" | "folder" | "remove";
+/** A library file as the owner knows it; `path` is "Music folder: inside/it.aif". */
+export interface MovedFile { fileId: number; title: string; artist: string; path: string }
+/** Missing files, each with the file it most likely is now, or none found. */
+export interface MovedFiles { moved: { missing: MovedFile; found: MovedFile; sameFile: boolean }[]; unmatched: MovedFile[] }
+export interface Relinked { relinked: number; relocated: number; left: string[] }
 
 export type ExportFormat = "m3u8" | "csv";
 export interface Exported { path: string; tracks: number; withoutFile: number }
@@ -653,6 +658,12 @@ export interface LibraryAdmin {
   /** Strip every picture from a release's files. */
   removeReleaseArt(releaseId: number): Promise<ArtChanged>;
   trackCovers(trackIds: number[]): Promise<TrackCovers>;
+  /** Tracks whose file is missing, and where each file most likely is now. */
+  movedFiles(): Promise<MovedFiles>;
+  /** Each [missing file, found file]: the track takes the found file; rekordbox follows the ones it uses. */
+  relink(pairs: [number, number][]): Promise<Relinked>;
+  /** Relink a missing file to one picked with the system picker; null when cancelled. */
+  relinkChosen(missingFileId: number): Promise<Relinked | null>;
   /** Pick a cover image with the system picker and hold it until `setTracksArt(…, "picked")`; false when cancelled. */
   pickCover(): Promise<boolean>;
   setTracksArt(trackIds: number[], art: TrackArt): Promise<ArtChanged>;

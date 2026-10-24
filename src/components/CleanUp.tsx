@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onlyCasing, proposeFixes, type ProposedFix } from "../library/cleanup";
-import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, Sort } from "../library/types";
+import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, MovedFiles, Relinked, Sort } from "../library/types";
 import { Icon } from "./Icon";
 import { PLAIN_TEXT } from "./plainText";
 
@@ -54,11 +54,94 @@ export function CleanUp({ admin, onChanged }: Props) {
       <p>Fix what is untidy across your whole library. Nothing changes until you choose; changes go into the files' tags, and the next Sync with rekordbox offers them to rekordbox.</p>
     </div>
     <HistoryCard admin={admin} onChanged={changed} saves={saves} />
+    <MovedCard admin={admin} onChanged={onChanged} />
     <GenresCard admin={admin} onChanged={changed} />
     <TitlesCard admin={admin} onChanged={changed} />
     <ArtCard admin={admin} onChanged={changed} />
     <CratesCard admin={admin} onChanged={changed} />
   </div>;
+}
+
+/** What a relink did, in a sentence. */
+function relinkedNote(done: Relinked): string {
+  const parts = [done.relinked === 0 ? "Nothing was relinked." : `${plural(done.relinked, "track was", "tracks were")} relinked${done.relocated > 0 ? `; rekordbox was told the new place of ${plural(done.relocated, "file", "files")}` : ""}.`];
+  if (done.left.length > 0) parts.push(`Left as ${done.left.length === 1 ? "it was" : "they were"}: ${done.left.join(" ")}`);
+  return parts.join(" ");
+}
+
+function MovedCard({ admin, onChanged }: Props) {
+  const [found, setFound] = useState<MovedFiles | null>(null);
+  const [folded, setFolded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  const check = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      setFound(await admin.movedFiles());
+      setFolded(false);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  /** Relink, then look again: what is left is what still needs a hand. */
+  const act = async (run: () => Promise<Relinked | null>) => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const done = await run();
+      if (!done) return;
+      setNote(relinkedNote(done));
+      if (done.relinked > 0) onChanged();
+      setFound(await admin.movedFiles());
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const total = found ? found.moved.length + found.unmatched.length : 0;
+
+  return <section className="sync-card" role="region" aria-label="Moved files">
+    <h2>Moved files</h2>
+    <p className="settings-copy">Finds tracks whose file is missing because it was moved or renamed outside openCrate, and the file it most likely is now: the same file on disk, or one of the same name and size that appeared since. Relinking keeps the track's crates, your fields and its date added. If rekordbox uses the file, it is told the new place too, which needs writing to rekordbox on.</p>
+    <div className="merge-actions">
+      <button className="secondary-button" disabled={busy} onClick={() => void check()}>{found ? "Check again" : "Find moved files"}</button>
+      {found && total > 0 && <button className="link-button" aria-expanded={!folded} onClick={() => setFolded(!folded)}>{folded ? `Show the list (${total})` : "Hide the list"}</button>}
+    </div>
+    {error && <p role="alert" className="inline-error">{error}</p>}
+    {note && <p role="status" className="settings-copy">{note}</p>}
+    {found && total === 0 && <p className="settings-copy">No track is missing its file.</p>}
+    {found && total > 0 && !folded && <>
+      {found.moved.length > 0 && <>
+        <p className="settings-copy">{`${plural(found.moved.length, "missing file was", "missing files were")} found somewhere else in your music folders.`}</p>
+        {found.moved.length > 1 && <button className="import-button" disabled={busy} onClick={() => void act(() => admin.relink(found.moved.map((item) => [item.missing.fileId, item.found.fileId])))}>{`Relink all ${found.moved.length}`}</button>}
+        <ul className="folder-list" aria-label="Found elsewhere">{found.moved.slice(0, DRAWN).map((item) => <li key={item.missing.fileId} className="folder-row">
+          <div className="folder-text">
+            <strong>{`${item.missing.title || "Untitled"} - ${item.missing.artist}`}</strong>
+            <small>{`Was: ${item.missing.path}`}</small>
+            <small>{`Now: ${item.found.path} (${item.sameFile ? "the same file, moved or renamed" : "same name and size"})`}</small>
+          </div>
+          <button className="secondary-button" disabled={busy} aria-label={`Relink ${item.missing.title}`} onClick={() => void act(() => admin.relink([[item.missing.fileId, item.found.fileId]]))}>Relink</button>
+        </li>)}</ul>
+      </>}
+      {found.unmatched.length > 0 && <>
+        <p className="settings-copy">{`${plural(found.unmatched.length, "missing file was", "missing files were")} not found. If you know where one is now, choose it; it has to be in one of your music folders.`}</p>
+        <ul className="folder-list" aria-label="Not found">{found.unmatched.slice(0, DRAWN).map((file) => <li key={file.fileId} className="folder-row">
+          <div className="folder-text">
+            <strong>{`${file.title || "Untitled"} - ${file.artist}`}</strong>
+            <small>{`Was: ${file.path}`}</small>
+          </div>
+          <button className="secondary-button" disabled={busy} aria-label={`Choose the file for ${file.title}`} onClick={() => void act(() => admin.relinkChosen(file.fileId))}>Choose file...</button>
+        </li>)}</ul>
+      </>}
+    </>}
+  </section>;
 }
 
 function GenresCard({ admin, onChanged }: Props) {

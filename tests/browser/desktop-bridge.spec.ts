@@ -300,6 +300,19 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return { files: 2, left: [] };
             case "library_remove_release_art":
               return { files: 2, left: [] };
+            case "library_moved_files": {
+              const relinked: number[] = (window as any).__relinked ?? [];
+              const night = { fileId: 13, title: "Night Drive", artist: "Studio 001", path: "Music: Studio 001/Between Spaces/01 Night Drive.aif" };
+              return {
+                moved: relinked.includes(13) ? [] : [{ missing: night, found: { ...night, fileId: 40, path: "Music: Sorted/Night Drive.aif" }, sameFile: true }],
+                unmatched: [{ fileId: 21, title: "Late Train", artist: "Studio 001", path: "Music: Studio 001/No Light/03 Late Train.aif" }],
+              };
+            }
+            case "library_relink":
+              (window as any).__relinked = [...((window as any).__relinked ?? []), ...(args?.pairs ?? []).map((pair: number[]) => pair[0])];
+              return { relinked: (args?.pairs ?? []).length, relocated: 1, left: [] };
+            case "library_relink_chosen":
+              return null;
             case "library_track_covers":
               return { state: (args?.trackIds ?? []).length > 1 ? "mixed" : "same", folderImage: true };
             case "library_pick_cover":
@@ -1947,6 +1960,27 @@ test("clean up: the newest save is undone and the list moves on", async ({ page 
   await expect(recent).toContainText("No changes yet.");
   // Each undo names the save it means.
   expect(await page.evaluate(() => (window as any).__undoIds)).toEqual([2, 1]);
+});
+
+test("clean up: a file moved outside openCrate is found and relinked; one not found can be chosen", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const card = page.getByRole("region", { name: "Moved files" });
+  await card.getByRole("button", { name: "Find moved files" }).click();
+  const found = card.getByRole("list", { name: "Found elsewhere" });
+  await expect(found).toContainText("Night Drive - Studio 001");
+  await expect(found).toContainText("Now: Music: Sorted/Night Drive.aif (the same file, moved or renamed)");
+  await expect(card.getByRole("list", { name: "Not found" })).toContainText("Was: Music: Studio 001/No Light/03 Late Train.aif");
+  // Choosing is cancelled: nothing happens.
+  await card.getByRole("button", { name: "Choose the file for Late Train" }).click();
+  await expect(card.getByRole("status")).toHaveCount(0);
+  await card.getByRole("button", { name: "Relink Night Drive" }).click();
+  await expect(card.getByRole("status")).toHaveText("1 track was relinked; rekordbox was told the new place of 1 file.");
+  await expect(found).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__relinked)).toEqual([13]);
+  await card.getByRole("button", { name: "Hide the list" }).click();
+  await expect(card.getByRole("list", { name: "Not found" })).toHaveCount(0);
 });
 
 test("clean up: a change that cannot be put back can be forgotten, so earlier ones can be undone", async ({ page }) => {

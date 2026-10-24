@@ -22,6 +22,9 @@ mod library_fix_tests;
 mod lookup;
 #[cfg(target_os = "macos")]
 mod menu;
+mod moved;
+#[cfg(test)]
+mod moved_tests;
 mod plan;
 mod player;
 mod rekordbox_db;
@@ -430,6 +433,59 @@ async fn library_check(state: State<'_, AppState>) -> Result<folders::HealthDto,
     tauri::async_runtime::spawn_blocking(move || folders::check_health(&service))
         .await
         .map_err(|error| error.to_string())?
+}
+
+/// Missing files, and where each most likely is now.
+#[tauri::command]
+async fn library_moved_files(state: State<'_, AppState>) -> Result<moved::MovedFilesDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || moved::moved_files(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Relink each `[missing file, found file]`; rekordbox follows the files it uses.
+#[tauri::command]
+async fn library_relink(
+    state: State<'_, AppState>,
+    pairs: Vec<(i64, i64)>,
+) -> Result<moved::RelinkedDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        moved::relink(&service, &rekordbox_db::Probe::installed(), &pairs)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Relink a missing file to one the owner picks with the system picker; `None` when cancelled.
+#[tauri::command]
+async fn library_relink_chosen(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    missing: i64,
+) -> Result<Option<moved::RelinkedDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(picked) = app
+            .dialog()
+            .file()
+            .set_title("Choose the file this track is now")
+            .blocking_pick_file()
+        else {
+            return Ok(None);
+        };
+        let path = picked.into_path().map_err(|error| error.to_string())?;
+        let found = moved::file_at_path(&service, &path)?;
+        moved::relink(
+            &service,
+            &rekordbox_db::Probe::installed(),
+            &[(missing, found)],
+        )
+        .map(Some)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Move a folder the library check names to its tidy name; rekordbox follows the files it uses.
@@ -1592,6 +1648,9 @@ fn main() -> Result<(), tauri::Error> {
             library_set_release_art,
             library_remove_release_art,
             library_track_covers,
+            library_moved_files,
+            library_relink,
+            library_relink_chosen,
             library_pick_cover,
             library_set_tracks_art,
             library_track_names,
