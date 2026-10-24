@@ -26,6 +26,17 @@ use thiserror::Error;
 pub use recovery::restore;
 pub use worker::{ReaderLease, ReaderPool, Writer};
 
+/// Now, in milliseconds since 1970, as every timestamp in the database is stored. A clock set
+/// before 1970 gives 0.
+#[must_use]
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| i64::try_from(since.as_millis()).ok())
+        .unwrap_or_default()
+}
+
 const APPLICATION_ID: i32 = 0x4f43_5241;
 const DATABASE_NAME: &str = "library.sqlite3";
 const MIGRATIONS: &[&str] = &[
@@ -44,6 +55,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/013_waveform.sql"),
     include_str!("schema/014_rekordbox_offer.sql"),
     include_str!("schema/015_rekordbox_hidden.sql"),
+    include_str!("schema/016_waveform_format.sql"),
 ];
 
 #[derive(Debug, Error)]

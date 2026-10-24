@@ -3,7 +3,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use oc_paths::{
     bytes_to_os_string, check_new_root, probe_root, relation, walk_root, Availability, Axis,
@@ -31,13 +30,7 @@ use oc_rekordbox::xml::Collection;
 /// Files whose tags are read, then applied, per round.
 const TAG_BATCH: usize = 500;
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_millis()).ok())
-        .unwrap_or_default()
-}
+use crate::now_ms;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -468,20 +461,19 @@ impl LibraryService {
         Ok(None)
     }
 
-    /// A track's waveform: the stored one while its file is unchanged, otherwise computed with
-    /// `compute` from the file (only read) and stored. A stored one of another length than
-    /// `expected_len` is from an older shape and is made again. `None` when the track has no
-    /// reachable file.
+    /// A track's waveform: the stored one while its file is unchanged and it is in `format`,
+    /// otherwise computed with `compute` from the file (only read) and stored with that format.
+    /// `None` when the track has no reachable file.
     pub fn waveform(
         &self,
         track_id: i64,
-        expected_len: usize,
+        format: i64,
         compute: impl FnOnce(&Path) -> Option<Vec<u8>>,
     ) -> Result<Option<Vec<u8>>> {
         let found = {
             let lease = self.pool.lease();
             let mut statement = lease.connection().prepare(
-                "SELECT f.id, f.size, f.mtime_ms, r.path_raw, f.path_raw, w.size, w.mtime_ms, w.peaks \
+                "SELECT f.id, f.size, f.mtime_ms, r.path_raw, f.path_raw, w.size, w.mtime_ms, w.peaks, w.format \
                  FROM file f JOIN library_root r ON r.id = f.root_id \
                  LEFT JOIN waveform w ON w.file_id = f.id \
                  WHERE f.track_id = ?1 AND f.presence = 'present' AND f.lifecycle = 'active' \
@@ -500,17 +492,29 @@ impl LibraryService {
                         row.get::<_, Option<i64>>(5)?,
                         row.get::<_, Option<i64>>(6)?,
                         row.get::<_, Option<Vec<u8>>>(7)?,
+                        row.get::<_, Option<i64>>(8)?,
                     ))
                 })
                 .optional()?
         };
-        let Some((file_id, size, mtime, root, relative, stored_size, stored_mtime, stored)) = found
+        let Some((
+            file_id,
+            size,
+            mtime,
+            root,
+            relative,
+            stored_size,
+            stored_mtime,
+            stored,
+            stored_format,
+        )) = found
         else {
             return Ok(None);
         };
-        if let Some(peaks) = stored.filter(|peaks| {
-            // A different length is a waveform in an older shape.
-            peaks.len() == expected_len && stored_size == Some(size) && stored_mtime == Some(mtime)
+        if let Some(peaks) = stored.filter(|_| {
+            stored_format == Some(format)
+                && stored_size == Some(size)
+                && stored_mtime == Some(mtime)
         }) {
             return Ok(Some(peaks));
         }
@@ -523,10 +527,10 @@ impl LibraryService {
         let kept = peaks.clone();
         self.writer.run(move |database| {
             database.connection.execute(
-                "INSERT INTO waveform (file_id, size, mtime_ms, peaks) VALUES (?1, ?2, ?3, ?4) \
+                "INSERT INTO waveform (file_id, size, mtime_ms, peaks, format) VALUES (?1, ?2, ?3, ?4, ?5) \
                  ON CONFLICT(file_id) DO UPDATE SET size = excluded.size, \
-                 mtime_ms = excluded.mtime_ms, peaks = excluded.peaks",
-                rusqlite::params![file_id, size, mtime, kept],
+                 mtime_ms = excluded.mtime_ms, peaks = excluded.peaks, format = excluded.format",
+                rusqlite::params![file_id, size, mtime, kept, format],
             )
         })??;
         Ok(Some(peaks))

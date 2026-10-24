@@ -3,7 +3,6 @@
 //! the page never supplies a path.
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use oc_core_db::service::LibraryService;
 use oc_rekordbox::db::{self as rekordbox, LibraryLocation, Snapshot};
@@ -20,19 +19,51 @@ const KEEP: usize = 20;
 const UNKNOWN: &str = "unknown";
 
 /// What the host can see of rekordbox. Production asks the computer; tests pass a fixture.
+/// Whether rekordbox is running is found out only when it matters (a read, a restore, or the
+/// status while the setting is on), since it means listing every process.
 pub struct Probe {
     pub location: Option<LibraryLocation>,
-    pub running: bool,
     pub app_version: Option<String>,
+    running: std::cell::Cell<Option<bool>>,
+    ask_running: Box<dyn Fn() -> bool + Send>,
 }
 
 impl Probe {
     pub fn installed() -> Self {
+        Self::new(
+            rekordbox::installed_library().ok(),
+            rekordbox::rekordbox_app_version(),
+        )
+    }
+
+    pub fn new(location: Option<LibraryLocation>, app_version: Option<String>) -> Self {
         Self {
-            location: rekordbox::installed_library().ok(),
-            running: rekordbox::rekordbox_running(),
-            app_version: rekordbox::rekordbox_app_version(),
+            location,
+            app_version,
+            running: std::cell::Cell::new(None),
+            ask_running: Box::new(rekordbox::rekordbox_running),
         }
+    }
+
+    /// How to find out whether rekordbox runs; asked at most once per probe.
+    #[cfg(test)]
+    pub fn running_from(mut self, ask: impl Fn() -> bool + Send + 'static) -> Self {
+        self.ask_running = Box::new(ask);
+        self
+    }
+
+    #[cfg(test)]
+    pub fn set_running(&self, running: bool) {
+        self.running.set(Some(running));
+    }
+
+    fn running(&self) -> bool {
+        if let Some(known) = self.running.get() {
+            return known;
+        }
+        let found = (self.ask_running)();
+        self.running.set(Some(found));
+        found
     }
 
     fn version(&self) -> &str {
@@ -92,13 +123,7 @@ impl From<&Snapshot> for BackupDto {
     }
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_millis()).ok())
-        .unwrap_or(0)
-}
+use oc_core_db::now_ms;
 
 fn backups_dir(service: &LibraryService) -> PathBuf {
     service.data_directory().join(BACKUPS)
@@ -121,7 +146,8 @@ pub fn status(service: &LibraryService, probe: &Probe) -> Result<RekordboxDbDto,
     Ok(RekordboxDbDto {
         installed: probe.location.is_some(),
         app_version: probe.app_version.clone(),
-        running: probe.running,
+        // Only worth knowing once the setting is on: it is what a read would refuse on.
+        running: confirmed_version.is_some() && probe.running(),
         enabled: confirmed_version.is_some(),
         needs_confirmation: confirmed_version
             .as_deref()
@@ -173,7 +199,7 @@ pub fn read(service: &LibraryService, probe: &Probe) -> Result<ImportDto, String
     }
     let location = installed(probe)?;
     let backups = backups_dir(service);
-    let snapshot = rekordbox::take_snapshot(location, &backups, "read", probe.running, now_ms())
+    let snapshot = rekordbox::take_snapshot(location, &backups, "read", probe.running(), now_ms())
         .map_err(|error| error.to_string())?;
     let collection = rekordbox::read_snapshot(&snapshot.master_db, &location.passphrase)
         .map_err(|error| error.to_string())?;
@@ -220,7 +246,7 @@ pub fn restore(service: &LibraryService, probe: &Probe, name: &str) -> Result<Ba
         &dir,
         location,
         &backups_dir(service),
-        probe.running,
+        probe.running(),
         now_ms(),
     )
     .map_err(|error| error.to_string())?;
@@ -229,6 +255,9 @@ pub fn restore(service: &LibraryService, probe: &Probe, name: &str) -> Result<Ba
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
     use rbl_db::fixture::{self, Shape};
 
     use super::*;
@@ -246,11 +275,7 @@ mod tests {
         let location = fixture::build(rekordbox.path(), Shape::default()).unwrap();
         Setup {
             service: LibraryService::open(data.path(), 2).unwrap(),
-            probe: Probe {
-                location: Some(location),
-                running: false,
-                app_version: Some(version.to_owned()),
-            },
+            probe: Probe::new(Some(location), Some(version.to_owned())).running_from(|| false),
             _data: data,
             _rekordbox: rekordbox,
         }
@@ -295,9 +320,9 @@ mod tests {
 
     #[test]
     fn a_running_rekordbox_is_refused() {
-        let mut setup = setup("7.2.19");
+        let setup = setup("7.2.19");
         set_enabled(&setup.service, &setup.probe, true).unwrap();
-        setup.probe.running = true;
+        setup.probe.set_running(true);
         let error = read(&setup.service, &setup.probe).unwrap_err();
         assert!(error.contains("running"), "{error}");
         assert!(backups(&setup.service).is_empty());
@@ -316,6 +341,35 @@ mod tests {
         assert_eq!(saved.reason, "before-restore");
         assert!(saved.pinned);
         assert_eq!(backups(&setup.service).len(), 2);
+    }
+
+    #[test]
+    fn the_process_list_is_only_looked_at_when_it_matters() {
+        let setup = setup("7.2.19");
+        let asked = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&asked);
+        let probe = Probe::new(setup.probe.location.clone(), Some("7.2.19".into())).running_from(
+            move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                false
+            },
+        );
+        status(&setup.service, &probe).unwrap();
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            0,
+            "off: nothing to refuse, so no process scan"
+        );
+        set_enabled(&setup.service, &probe, true).unwrap();
+        let state = status(&setup.service, &probe).unwrap();
+        assert!(!state.running);
+        assert_eq!(asked.load(Ordering::SeqCst), 1, "on: looked at once");
+        status(&setup.service, &probe).unwrap();
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            1,
+            "and remembered for this probe"
+        );
     }
 
     #[test]

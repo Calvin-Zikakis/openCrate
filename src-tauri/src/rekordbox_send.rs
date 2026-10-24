@@ -196,10 +196,28 @@ impl Entries {
     }
 }
 
-/// Write openCrate's rekordbox file again from what it should hold: the last new tracks sent
-/// that rekordbox still lacks, and every crate switched on, as it is now.
-pub fn regenerate(service: &LibraryService) -> Result<PathBuf, String> {
-    let state = load_state(service)?;
+/// Every crate with its tracks, gathered once per request.
+type Gathered = Vec<(oc_core_db::crates::CrateRow, Vec<CrateTrack>)>;
+
+fn gather(service: &LibraryService) -> Result<Gathered, String> {
+    let mut found = Vec::new();
+    for row in service.crates().map_err(|error| error.to_string())? {
+        let (_, tracks) = service
+            .crate_for_rekordbox(row.id)
+            .map_err(|error| error.to_string())?;
+        found.push((row, tracks));
+    }
+    Ok(found)
+}
+
+/// Write openCrate's rekordbox file from what it should hold: the last new tracks sent that
+/// rekordbox still lacks, and every crate switched on, as it is now (from `gathered`, which
+/// may hold crates not in the file).
+fn write_file(
+    service: &LibraryService,
+    state: &FileState,
+    gathered: &Gathered,
+) -> Result<PathBuf, String> {
     let (found, _) = service
         .rekordbox_candidates()
         .map_err(|error| error.to_string())?;
@@ -225,21 +243,21 @@ pub fn regenerate(service: &LibraryService) -> Result<PathBuf, String> {
     }
     for crate_id in &state.crates {
         // A crate deleted since is left out.
-        let Ok((name, tracks)) = service.crate_for_rekordbox(*crate_id) else {
+        let Some((row, tracks)) = gathered.iter().find(|(row, _)| row.id == *crate_id) else {
             continue;
         };
         let members = tracks
-            .into_iter()
+            .iter()
             .filter_map(|track| match track {
-                CrateTrack::Echo(entry) => Some(Entry::Echo(entry)),
-                CrateTrack::New(entry) => Some(Entry::New(entry)),
+                CrateTrack::Echo(entry) => Some(Entry::Echo(entry.clone())),
+                CrateTrack::New(entry) => Some(Entry::New(entry.clone())),
                 CrateTrack::DatabaseOnly { .. } | CrateTrack::NoFile { .. } => None,
             })
             .map(|entry| entries.add(entry))
             .collect();
         playlists.push(OfferPlaylist {
             folder: Some(CRATES_FOLDER.to_owned()),
-            name,
+            name: row.name.clone(),
             entries: members,
         });
     }
@@ -247,6 +265,25 @@ pub fn regenerate(service: &LibraryService) -> Result<PathBuf, String> {
     let path = xml_path(service);
     write_atomically(&path, text.as_bytes()).map_err(|error| error.to_string())?;
     Ok(path)
+}
+
+/// Write openCrate's rekordbox file again. Gathers only the crates in the file.
+pub fn regenerate(service: &LibraryService) -> Result<PathBuf, String> {
+    let state = load_state(service)?;
+    let mut gathered = Vec::new();
+    for crate_id in &state.crates {
+        if let Ok((name, tracks)) = service.crate_for_rekordbox(*crate_id) {
+            gathered.push((
+                oc_core_db::crates::CrateRow {
+                    id: *crate_id,
+                    name,
+                    tracks: i64::try_from(tracks.len()).unwrap_or(0),
+                },
+                tracks,
+            ));
+        }
+    }
+    write_file(service, &state, &gathered)
 }
 
 #[derive(Debug, Serialize)]
@@ -273,30 +310,34 @@ pub struct CratesDto {
     pub folder: &'static str,
 }
 
-pub fn crates(service: &LibraryService) -> Result<CratesDto, String> {
-    let state = load_state(service)?;
-    let mut found = Vec::new();
-    for row in service.crates().map_err(|error| error.to_string())? {
-        let (_, tracks) = service
-            .crate_for_rekordbox(row.id)
-            .map_err(|error| error.to_string())?;
-        let count =
-            |wanted: fn(&CrateTrack) -> bool| tracks.iter().filter(|track| wanted(track)).count();
-        found.push(CrateStatusDto {
-            crate_id: row.id,
-            name: row.name,
-            in_file: state.crates.contains(&row.id),
-            known: count(|track| matches!(track, CrateTrack::Echo(_))),
-            new: count(|track| matches!(track, CrateTrack::New(_))),
-            needs_export: count(|track| matches!(track, CrateTrack::DatabaseOnly { .. })),
-            no_file: count(|track| matches!(track, CrateTrack::NoFile { .. })),
-        });
-    }
-    Ok(CratesDto {
-        crates: found,
+fn crates_from(service: &LibraryService, state: &FileState, gathered: &Gathered) -> CratesDto {
+    let crates = gathered
+        .iter()
+        .map(|(row, tracks)| {
+            let count = |wanted: fn(&CrateTrack) -> bool| {
+                tracks.iter().filter(|track| wanted(track)).count()
+            };
+            CrateStatusDto {
+                crate_id: row.id,
+                name: row.name.clone(),
+                in_file: state.crates.contains(&row.id),
+                known: count(|track| matches!(track, CrateTrack::Echo(_))),
+                new: count(|track| matches!(track, CrateTrack::New(_))),
+                needs_export: count(|track| matches!(track, CrateTrack::DatabaseOnly { .. })),
+                no_file: count(|track| matches!(track, CrateTrack::NoFile { .. })),
+            }
+        })
+        .collect();
+    CratesDto {
+        crates,
         xml_path: xml_path(service).to_string_lossy().into_owned(),
         folder: CRATES_FOLDER,
-    })
+    }
+}
+
+pub fn crates(service: &LibraryService) -> Result<CratesDto, String> {
+    let state = load_state(service)?;
+    Ok(crates_from(service, &state, &gather(service)?))
 }
 
 /// Put a crate in openCrate's rekordbox file, or take it out, and write the file again.
@@ -305,17 +346,26 @@ pub fn set_crate(
     crate_id: i64,
     in_file: bool,
 ) -> Result<CratesDto, String> {
-    service
-        .crate_for_rekordbox(crate_id)
-        .map_err(|error| error.to_string())?;
+    let gathered = gather(service)?;
+    if !gathered.iter().any(|(row, _)| row.id == crate_id) {
+        return Err("That crate was not found.".into());
+    }
     let mut state = load_state(service)?;
     state.crates.retain(|id| *id != crate_id);
     if in_file {
         state.crates.push(crate_id);
     }
     save_state(service, &state)?;
-    regenerate(service)?;
-    crates(service)
+    write_file(service, &state, &gathered)?;
+    Ok(crates_from(service, &state, &gathered))
+}
+
+/// Write the file again with the crates as they are now, and list them.
+pub fn update_file(service: &LibraryService) -> Result<CratesDto, String> {
+    let state = load_state(service)?;
+    let gathered = gather(service)?;
+    write_file(service, &state, &gathered)?;
+    Ok(crates_from(service, &state, &gathered))
 }
 
 /// A whole file or the previous one: written beside it, flushed, then renamed over it.

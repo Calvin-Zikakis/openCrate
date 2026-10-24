@@ -2,6 +2,27 @@
 
 Newest first. Each entry says what was done, what was measured, and what comes next.
 
+## 2026-10-23 (review of branch next: ten findings fixed)
+
+- A code review of everything on `next` found no data-loss bug in the import path, and these, now fixed, each with a
+  test that failed first where behaviour changed:
+  1. Restoring a raw "before-restore-damaged" backup dropped the log saved beside it; the log is now copied and folded
+     in, so nothing committed is lost.
+  2. The macOS installer job used a build folder relative to the wrong directory and would have finished green with no
+     installer; both jobs now use absolute folders and fail when no installer is found.
+  3. A send wrote the XML before recording the offers; both now change in one transaction
+     (`record_offers_with_setting`) and the file follows. A track named twice in one send is sent once.
+  4. rekordbox's version was picked by sorting folder names ("10" before "7"); versions are now compared numerically.
+  5. One lock covered every waveform decode, so another track's waveform waited; decodes now run side by side and only a
+     request for the same track waits and shares the result.
+  6. The crates card ran several queries per track for every crate, three times over per click; now a handful of
+     queries per crate, gathered once per request.
+  7. The rekordbox status listed every process on each open; it asks only when the setting is on, once per request.
+  8. A stored waveform's freshness was judged by its byte length; schema v16 adds a format tag.
+  9. One `now_ms` (`oc_core_db::now_ms`) replaces six copies.
+  10. `send` no longer builds a list it only counted.
+- Checks: fmt, clippy, 432 Rust tests (8 ignored), 64 unit, 67 browser runs.
+
 ## 2026-10-23 (accessibility pass; user guide; branch next)
 
 - `@axe-core/playwright` 4.10 (dev only). A survey of the library with the player, the rekordbox, Import and Settings

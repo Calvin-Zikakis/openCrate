@@ -784,11 +784,7 @@ async fn rekordbox_send(
     file_ids: Vec<i64>,
 ) -> Result<rekordbox_send::SentDto, String> {
     let service = state.library()?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_millis()).ok())
-        .unwrap_or(0);
+    let now = oc_core_db::now_ms();
     tauri::async_runtime::spawn_blocking(move || rekordbox_send::send(&service, &file_ids, now))
         .await
         .map_err(|error| error.to_string())?
@@ -822,12 +818,9 @@ async fn rekordbox_update_file(
     state: State<'_, AppState>,
 ) -> Result<rekordbox_send::CratesDto, String> {
     let service = state.library()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        rekordbox_send::regenerate(&service)?;
-        rekordbox_send::crates(&service)
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(move || rekordbox_send::update_file(&service))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -837,11 +830,7 @@ async fn rekordbox_hide(
     hidden: bool,
 ) -> Result<rekordbox_send::NewTracksDto, String> {
     let service = state.library()?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_millis()).ok())
-        .unwrap_or(0);
+    let now = oc_core_db::now_ms();
     tauri::async_runtime::spawn_blocking(move || {
         rekordbox_send::set_hidden(&service, &file_ids, hidden, now)
     })

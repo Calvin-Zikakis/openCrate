@@ -87,13 +87,7 @@ fn upsert(connection: &Connection, operation: &Operation, now_ms: i64) -> rusqli
     Ok(())
 }
 
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_millis()).ok())
-        .unwrap_or_default()
-}
+use crate::now_ms;
 
 type Row = (i64, Vec<u8>, Vec<u8>, i64, Vec<u8>, String, Option<String>);
 

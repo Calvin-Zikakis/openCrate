@@ -1,6 +1,6 @@
 //! Tracks openCrate filed that rekordbox does not have yet, and which were offered to it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use oc_rekordbox::location::{decode_location, encode_location};
 use oc_rekordbox::xml::{Attributes, Cue, Tempo, Track};
@@ -133,38 +133,34 @@ fn json_attributes(text: &str) -> Result<Attributes> {
     serde_json::from_str(text).map_err(|_| Error::InvalidStoredValue("attributes"))
 }
 
-/// rekordbox's own entry for a track, from an XML export in the mirror.
-fn echo(connection: &Connection, track_id: i64) -> Result<Option<Track>> {
-    let found: Option<(i64, i64, Vec<u8>, String)> = connection
-        .query_row(
-            "SELECT rt.id, rt.rb_key, rt.location_raw, rt.attributes FROM rb_track rt \
-             JOIN rb_source s ON s.id = rt.rb_source_id JOIN file f ON f.id = rt.file_id \
-             WHERE f.track_id = ?1 AND s.kind = 'xml' ORDER BY rt.id LIMIT 1",
-            [track_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()?;
-    let Some((row, key, location_bytes, attributes)) = found else {
-        return Ok(None);
-    };
-    let attributes = json_attributes(&attributes)?;
-    let mut cues = Vec::new();
-    let mut statement = connection.prepare_cached(
-        "SELECT kind, number, start_seconds, end_seconds, attributes FROM rb_cue \
-         WHERE rb_track_id = ?1 ORDER BY position",
-    )?;
-    let rows = statement.query_map([row], |row| {
+/// Cues and tempos by mirrored row.
+type Analysis = (HashMap<i64, Vec<Cue>>, HashMap<i64, Vec<Tempo>>);
+
+/// The decoded cues and tempos of every mirrored entry in a crate.
+fn analysis(connection: &Connection, crate_id: i64) -> Result<Analysis> {
+    // Every mirrored row (from an XML export) for a track in the crate.
+    const ROWS: &str = "SELECT rt.id FROM rb_track rt \
+         JOIN rb_source s ON s.id = rt.rb_source_id AND s.kind = 'xml' \
+         JOIN file f ON f.id = rt.file_id \
+         JOIN crate_item ci ON ci.track_id = f.track_id WHERE ci.crate_id = ?1";
+    let mut cues: HashMap<i64, Vec<Cue>> = HashMap::new();
+    let mut statement = connection.prepare_cached(&format!(
+        "SELECT rb_track_id, kind, number, start_seconds, end_seconds, attributes FROM rb_cue \
+         WHERE rb_track_id IN ({ROWS}) ORDER BY rb_track_id, position"
+    ))?;
+    let rows = statement.query_map([crate_id], |row| {
         Ok((
             row.get::<_, i64>(0)?,
-            row.get::<_, Option<i32>>(1)?,
-            row.get::<_, f64>(2)?,
-            row.get::<_, Option<f64>>(3)?,
-            row.get::<_, String>(4)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, Option<i32>>(2)?,
+            row.get::<_, f64>(3)?,
+            row.get::<_, Option<f64>>(4)?,
+            row.get::<_, String>(5)?,
         ))
     })?;
-    for cue in rows {
-        let (kind, number, start_seconds, end_seconds, attributes) = cue?;
-        cues.push(Cue {
+    for row in rows {
+        let (track_row, kind, number, start_seconds, end_seconds, attributes) = row?;
+        cues.entry(track_row).or_default().push(Cue {
             kind: u8::try_from(kind).map_err(|_| Error::InvalidStoredValue("cue kind"))?,
             number,
             start_seconds,
@@ -172,23 +168,24 @@ fn echo(connection: &Connection, track_id: i64) -> Result<Option<Track>> {
             attributes: json_attributes(&attributes)?,
         });
     }
-    let mut tempos = Vec::new();
-    let mut statement = connection.prepare_cached(
-        "SELECT start_seconds, bpm, meter, beat, attributes FROM rb_tempo \
-         WHERE rb_track_id = ?1 ORDER BY position",
-    )?;
-    let rows = statement.query_map([row], |row| {
+    let mut tempos: HashMap<i64, Vec<Tempo>> = HashMap::new();
+    let mut statement = connection.prepare_cached(&format!(
+        "SELECT rb_track_id, start_seconds, bpm, meter, beat, attributes FROM rb_tempo \
+         WHERE rb_track_id IN ({ROWS}) ORDER BY rb_track_id, position"
+    ))?;
+    let rows = statement.query_map([crate_id], |row| {
         Ok((
-            row.get::<_, f64>(0)?,
+            row.get::<_, i64>(0)?,
             row.get::<_, f64>(1)?,
-            row.get::<_, Option<String>>(2)?,
-            row.get::<_, Option<u32>>(3)?,
-            row.get::<_, String>(4)?,
+            row.get::<_, f64>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<u32>>(4)?,
+            row.get::<_, String>(5)?,
         ))
     })?;
-    for tempo in rows {
-        let (start_seconds, bpm, meter, beat, attributes) = tempo?;
-        tempos.push(Tempo {
+    for row in rows {
+        let (track_row, start_seconds, bpm, meter, beat, attributes) = row?;
+        tempos.entry(track_row).or_default().push(Tempo {
             start_seconds,
             bpm,
             meter,
@@ -196,14 +193,49 @@ fn echo(connection: &Connection, track_id: i64) -> Result<Option<Track>> {
             attributes: json_attributes(&attributes)?,
         });
     }
-    Ok(Some(Track {
-        id: u64::try_from(key).map_err(|_| Error::InvalidStoredValue("TrackID"))?,
-        location: attributes.get("Location").cloned().unwrap_or_default(),
-        location_bytes,
-        attributes,
-        cues,
-        tempos,
-    }))
+    Ok((cues, tempos))
+}
+
+/// rekordbox's own entries, from an XML export in the mirror, for every track in a crate that
+/// has one: track id to entry. One mirrored row per track is taken, the lowest.
+fn echoes(connection: &Connection, crate_id: i64) -> Result<HashMap<i64, Track>> {
+    let (mut cues, mut tempos) = analysis(connection, crate_id)?;
+    let mut statement = connection.prepare_cached(
+        "SELECT f.track_id, rt.id, rt.rb_key, rt.location_raw, rt.attributes FROM rb_track rt \
+         JOIN rb_source s ON s.id = rt.rb_source_id AND s.kind = 'xml' \
+         JOIN file f ON f.id = rt.file_id \
+         JOIN crate_item ci ON ci.track_id = f.track_id \
+         WHERE ci.crate_id = ?1 ORDER BY f.track_id, rt.id",
+    )?;
+    let rows = statement.query_map([crate_id], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, Vec<u8>>(3)?,
+            row.get::<_, String>(4)?,
+        ))
+    })?;
+    let mut found: HashMap<i64, Track> = HashMap::new();
+    for row in rows {
+        let (track_id, track_row, key, location_bytes, attributes) = row?;
+        if found.contains_key(&track_id) {
+            continue;
+        }
+        let attributes = json_attributes(&attributes)?;
+        found.insert(
+            track_id,
+            Track {
+                id: u64::try_from(key).map_err(|_| Error::InvalidStoredValue("TrackID"))?,
+                location: attributes.get("Location").cloned().unwrap_or_default(),
+                location_bytes,
+                attributes,
+                cues: cues.remove(&track_row).unwrap_or_default(),
+                tempos: tempos.remove(&track_row).unwrap_or_default(),
+            },
+        );
+    }
+    Ok(found)
 }
 
 struct CrateItem {
@@ -223,6 +255,7 @@ struct FileRow {
 }
 
 /// A crate's name and its tracks in order, each as it can go into openCrate's rekordbox file.
+/// A handful of queries per crate, however many tracks it holds.
 pub fn crate_tracks(connection: &Connection, crate_id: i64) -> Result<(String, Vec<CrateTrack>)> {
     let name: String = connection
         .query_row("SELECT name FROM crate WHERE id = ?1", [crate_id], |row| {
@@ -230,7 +263,7 @@ pub fn crate_tracks(connection: &Connection, crate_id: i64) -> Result<(String, V
         })
         .optional()?
         .ok_or(Error::UnknownCrate(crate_id))?;
-    let mut items = connection.prepare(
+    let mut items = connection.prepare_cached(
         "SELECT t.id, t.title, a.name, r.title, r.year FROM crate_item ci \
          JOIN track t ON t.id = ci.track_id \
          LEFT JOIN artist a ON a.id = t.artist_id LEFT JOIN release r ON r.id = t.release_id \
@@ -247,14 +280,40 @@ pub fn crate_tracks(connection: &Connection, crate_id: i64) -> Result<(String, V
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let mut file = connection.prepare_cached(
-        "SELECT r.path_raw, f.path_raw, f.size, f.container, COALESCE(f.duration_ms, 0) \
-         FROM file f JOIN library_root r ON r.id = f.root_id \
-         WHERE f.track_id = ?1 AND f.presence = 'present' AND f.lifecycle = 'active' \
-         AND r.availability = 'available' \
-         ORDER BY CASE f.container WHEN 'AIFF' THEN 0 WHEN 'WAV' THEN 0 WHEN 'FLAC' THEN 0 ELSE 1 END, f.id \
-         LIMIT 1",
+    let mut echoes = echoes(connection, crate_id)?;
+    let mut in_database = connection.prepare_cached(
+        "SELECT DISTINCT f.track_id FROM rb_track rt \
+         JOIN rb_source s ON s.id = rt.rb_source_id AND s.kind = 'master_db' \
+         JOIN file f ON f.id = rt.file_id \
+         JOIN crate_item ci ON ci.track_id = f.track_id WHERE ci.crate_id = ?1",
     )?;
+    let in_database: HashSet<i64> = in_database
+        .query_map([crate_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut file_rows = connection.prepare_cached(
+        "SELECT f.track_id, r.path_raw, f.path_raw, f.size, f.container, COALESCE(f.duration_ms, 0) \
+         FROM file f JOIN library_root r ON r.id = f.root_id \
+         JOIN crate_item ci ON ci.track_id = f.track_id \
+         WHERE ci.crate_id = ?1 AND f.presence = 'present' AND f.lifecycle = 'active' \
+         AND r.availability = 'available' \
+         ORDER BY f.track_id, CASE f.container WHEN 'AIFF' THEN 0 WHEN 'WAV' THEN 0 WHEN 'FLAC' THEN 0 ELSE 1 END, f.id",
+    )?;
+    let mut files: HashMap<i64, FileRow> = HashMap::new();
+    for row in file_rows.query_map([crate_id], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            FileRow {
+                root: row.get(1)?,
+                relative: row.get(2)?,
+                size: row.get(3)?,
+                container: row.get(4)?,
+                duration_ms: row.get(5)?,
+            },
+        ))
+    })? {
+        let (track_id, file) = row?;
+        files.entry(track_id).or_insert(file);
+    }
     let mut tracks = Vec::with_capacity(items.len());
     for CrateItem {
         track_id,
@@ -264,32 +323,15 @@ pub fn crate_tracks(connection: &Connection, crate_id: i64) -> Result<(String, V
         year,
     } in items
     {
-        if let Some(entry) = echo(connection, track_id)? {
+        if let Some(entry) = echoes.remove(&track_id) {
             tracks.push(CrateTrack::Echo(entry));
             continue;
         }
-        let in_database: bool = connection.query_row(
-            "SELECT EXISTS (SELECT 1 FROM rb_track rt JOIN rb_source s ON s.id = rt.rb_source_id \
-             JOIN file f ON f.id = rt.file_id WHERE f.track_id = ?1 AND s.kind = 'master_db')",
-            [track_id],
-            |row| row.get(0),
-        )?;
-        if in_database {
+        if in_database.contains(&track_id) {
             tracks.push(CrateTrack::DatabaseOnly { title });
             continue;
         }
-        let found = file
-            .query_row([track_id], |row| {
-                Ok(FileRow {
-                    root: row.get(0)?,
-                    relative: row.get(1)?,
-                    size: row.get(2)?,
-                    container: row.get(3)?,
-                    duration_ms: row.get(4)?,
-                })
-            })
-            .optional()?;
-        let Some((row, path)) = found.and_then(|row| {
+        let Some((row, path)) = files.remove(&track_id).and_then(|row| {
             let path = crate::catalog::full_path(&row.root, &row.relative)?;
             Some((row, path))
         }) else {

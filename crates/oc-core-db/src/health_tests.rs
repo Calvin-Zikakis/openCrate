@@ -180,11 +180,11 @@ fn a_waveform_is_computed_once_and_again_only_when_the_file_or_its_format_change
         Some(vec![1, 2, 3])
     };
     assert_eq!(
-        service.waveform(track, 3, compute).unwrap(),
+        service.waveform(track, 1, compute).unwrap(),
         Some(vec![1, 2, 3])
     );
     assert_eq!(
-        service.waveform(track, 3, compute).unwrap(),
+        service.waveform(track, 1, compute).unwrap(),
         Some(vec![1, 2, 3])
     );
     assert_eq!(computed.get(), 1, "stored after the first time");
@@ -197,19 +197,28 @@ fn a_waveform_is_computed_once_and_again_only_when_the_file_or_its_format_change
         2,
     );
     service.scan_root(id, &ScanOptions::default()).unwrap();
-    service.waveform(track, 3, compute).unwrap();
+    service.waveform(track, 1, compute).unwrap();
     assert_eq!(computed.get(), 2);
-    assert_eq!(service.waveform(999_999, 3, compute).unwrap(), None);
+    assert_eq!(service.waveform(999_999, 1, compute).unwrap(), None);
     assert_eq!(
-        service.waveform(track, 3, |_| None).unwrap(),
+        service.waveform(track, 1, |_| None).unwrap(),
         Some(vec![1, 2, 3]),
         "still stored"
     );
-    // A waveform stored in an older shape is made again in the asked one.
-    let bands = |_: &Path| Some(vec![9; 6]);
-    assert_eq!(service.waveform(track, 6, bands).unwrap(), Some(vec![9; 6]));
+    // A waveform stored in an older format is made again in the asked one, even at the same
+    // length.
+    let bands = |_: &Path| Some(vec![9, 9, 9]);
     assert_eq!(
-        service.waveform(track, 6, |_| None).unwrap(),
-        Some(vec![9; 6])
+        service.waveform(track, 2, bands).unwrap(),
+        Some(vec![9, 9, 9])
+    );
+    assert_eq!(
+        service.waveform(track, 2, |_| None).unwrap(),
+        Some(vec![9, 9, 9])
+    );
+    assert_eq!(
+        service.waveform(track, 1, |_| None).unwrap(),
+        None,
+        "format 1 is gone"
     );
 }

@@ -17,15 +17,25 @@ const KEEP: usize = 4;
 
 type Key = (PathBuf, u64, Option<SystemTime>);
 
+/// The stored overview's shape: 800 slices of low, mid and high. Bump when the shape changes.
+pub const OVERVIEW_FORMAT: i64 = 1;
+
+#[derive(Default)]
+struct Inner {
+    entries: VecDeque<(Key, Arc<Bands>)>,
+    /// Tracks being decoded right now; a second request for one waits for it.
+    decoding: Vec<Key>,
+}
+
 #[derive(Default)]
 pub struct DetailCache {
-    entries: Mutex<VecDeque<(Key, Arc<Bands>)>>,
-    /// One decode at a time, so a second request for the same track waits and finds it.
-    computing: Mutex<()>,
+    inner: Mutex<Inner>,
+    finished: std::sync::Condvar,
 }
 
 impl DetailCache {
     /// The close-up for `path` while the file is unchanged, made with `compute` otherwise.
+    /// Different tracks decode at the same time; a track already being decoded is waited for.
     pub fn get_with(
         &self,
         path: &Path,
@@ -33,29 +43,43 @@ impl DetailCache {
     ) -> Option<Arc<Bands>> {
         let metadata = std::fs::metadata(path).ok()?;
         let key = (path.to_path_buf(), metadata.len(), metadata.modified().ok());
-        let _turn = self
-            .computing
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(found) = self.find(&key) {
-            return Some(found);
+        {
+            let mut inner = self.lock();
+            loop {
+                if let Some(found) = Self::find(&inner, &key) {
+                    return Some(found);
+                }
+                if !inner.decoding.contains(&key) {
+                    inner.decoding.push(key.clone());
+                    break;
+                }
+                inner = self
+                    .finished
+                    .wait(inner)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
         }
-        let made = Arc::new(compute(path)?);
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        entries.push_front((key, Arc::clone(&made)));
-        entries.truncate(KEEP);
-        Some(made)
+        let made = compute(path).map(Arc::new);
+        let mut inner = self.lock();
+        inner.decoding.retain(|decoding| *decoding != key);
+        if let Some(made) = &made {
+            inner.entries.push_front((key, Arc::clone(made)));
+            inner.entries.truncate(KEEP);
+        }
+        drop(inner);
+        self.finished.notify_all();
+        made
     }
 
-    fn find(&self, key: &Key) -> Option<Arc<Bands>> {
-        let entries = self
-            .entries
+    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+        self.inner
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        entries
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn find(inner: &Inner, key: &Key) -> Option<Arc<Bands>> {
+        inner
+            .entries
             .iter()
             .find(|(found, _)| found == key)
             .map(|(_, bands)| Arc::clone(bands))
@@ -73,7 +97,7 @@ pub fn overview(
     track_id: i64,
 ) -> Result<Option<Vec<u8>>, String> {
     service
-        .waveform(track_id, OVERVIEW * 3, |path| {
+        .waveform(track_id, OVERVIEW_FORMAT, |path| {
             cache
                 .get(path)
                 .map(|detail| oc_player::overview(&detail, OVERVIEW))
@@ -142,6 +166,44 @@ mod tests {
         assert!(cache
             .get_with(&folder.path().join("missing.aif"), compute)
             .is_none());
+    }
+
+    #[test]
+    fn another_track_is_not_held_up_by_a_decode_in_progress() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let folder = tempfile::tempdir().unwrap();
+        let (a, b) = (folder.path().join("a.aif"), folder.path().join("b.aif"));
+        std::fs::write(&a, b"a").unwrap();
+        std::fs::write(&b, b"b").unwrap();
+        let cache = Arc::new(DetailCache::default());
+        let (release, held) = mpsc::channel::<()>();
+        let slow = Arc::clone(&cache);
+        let slow_a = a.clone();
+        let decoding_a = std::thread::spawn(move || {
+            slow.get_with(&slow_a, |_| {
+                held.recv().unwrap();
+                Some(made(1))
+            })
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        // B is a different track: it must not wait for A's decode.
+        let started = std::time::Instant::now();
+        assert!(cache.get_with(&b, |_| Some(made(2))).is_some());
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "B waited for A"
+        );
+        // A second request for A waits for the one in progress and shares its result.
+        let same = Arc::clone(&cache);
+        let same_a = a.clone();
+        let waiting_a = std::thread::spawn(move || same.get_with(&same_a, |_| Some(made(9))));
+        std::thread::sleep(Duration::from_millis(50));
+        release.send(()).unwrap();
+        let first = decoding_a.join().unwrap().unwrap();
+        let second = waiting_a.join().unwrap().unwrap();
+        assert!(Arc::ptr_eq(&first, &second), "decoded once, shared");
+        assert_eq!(first.slices[0][0], 1);
     }
 
     #[test]

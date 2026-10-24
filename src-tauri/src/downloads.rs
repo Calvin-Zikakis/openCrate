@@ -8,7 +8,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use oc_core_db::downloads::WatchFolder;
 use oc_core_db::service::LibraryService;
@@ -75,13 +74,7 @@ pub struct DownloadsDto {
     pub releases: Vec<ReleaseDto>,
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_millis()).ok())
-        .unwrap_or_default()
-}
+use oc_core_db::now_ms;
 
 fn describe(
     folder: &WatchFolder,
