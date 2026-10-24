@@ -354,10 +354,7 @@ fn moved_files_are_relocated_and_keep_their_playlists() {
     let playlist = fixture::playlist_id(0);
     let before = members_of(&world.location, &playlist);
     assert!(before.contains(&content));
-    let moved = wav(&world
-        .music
-        .path()
-        .join("Studio 001/01 - Soft Focus.wav"));
+    let moved = wav(&world.music.path().join("Studio 001/01 - Soft Focus.wav"));
     let backup = relocate(
         &world.location,
         world.backups.path(),

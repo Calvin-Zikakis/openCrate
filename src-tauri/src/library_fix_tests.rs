@@ -116,8 +116,7 @@ fn a_folder_rekordbox_uses_is_tidied_and_rekordbox_follows_the_files() {
 fn with_writing_off_a_folder_rekordbox_uses_is_left_alone() {
     let setup = setup(&[SOFT], true);
     let before = stored_path(&setup);
-    let error =
-        tidy_folder(&setup.service, &setup.probe, setup.root, "Studio 001;").unwrap_err();
+    let error = tidy_folder(&setup.service, &setup.probe, setup.root, "Studio 001;").unwrap_err();
     assert!(error.contains("Settings"), "{error}");
     assert!(setup.music.join(SOFT).is_file());
     assert_eq!(stored_path(&setup), before);
@@ -144,13 +143,7 @@ fn a_file_whose_tidy_place_is_taken_stays_where_it_is() {
         ],
         false,
     );
-    let done = tidy_folder(
-        &setup.service,
-        &setup.probe,
-        setup.root,
-        "Studio 001;Guest",
-    )
-    .unwrap();
+    let done = tidy_folder(&setup.service, &setup.probe, setup.root, "Studio 001;Guest").unwrap();
     assert_eq!(done.moved, 1);
     assert_eq!(done.left.len(), 1);
     assert!(done.left[0].contains("02 - Soft Focus"), "{:?}", done.left);
