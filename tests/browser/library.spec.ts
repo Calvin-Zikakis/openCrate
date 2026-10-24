@@ -75,6 +75,24 @@ test("keyboard navigation, settings persistence and modal focus work", async ({ 
   await expect(page.locator("html")).toHaveAttribute("data-reduce-motion", "true");
 });
 
+test("the page header folds to one line for more rows, on every view, and stays folded", async ({ page }) => {
+  await page.goto("/");
+  const hero = page.locator(".library-hero");
+  await expect(hero.locator(".page-note")).toBeVisible();
+  const before = (await page.locator(".library-results").boundingBox())!.height;
+  await page.getByRole("button", { name: "Hide header" }).click();
+  await expect(hero.locator(".page-note")).toBeHidden();
+  await expect(hero.locator(".hero-art")).toBeHidden();
+  await expect(hero.getByRole("heading", { name: "Tracks" })).toBeVisible();
+  expect((await page.locator(".library-results").boundingBox())!.height).toBeGreaterThan(before + 100);
+  await page.getByRole("button", { name: "Releases", exact: true }).click();
+  await expect(hero.locator(".page-note")).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Show header" })).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("button", { name: "Show header" }).click();
+  await expect(hero.locator(".page-note")).toBeVisible();
+});
+
 test("storage failures are visible and unbuilt features are explicit", async ({ page }) => {
   await page.addInitScript(() => {
     Storage.prototype.setItem = () => { throw new DOMException("Storage blocked", "SecurityError"); };

@@ -13,6 +13,8 @@ interface Props {
   api: LibraryApi;
   query: LibraryQuery;
   compact: boolean;
+  /** The header is folded: the list leaves out its how-to hint as well. */
+  brief?: boolean;
   /** How keys are shown. */
   keyNotation?: KeyNotation;
   selected: LibraryItem | null;
@@ -75,7 +77,7 @@ function keyNote(item: LibraryItem): string | undefined {
   return item.rekordboxKey ? "From rekordbox" : "From the file's tags. rekordbox has no key for this track yet.";
 }
 
-export function Library({ api, query, compact, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
+export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -223,7 +225,7 @@ export function Library({ api, query, compact, keyNotation = "rekordbox", select
     <div className="result-summary" role="status">
       {pending ? "Loading..." : `${page.total.toLocaleString()} ${page.total === 1 ? query.view.replace(/s$/, "") : query.view}`}
       <span> {query.search ? `matching "${query.search}"` : api.admin ? (api.admin.persistent ? "Your library" : "Demo database") : "Synthetic collection"}</span>
-      {reorderable && page.total > 1 && <span className="crate-hint">{reorder?.remove
+      {reorderable && page.total > 1 && !brief && <span className="crate-hint">{reorder?.remove
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
         : " Drag a track onto a crate, a rekordbox playlist or the player, or within the list to arrange it (Custom order). Right-click for Play next and Add to queue."}</span>}
     </div>
