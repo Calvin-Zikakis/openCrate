@@ -341,11 +341,12 @@ pub fn resolve_duplicate(
             .ancestors()
             .nth(copy.relative.len())
             .ok_or_else(|| "The music folder could not be found.".to_owned())?;
-        let archive = music
-            .parent()
-            .unwrap_or(music)
-            .join("openCrate archive")
-            .join(music.file_name().unwrap_or_default());
+        let archive = archive_for(music).ok_or_else(|| {
+            format!(
+                "{} is a drive's root, so there is nowhere beside it to archive to. Nothing was moved.",
+                music.display()
+            )
+        })?;
         let mut to = archive.clone();
         for part in &copy.relative {
             to.push(oc_paths::bytes_to_os_string(part).map_err(|error| error.to_string())?);
@@ -422,6 +423,14 @@ pub fn resolve_duplicate(
             .map(|path| path.display().to_string())
             .unwrap_or_default(),
     })
+}
+
+/// Where a music folder's archived copies go: a folder named after it inside "openCrate archive"
+/// beside it, never inside it (a scan would bring them straight back). None for a drive's root.
+pub(crate) fn archive_for(music: &Path) -> Option<PathBuf> {
+    let parent = music.parent()?;
+    let name = music.file_name()?;
+    Some(parent.join("openCrate archive").join(name))
 }
 
 /// Move files back, newest first.

@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use oc_core_db::service::{LibraryService, ScanOptions};
 use oc_tag::fixtures::{aiff, write_tags};
@@ -274,4 +274,17 @@ fn a_copy_rekordbox_does_not_have_is_archived_without_writing_to_it() {
     let done = resolve_duplicate(&setup.service, &setup.probe, first, &[second]).unwrap();
     assert_eq!((done.archived, done.merged), (1, 0));
     assert!(!setup.music.join(SECOND).exists());
+}
+
+#[test]
+fn the_archive_sits_beside_the_music_folder_and_a_drive_root_has_no_beside() {
+    use crate::library_fix::archive_for;
+    assert_eq!(
+        archive_for(Path::new("/Users/dj/Music")),
+        Some(PathBuf::from("/Users/dj/openCrate archive/Music"))
+    );
+    assert_eq!(archive_for(Path::new("/")), None);
+    if cfg!(windows) {
+        assert_eq!(archive_for(Path::new("D:\\")), None);
+    }
 }
