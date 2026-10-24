@@ -616,7 +616,10 @@ fn live_copy_takes_every_write() {
     )
     .unwrap();
     assert_eq!(folder_path(&location, &content), rekordbox_form(&moved));
-    assert_eq!(members_of(&location, &done.playlist), std::slice::from_ref(&content));
+    assert_eq!(
+        members_of(&location, &done.playlist),
+        std::slice::from_ref(&content)
+    );
     // A second copy is imported, put in the playlist, then merged into the first.
     let second = wav(&music.path().join("openCrate test/02 - Copy Check.wav"));
     let done = add_to_playlist(
@@ -641,7 +644,10 @@ fn live_copy_takes_every_write() {
         }],
     )
     .unwrap();
-    assert_eq!(members_of(&location, &done.playlist), std::slice::from_ref(&content));
+    assert_eq!(
+        members_of(&location, &done.playlist),
+        std::slice::from_ref(&content)
+    );
     assert!(!live(&location, &dropped));
     assert_eq!(
         fs::read(&installed.master_db).unwrap(),
