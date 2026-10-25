@@ -321,7 +321,7 @@ export function App({ api }: { api: LibraryApi }) {
       </main>
     </div>
     {editing && api.admin && <EditTracks admin={api.admin} coverUrl={api.coverUrl?.bind(api)} trackIds={editing} onClose={() => setEditing(null)} onSaved={refreshLibrary} />}
-    <PlayerBar api={api} selected={selected} selectedIndex={selectedIndex} query={query} request={playRequest} queue={queue} onQueueChange={setQueue} onNowPlaying={setNowPlaying}
+    <PlayerBar api={api} version={libraryVersion} selected={selected} selectedIndex={selectedIndex} query={query} request={playRequest} queue={queue} onQueueChange={setQueue} onNowPlaying={setNowPlaying}
       analysis={api.admin && selected?.kind === "tracks" ? <button className="secondary-button analysis-button" onClick={() => setAnalysisOpen(true)}>Cues and grid</button> : null} />
     <dialog ref={analysisDialog} className="settings-dialog" {...closesOutside(() => setAnalysisOpen(false))} aria-labelledby="analysis-title" onCancel={() => setAnalysisOpen(false)} onClose={(event) => { if (closedByBrowser(event.currentTarget)) setAnalysisOpen(false); }}>
       <div className="dialog-heading"><div><div className="eyebrow">FROM REKORDBOX</div><h2 id="analysis-title">Cues and beat grid</h2></div><button autoFocus className="icon-button" aria-label="Close cues and grid" onClick={() => setAnalysisOpen(false)}><Icon name="close" /></button></div>

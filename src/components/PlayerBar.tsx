@@ -54,6 +54,8 @@ interface Props {
   /** What is loaded, and whether it is playing, for the list to mark it. */
   onNowPlaying?: (now: { id: number; playing: boolean } | null) => void;
   analysis?: React.ReactNode;
+  /** Changes when the library may have changed, so a cover saved since is shown. */
+  version?: number;
 }
 
 const typing = (target: EventTarget | null) =>
@@ -61,7 +63,10 @@ const typing = (target: EventTarget | null) =>
     (target.tagName === "INPUT" && !["range", "checkbox", "radio", "button"].includes((target as HTMLInputElement).type)));
 
 /** The bar at the bottom: what is playing, the transport, a seek bar and the volume. */
-export function PlayerBar({ api, selected, selectedIndex, query, request, queue, onQueueChange, onNowPlaying, analysis }: Props) {
+/** A cover's address, changed with the library so the window loads a cover saved since. */
+const withVersion = (url: string | null, version: number) => (url && version > 0 ? `${url}${url.includes("?") ? "&" : "?"}v=${version}` : url);
+
+export function PlayerBar({ api, selected, selectedIndex, query, request, queue, onQueueChange, onNowPlaying, analysis, version = 0 }: Props) {
   const admin = api.admin;
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [state, setState] = useState<PlayerState | null>(null);
@@ -256,7 +261,7 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
     }}>
     {admin && playing && detail && <Scope detail={detail} cues={cues} positionMs={position} playing={isPlaying && dragMs === null} />}
     <div className="now-playing">
-      <Artwork color={shown?.color ?? 0} src={shown && shown.kind !== "artists" ? (shown.kind === "tracks" ? api.coverUrl?.(shown.id) : null) ?? api.artworkUrl?.(shown.releaseId) ?? null : null} />
+      <Artwork color={shown?.color ?? 0} src={withVersion(shown && shown.kind !== "artists" ? (shown.kind === "tracks" ? api.coverUrl?.(shown.id) : null) ?? api.artworkUrl?.(shown.releaseId) ?? null : null, version)} />
       <div><strong>{shown?.title ?? "Nothing selected"}</strong><span>{shown?.artist ?? "Select a track"}</span></div>
     </div>
     <div className="player-center">
