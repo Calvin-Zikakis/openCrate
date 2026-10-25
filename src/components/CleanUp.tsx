@@ -369,7 +369,9 @@ function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
   </section>;
 }
 
-type Found = { trackId: number; fixes: ProposedFix[] };
+/** One row's worth of fixes for a track: a change of capitals alone is a row of its own, so it
+ * can wait for a tick while the track's other fixes go ahead. `id` tells the rows apart. */
+type Found = { id: number; trackId: number; fixes: ProposedFix[] };
 
 function TitlesCard({ admin, onChanged }: Props) {
   const [found, setFound] = useState<Found[] | null>(null);
@@ -386,11 +388,18 @@ function TitlesCard({ admin, onChanged }: Props) {
     setNote("");
     try {
       const names = await admin.trackNames();
-      const next = names.map((track) => ({ trackId: track.trackId, fixes: proposeFixes(track) })).filter((track) => track.fixes.length > 0);
+      const next: Found[] = [];
+      for (const track of names) {
+        const fixes = proposeFixes(track);
+        const casing = fixes.filter(onlyCasing);
+        const others = fixes.filter((fix) => !onlyCasing(fix));
+        if (others.length > 0) next.push({ id: next.length, trackId: track.trackId, fixes: others });
+        if (casing.length > 0) next.push({ id: next.length, trackId: track.trackId, fixes: casing });
+      }
       setFound(next);
       setFolded(false);
       // A change of capitals alone waits for a tick: those are often how an artist writes a name.
-      setUnticked(new Set(next.filter((track) => track.fixes.every(onlyCasing)).map((track) => track.trackId)));
+      setUnticked(new Set(next.filter((entry) => entry.fixes.every(onlyCasing)).map((entry) => entry.id)));
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -399,12 +408,16 @@ function TitlesCard({ admin, onChanged }: Props) {
   };
   const apply = async () => {
     if (!found) return;
-    const chosen = found.filter((track) => !unticked.has(track.trackId));
+    // A track's ticked rows go together, as one save of that track.
+    const byTrack = new Map<number, ProposedFix[]>();
+    for (const entry of found.filter((entry) => !unticked.has(entry.id))) {
+      byTrack.set(entry.trackId, [...(byTrack.get(entry.trackId) ?? []), ...entry.fixes]);
+    }
     setBusy(true);
     setError("");
     try {
-      const done = await admin.editEach(chosen.map((track) => ({ trackId: track.trackId, changes: track.fixes.map((fix) => ({ field: fix.field, value: fix.to })) })));
-      setNote(`${plural(chosen.length, "track was", "tracks were")} cleaned up.${leftOut(done.left)}`);
+      const done = await admin.editEach([...byTrack].map(([trackId, fixes]) => ({ trackId, changes: fixes.map((fix) => ({ field: fix.field, value: fix.to })) })));
+      setNote(`${plural(byTrack.size, "track was", "tracks were")} cleaned up.${leftOut(done.left)}`);
       setFound(null);
       onChanged();
     } catch (reason) {
@@ -413,15 +426,17 @@ function TitlesCard({ admin, onChanged }: Props) {
       setBusy(false);
     }
   };
-  const ticked = found ? found.length - unticked.size : 0;
+  /** Tracks with at least one ticked row: what the button counts. */
+  const ticked = found ? new Set(found.filter((entry) => !unticked.has(entry.id)).map((entry) => entry.trackId)).size : 0;
   /** The same fix on several tracks (copies in two music folders, say) is one row. */
   const groups = useMemo(() => {
     const byFix = new Map<string, { trackIds: number[]; fixes: ProposedFix[] }>();
-    for (const track of found ?? []) {
-      const key = JSON.stringify(track.fixes);
+    // `trackIds` here are row ids (Found.id), one per track's row.
+    for (const entry of found ?? []) {
+      const key = JSON.stringify(entry.fixes);
       const group = byFix.get(key);
-      if (group) group.trackIds.push(track.trackId);
-      else byFix.set(key, { trackIds: [track.trackId], fixes: track.fixes });
+      if (group) group.trackIds.push(entry.id);
+      else byFix.set(key, { trackIds: [entry.id], fixes: entry.fixes });
     }
     return [...byFix.values()];
   }, [found]);
@@ -447,7 +462,7 @@ function TitlesCard({ admin, onChanged }: Props) {
     {found && found.length > 0 && !folded && <>
       <div className="merge-actions">
         <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set())}>Tick all</button>
-        <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(found.map((track) => track.trackId)))}>Untick all</button>
+        <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(found.map((entry) => entry.id)))}>Untick all</button>
       </div>
       {casingOnly > 0 && <p className="settings-copy">{`${plural(casingOnly, "suggestion only changes", "suggestions only change")} capitals and ${casingOnly === 1 ? "starts" : "start"} unticked: all capitals or all lower case is often how an artist writes a name.`}</p>}
       <ul className="folder-list" aria-label="Proposed fixes">{groups.slice(0, groupsDrawn.shown).map((group) => <li key={group.trackIds.join(",")} className="merge-row">

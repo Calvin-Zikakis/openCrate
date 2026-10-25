@@ -13,8 +13,10 @@ const plan = (name: string, guessed: boolean): ImportPlan => ({
     tags: { fields: [{ name: "Title", value: "02 - NIGHT", guessed, tidiedFrom: null }], audio: null, length: null, readError: null, warnings: [] } }],
 });
 
-function fakeAdmin(imported: { name: string; accepted: unknown }[]): LibraryAdmin {
+function fakeAdmin(imported: { name: string; accepted: unknown }[], byHand: string[] = []): LibraryAdmin {
   return {
+    // What the download folders hold when the import's turn comes: one imported by hand meanwhile shows as imported.
+    downloadReleases: async () => ({ folders: [], releases: ["Clean", "Guessed", "Fresh"].map((name) => release(name, { imported: byHand.includes(name) })) }),
     planRelease: async (_folder: number, name: string) => plan(name, name === "Guessed"),
     importRelease: async (_folder: number, name: string, rootId: number, options?: { accepted?: unknown }) => {
       imported.push({ name, accepted: options?.accepted });
@@ -40,6 +42,10 @@ describe("importing on its own", () => {
     expect(brought).toEqual([7]);
     // Looked at again, nothing is tried twice.
     expect(await autoImport(fakeAdmin(imported), releases, 7, options, recipe, seen, async () => undefined)).toEqual({ imported: [], waiting: [] });
+    // A release imported by hand while this one waited its turn is not imported again.
+    const twice: { name: string; accepted: unknown }[] = [];
+    expect(await autoImport(fakeAdmin(twice, ["Fresh"]), [release("Fresh")], 7, options, null, new Set(), async () => undefined)).toEqual({ imported: [], waiting: [] });
+    expect(twice).toEqual([]);
     // Replaced settings stop a run before its next release.
     const fresh: { name: string; accepted: unknown }[] = [];
     await autoImport(fakeAdmin(fresh), [release("Clean")], 7, options, null, new Set(), async () => undefined, () => false);

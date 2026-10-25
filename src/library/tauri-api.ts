@@ -1060,11 +1060,17 @@ export class TauriLibraryApi implements LibraryApi {
     if (!found) {
       found = this.invoke("library_artist_covers", { artistId }).then(
         (ids) => (Array.isArray(ids) ? ids.filter((id): id is number => Number.isInteger(id) && id > 0).slice(0, 4) : []),
-        () => [],
+        // A failure is not remembered: the next look asks again.
+        () => { this.artistCache.delete(artistId); return []; },
       );
       this.artistCache.set(artistId, found);
     }
     return found;
+  }
+
+  /** The library changed (a cover set or removed): artists' covers are asked for again. */
+  forgetCovers() {
+    this.artistCache.clear();
   }
 
   artworkUrl(releaseId: number): string | null {

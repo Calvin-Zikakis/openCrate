@@ -375,12 +375,16 @@ fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
         .parent()
         .ok_or_else(|| std::io::Error::other("the XML file has no folder"))?;
     std::fs::create_dir_all(folder)?;
-    let temporary = folder.join(".opencrate.xml.part");
-    let mut file = std::fs::File::create(&temporary)?;
+    // A temporary of its own: two writes close together (quick Keep out clicks) must not share
+    // one and publish a file cut short.
+    let mut file = tempfile::Builder::new()
+        .prefix(".opencrate.xml.")
+        .suffix(".part")
+        .tempfile_in(folder)?;
     file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    std::fs::rename(&temporary, path)
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -212,9 +212,10 @@ impl Database {
         for (file_id, components) in moved {
             let path = RelPath::from_components(components, Flavor::Posix)
                 .map_err(|_| Error::InvalidStoredValue("moved path"))?;
-            // A row already at the new path (a file missing there) keeps it; the scan then sorts
-            // the two out as it would any file it finds.
-            transaction.execute(
+            // A row already at the new path (a file missing there, with its own track) would be
+            // revived by the next scan with this file's content: refused, so it is said, rather
+            // than ignored.
+            let changed = transaction.execute(
                 "UPDATE OR IGNORE file SET path_raw = ?3, path_key = ?4 \
                  WHERE id = ?1 AND root_id = ?2",
                 params![
@@ -224,6 +225,19 @@ impl Database {
                     profile.key(&path).as_bytes()
                 ],
             )?;
+            if changed == 0 {
+                return Err(Error::Refused(format!(
+                    "openCrate already lists a file at {}, so the library could not follow the \
+                     move there",
+                    String::from_utf8_lossy(
+                        &path
+                            .as_stored()
+                            .iter()
+                            .map(|byte| if *byte == 0 { b'/' } else { *byte })
+                            .collect::<Vec<u8>>()
+                    )
+                )));
+            }
         }
         transaction.commit()?;
         Ok(())

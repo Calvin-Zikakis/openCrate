@@ -169,11 +169,17 @@ fn flag_clashes(files: &mut [PlanFileDto]) {
 }
 
 fn single_entry(name: &str) -> Result<(), String> {
+    // Exactly one plain name: on Windows "D:foo" is a drive-relative path that a join would
+    // follow out of the download folder.
+    let mut parts = Path::new(name).components();
     let plain = !name.is_empty()
         && name != "."
         && name != ".."
-        && !name.contains(['/', '\\', '\0'])
-        && !Path::new(name).has_root();
+        && !name.contains(['/', '\\', '\0', ':'])
+        && matches!(
+            (parts.next(), parts.next()),
+            (Some(std::path::Component::Normal(_)), None)
+        );
     if plain {
         Ok(())
     } else {

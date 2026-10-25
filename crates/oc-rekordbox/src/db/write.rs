@@ -335,23 +335,29 @@ pub fn set_fields(
         }
     }
     let backup = take_snapshot(location, backups, "before-write", false, now_ms)?;
-    let mut writer = Writer::open(location.clone(), backups)?;
-    writer.disable_automatic_backups();
-    for edit in edits {
-        writer.set_field(&edit.content, edit.field.field(), edit.value.trim())?;
-    }
-    drop(writer);
-
-    let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
-    for edit in edits {
-        let stored = stored_text(library.connection(), &edit.content, edit.field)?;
-        if stored.unwrap_or_default().trim() != edit.value.trim() {
-            return Err(DbError::WriteRefused(format!(
-                "After writing, track {}'s {:?} is not what was meant. Restore the backup taken \
-                 just before from Settings.",
-                edit.content, edit.field
-            )));
+    // Each field is its own write: one failing part way would leave some written and some not,
+    // so on any failure rekordbox is put back exactly as it was.
+    let written = (|| {
+        let mut writer = Writer::open(location.clone(), backups)?;
+        writer.disable_automatic_backups();
+        for edit in edits {
+            writer.set_field(&edit.content, edit.field.field(), edit.value.trim())?;
         }
+        drop(writer);
+        let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
+        for edit in edits {
+            let stored = stored_text(library.connection(), &edit.content, edit.field)?;
+            if stored.unwrap_or_default().trim() != edit.value.trim() {
+                return Err(DbError::WriteRefused(format!(
+                    "After writing, track {}'s {:?} is not what was meant.",
+                    edit.content, edit.field
+                )));
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = written {
+        return Err(put_back(error, &backup, location, backups, now_ms));
     }
     Ok(backup)
 }

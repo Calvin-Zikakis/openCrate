@@ -51,12 +51,20 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
 
   useEffect(() => {
     if (!menu) return;
-    menuRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+    // Focus goes back where the menu was opened from once it closes, unless a choice moved it on.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const menuElement = menuRef.current;
+    menuElement?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
     const close = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenu(null); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setMenu(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" || event.key === "Tab") setMenu(null); };
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", escape);
-    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", escape); };
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", escape);
+      const at = document.activeElement;
+      if (!at || at === document.body || menuElement?.contains(at)) requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) opener?.focus({ preventScroll: true }); });
+    };
   }, [menu]);
 
   const submitName = async () => {

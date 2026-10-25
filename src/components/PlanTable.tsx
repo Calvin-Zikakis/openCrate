@@ -157,6 +157,7 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
 
   useEffect(() => {
     if (!menu) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     menuRef.current?.querySelector<HTMLElement>("[role=menuitemcheckbox]:not([aria-disabled=true])")?.focus({ preventScroll: true });
     const close = (event: Event) => {
       if (event instanceof MouseEvent && menuRef.current?.contains(event.target as Node)) return;
@@ -170,6 +171,7 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
       window.removeEventListener("mousedown", close);
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("keydown", escape);
+      requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) opener?.focus({ preventScroll: true }); });
     };
   }, [menu]);
 

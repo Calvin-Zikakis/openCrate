@@ -326,7 +326,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
     {notes.map((note) => <p key={note} className="settings-copy" role="status">{note}</p>)}
     {rekordboxNote && <p className="settings-copy rekordbox-note" role="status">{rekordboxNote}</p>}
     {snapshot && snapshot.folders.length > 0 && <ImportChoices options={options} canConvert={canConvert} onChange={setOptions} />}
-    {snapshot && snapshot.folders.length > 0 && auto && <AutoImportCard settings={auto.settings} onChange={auto.change} outcome={auto.outcome} problem={auto.problem} onClear={auto.clear} roots={roots} releases={releases} />}
+    {snapshot && snapshot.folders.length > 0 && auto && <AutoImportCard settings={auto.settings} onChange={auto.change} outcome={auto.outcome} problem={auto.problem} lastLookMs={auto.lastLookMs} onClear={auto.clear} roots={roots} releases={releases} />}
     {snapshot && snapshot.folders.length > 0 && <div className="format-filters import-view" role="group" aria-label="Show releases as">
       <button aria-pressed={view === "table"} onClick={() => changeView("table")}>One table</button>
       <button aria-pressed={view === "releases"} onClick={() => changeView("releases")}>By release</button>

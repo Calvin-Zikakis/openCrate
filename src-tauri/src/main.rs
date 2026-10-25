@@ -602,7 +602,9 @@ async fn library_edit_tracks(
     changes: Vec<editor::FieldChange>,
 ) -> Result<editor::EditedDto, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("saving tag edits")?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         editor::edit_tracks(&service, &track_ids, &changes)
     })
     .await
@@ -616,9 +618,13 @@ async fn library_edit_each(
     edits: Vec<editor::TrackEdit>,
 ) -> Result<editor::EditedDto, String> {
     let service = state.library()?;
-    tauri::async_runtime::spawn_blocking(move || editor::edit_each(&service, &edits))
-        .await
-        .map_err(|error| error.to_string())?
+    let hold = state.scan.hold_files("saving tag edits")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
+        editor::edit_each(&service, &edits)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Every track's title and artist, for checking them against the cleanup rules.
@@ -649,9 +655,13 @@ async fn library_rename_genres(
     to: String,
 ) -> Result<editor::EditedDto, String> {
     let service = state.library()?;
-    tauri::async_runtime::spawn_blocking(move || editor::rename_genres(&service, &from, &to))
-        .await
-        .map_err(|error| error.to_string())?
+    let hold = state.scan.hold_files("renaming a genre")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
+        editor::rename_genres(&service, &from, &to)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Releases whose files carry no picture.
@@ -676,8 +686,10 @@ async fn library_set_release_art(
     source: String,
 ) -> Result<Option<art_fix::ArtChangedDto>, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("setting a cover")?;
     let (art, lookups) = (Arc::clone(&state.art), Arc::clone(&state.lookups));
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         let source = match source.as_str() {
             "folder" => art_fix::ArtSource::Folder,
             "online" => {
@@ -721,8 +733,10 @@ async fn library_remove_release_art(
     release_id: i64,
 ) -> Result<art_fix::ArtChangedDto, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("removing a cover")?;
     let art = Arc::clone(&state.art);
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         art_fix::remove_release_art(&service, &art, release_id)
     })
     .await
@@ -776,8 +790,10 @@ async fn library_set_tracks_art(
     source: String,
 ) -> Result<art_fix::ArtChangedDto, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("setting track covers")?;
     let art = Arc::clone(&state.art);
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         let picked = art.picked();
         let source = match source.as_str() {
             "picked" => art_fix::TrackArt::Picked(
@@ -852,9 +868,13 @@ async fn library_undo_last_edit(
     id: i64,
 ) -> Result<editor::EditedDto, String> {
     let service = state.library()?;
-    tauri::async_runtime::spawn_blocking(move || editor::undo_last(&service, id))
-        .await
-        .map_err(|error| error.to_string())?
+    let hold = state.scan.hold_files("undoing a change")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
+        editor::undo_last(&service, id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Drop a save of the track editor that cannot be undone.
@@ -1402,7 +1422,9 @@ async fn rekordbox_merge_apply(
     choices: Vec<rekordbox_merge::ChoiceDto>,
 ) -> Result<rekordbox_merge::AppliedDto, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("syncing with rekordbox")?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         rekordbox_merge::apply(&service, &rekordbox_db::Probe::installed(), &choices)
     })
     .await

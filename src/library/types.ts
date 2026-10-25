@@ -781,6 +781,8 @@ export interface LibraryApi {
   coverUrl?(of: number | "picked"): string | null;
   /** Up to four of an artist's releases that have a cover, newest first. */
   artistCovers?(artistId: number): Promise<number[]>;
+  /** Forget the artist covers asked for so far, after the library changed. */
+  forgetCovers?(): void;
   /** Why the library the owner asked for could not be opened, if it could not. */
   startupError?: string;
   read(query: LibraryQuery, start: number, count: number, signal: AbortSignal): Promise<LibraryPage>;

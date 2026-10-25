@@ -28,8 +28,9 @@ interface Props {
   onSelectionChange?: (trackIds: number[]) => void;
   /** Right-click, then "Edit details". */
   onEdit?: (trackIds: number[]) => void;
-  /** Take tracks out of the crate shown, in whatever order it is sorted. */
-  onRemoveFromCrate?: (trackIds: number[]) => void;
+  /** Take tracks out of the crate shown, in whatever order it is sorted. True when it asks first:
+   * the question then has the keyboard, not the list. */
+  onRemoveFromCrate?: (trackIds: number[]) => boolean | void;
   /** Open a track's release or artist. */
   onGoTo?: (item: LibraryItem, kind: "releases" | "artists") => void;
   /** The owner's crates, for "Add to a crate" in the track menu. */
@@ -348,7 +349,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                 onDragStart={(event) => {
                   // Every chosen track goes, loaded or not (Select all reaches past the rows drawn).
                   const many = selection?.has(item.id) && selection.size > 1 ? page.items.filter((loaded) => selection.has(loaded.id)) : [];
-                  if (many.length > 1) setDraggedTracks(event.dataTransfer, [...selection!], `${selection!.size.toLocaleString()} tracks`, many);
+                  if (selection?.has(item.id) && selection.size > 1) setDraggedTracks(event.dataTransfer, [...selection], `${selection.size.toLocaleString()} tracks`, many);
                   else setDraggedTracks(event.dataTransfer, [item.id], `${item.title} - ${item.artist}`, [item]);
                   dragPreview(event.dataTransfer, item.title, item.artist);
                   if (reorderable) setDrag({ source: index, insertAt: null });
@@ -441,14 +442,16 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                     event.preventDefault();
                     const up = event.key === "ArrowUp";
                     if (up ? index === 0 : index === page.total - 1) return;
-                    reorder.move([item.id], up ? idAt(index - 1) : idAt(index + 2)).then(() => focusRow(index + (up ? -1 : 1)), moveFailed);
+                    // A neighbour outside the rows loaded reads as "the end": wait for it rather than guess.
+                    const target = up ? idAt(index - 1) : index + 2 < page.total ? idAt(index + 2) : null;
+                    if ((up || index + 2 < page.total) && target === null) return;
+                    reorder.move([item.id], target).then(() => focusRow(index + (up ? -1 : 1)), moveFailed);
                     return;
                   }
                   if (onRemoveFromCrate && (event.key === "Delete" || event.key === "Backspace")) {
                     // Every chosen track goes, in any order the crate is sorted; focus moves on.
                     event.preventDefault();
-                    onRemoveFromCrate(chosen(item));
-                    requestAnimationFrame(() => focusRow(Math.min(index, page.total - 2)));
+                    if (!onRemoveFromCrate(chosen(item))) requestAnimationFrame(() => focusRow(Math.min(index, page.total - 2)));
                     return;
                   }
                   if (event.key === "Home" || event.key === "End") {
@@ -490,7 +493,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       }] : []),
       ...(onSelectionChange && page.total > 1 && (selection?.size ?? 0) < page.total ? [{ label: `Select all ${page.total.toLocaleString()} tracks`, hint: "Cmd+A", run: () => void selectAll() }] : []),
       ...(onSelectionChange && selection && selection.size > 1 ? [{ label: "Clear the selection", hint: "Esc", run: () => onSelectionChange([menu.item.id]) }] : []),
-      ...(onRemoveFromCrate ? [{ label: chosen(menu.item).length > 1 ? `Remove ${chosen(menu.item).length} tracks from the crate...` : "Remove from the crate", run: () => { const at = menu.index; onRemoveFromCrate(chosen(menu.item)); requestAnimationFrame(() => focusRow(Math.min(at, page.total - 2))); } }] : []),
+      ...(onRemoveFromCrate ? [{ label: chosen(menu.item).length > 1 ? `Remove ${chosen(menu.item).length} tracks from the crate...` : "Remove from the crate", run: () => { const at = menu.index; if (!onRemoveFromCrate(chosen(menu.item))) requestAnimationFrame(() => focusRow(Math.min(at, page.total - 2))); } }] : []),
       ...(onGoTo ? [
         ...(query.releaseId === null ? [{ label: `Go to the release (${menu.item.release})`, run: () => onGoTo(menu.item, "releases") }] : []),
         ...(query.artistId === null ? [{ label: `Go to the artist (${menu.item.artist})`, run: () => onGoTo(menu.item, "artists") }] : []),
@@ -506,6 +509,12 @@ interface MenuAction { label: string; run: () => void; hint?: string; children?:
 
 function RowMenu({ item, x, y, actions, onClose }: { item: LibraryItem; x: number; y: number; actions: MenuAction[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Focus goes back where the menu was opened from, unless a choice moved it on (a dialog).
+  const opener = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  useEffect(() => () => {
+    const at = document.activeElement;
+    if (!at || at === document.body || ref.current?.contains(at)) opener.current?.focus({ preventScroll: true });
+  }, []);
   /** The second list shown instead of the first, and its heading. */
   const [inner, setInner] = useState<{ title: string; actions: MenuAction[] } | null>(null);
   useLayoutEffect(() => {
@@ -525,7 +534,7 @@ function RowMenu({ item, x, y, actions, onClose }: { item: LibraryItem; x: numbe
       if (event.type === "scroll" && !armed) return;
       onClose();
     };
-    const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape" || event.key === "Tab") onClose(); };
     window.addEventListener("mousedown", close);
     window.addEventListener("scroll", close, true);
     window.addEventListener("keydown", key);
@@ -548,9 +557,9 @@ function RowMenu({ item, x, y, actions, onClose }: { item: LibraryItem; x: numbe
       items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
     }}>
     {inner && <button type="button" role="menuitem" className="menu-back" onClick={() => setInner(null)}><Icon name="back" size={12} />{inner.title}</button>}
-    {shown.map((action) => action.children
-      ? <button key={action.label} type="button" role="menuitem" aria-haspopup="menu" onClick={() => setInner({ title: action.label, actions: action.children ?? [] })}>{action.label}<span className="menu-hint" aria-hidden="true">{"\u203A"}</span></button>
-      : <button key={action.label} type="button" role="menuitem" onClick={() => { action.run(); onClose(); }}>{action.label}{action.hint && <span className="menu-hint" aria-hidden="true">{action.hint}</span>}</button>)}
+    {shown.map((action, at) => action.children
+      ? <button key={`${at}:${action.label}`} type="button" role="menuitem" aria-haspopup="menu" onClick={() => setInner({ title: action.label, actions: action.children ?? [] })}>{action.label}<span className="menu-hint" aria-hidden="true">{"\u203A"}</span></button>
+      : <button key={`${at}:${action.label}`} type="button" role="menuitem" onClick={() => { action.run(); onClose(); }}>{action.label}{action.hint && <span className="menu-hint" aria-hidden="true">{action.hint}</span>}</button>)}
     {inner && shown.length === 0 && <p className="settings-copy">Every crate already has these tracks.</p>}
   </div>;
 }

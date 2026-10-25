@@ -67,6 +67,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/021_track_year_label.sql"),
     include_str!("schema/022_forget_release_agreement.sql"),
     include_str!("schema/023_track_tag_tempo_key.sql"),
+    include_str!("schema/024_file_by_size.sql"),
 ];
 
 #[derive(Debug, Error)]
@@ -183,6 +184,19 @@ impl Database {
     pub fn open(directory: &Path) -> Result<Self> {
         let (directory, owner) = own_directory(directory)?;
         let path = directory.join(DATABASE_NAME);
+        // A first start stopped before anything was written leaves an empty file (and perhaps
+        // empty journals). Nothing is in it, so it is begun again rather than refused for good.
+        if regular_file_exists(&path)? && std::fs::metadata(&path)?.len() == 0 {
+            let journal = |suffix: &str| directory.join(format!("{DATABASE_NAME}{suffix}"));
+            let empty =
+                |file: &Path| std::fs::metadata(file).map_or(true, |found| found.len() == 0);
+            if empty(&journal("-wal")) {
+                for leftover in [journal("-wal"), journal("-shm")] {
+                    let _ = std::fs::remove_file(leftover);
+                }
+                std::fs::remove_file(&path)?;
+            }
+        }
         let existing = regular_file_exists(&path)?;
         let status = if existing {
             let probe = read_connection(&path)?;

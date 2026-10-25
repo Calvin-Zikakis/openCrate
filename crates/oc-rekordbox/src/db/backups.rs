@@ -28,16 +28,43 @@ fn read_record(dir: &Path) -> Option<Snapshot> {
     Some(snapshot)
 }
 
-/// Remove the oldest unpinned backups beyond `keep`. Returns how many were removed.
+/// Copies taken only to read rekordbox, of which the newest few are enough: each read takes
+/// one, and they would otherwise push out the backups taken before writing.
+const READS_KEPT: usize = 5;
+/// Days back for which the first backup taken before writing that day is kept, however many
+/// writes followed: the library as it was before a day's changes stays restorable.
+const DAYS_KEPT: i64 = 14;
+const DAY_MS: i64 = 86_400_000;
+
+/// Remove old unpinned backups. Kept: every pinned one; the newest few taken only for a read;
+/// the newest `keep` of the rest (before a write, before a restore); and the first backup taken
+/// before writing on each of the last two weeks' days. Returns how many were removed.
 pub fn prune(backups: &Path, keep: usize) -> std::io::Result<usize> {
+    let all = list_backups(backups);
+    let newest_ms = all.first().map_or(0, |backup| backup.taken_ms);
+    let mut reads = 0;
+    let mut others = 0;
+    // The first (oldest) write backup of each recent day: listed newest first, so the last seen.
+    let mut first_of_day: std::collections::HashMap<i64, PathBuf> =
+        std::collections::HashMap::new();
+    for backup in &all {
+        if backup.reason == "before-write" && newest_ms - backup.taken_ms < DAYS_KEPT * DAY_MS {
+            first_of_day.insert(backup.taken_ms.div_euclid(DAY_MS), backup.dir.clone());
+        }
+    }
     let mut removed = 0;
-    for old in list_backups(backups)
-        .into_iter()
-        .filter(|backup| !backup.pinned)
-        .skip(keep)
-    {
-        fs::remove_dir_all(&old.dir)?;
-        removed += 1;
+    for backup in all.into_iter().filter(|backup| !backup.pinned) {
+        let kept = if backup.reason == "read" {
+            reads += 1;
+            reads <= READS_KEPT
+        } else {
+            others += 1;
+            others <= keep || first_of_day.values().any(|dir| *dir == backup.dir)
+        };
+        if !kept {
+            fs::remove_dir_all(&backup.dir)?;
+            removed += 1;
+        }
     }
     Ok(removed)
 }

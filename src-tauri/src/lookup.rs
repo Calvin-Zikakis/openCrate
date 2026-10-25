@@ -174,9 +174,10 @@ pub struct KeysDto {
 fn shown(key: Option<&String>) -> KeyDto {
     KeyDto {
         saved: key.is_some(),
-        ending: key.map(|key| {
+        // The last four characters, and only of a key long enough that they do not give it away.
+        ending: key.and_then(|key| {
             let chars: Vec<char> = key.chars().collect();
-            chars[chars.len().saturating_sub(4)..].iter().collect()
+            (chars.len() > 8).then(|| chars[chars.len() - 4..].iter().collect())
         }),
     }
 }
@@ -580,6 +581,15 @@ mod tests {
         );
         let text = serde_json::to_string(&saved).unwrap();
         assert!(!text.contains("abcdEFGH"), "{text}");
+        // A short key shows no ending at all: four of its few characters would give it away.
+        let short = set_key(&service, &lookups, "acoustid", Some("ab12".into())).unwrap();
+        assert_eq!(
+            short.acoustid,
+            KeyDto {
+                saved: true,
+                ending: None
+            }
+        );
         let cleared = set_key(&service, &lookups, "acoustid", Some("   ".into())).unwrap();
         assert!(!cleared.acoustid.saved);
         assert!(set_key(&service, &lookups, "bandcamp", Some("x".into())).is_err());

@@ -139,7 +139,8 @@ fn planned(
                 .chunks(chunk)
                 .map(|part| {
                     let (template, root, root_text) = (&template, &root, &root_text);
-                    scope.spawn(move || {
+                    let count = part.len();
+                    let worker = scope.spawn(move || {
                         part.iter()
                             .map(|(_, components)| {
                                 let path =
@@ -153,12 +154,19 @@ fn planned(
                                 }
                             })
                             .collect::<Vec<_>>()
-                    })
+                    });
+                    (worker, count)
                 })
                 .collect();
+            // A worker that failed (a file that makes the tag reader panic) still answers for
+            // each of its files, so every later file keeps its own place.
             workers
                 .into_iter()
-                .flat_map(|worker| worker.join().unwrap_or_default())
+                .flat_map(|(worker, count)| {
+                    worker.join().unwrap_or_else(|_| {
+                        vec![Err("its tags could not be read".to_owned()); count]
+                    })
+                })
                 .collect()
         });
         for ((file_id, components), place) in files.iter().zip(places) {
@@ -169,6 +177,8 @@ fn planned(
                     why,
                 }),
                 Ok(place) if place.join("/") == from => in_place += 1,
+                // Only the capitals differ: on most disks that is the same place already.
+                Ok(place) if place.join("/").to_lowercase() == from.to_lowercase() => in_place += 1,
                 Ok(place) => {
                     let relative: Vec<Vec<u8>> = place
                         .iter()
@@ -267,7 +277,6 @@ pub fn refile(
     }
     // What rekordbox uses now, not at some earlier read.
     rekordbox_db::read(service, probe)?;
-    let failed = |error: oc_core_db::Error| error.to_string();
     let chosen: HashSet<i64> = file_ids.iter().copied().collect();
     let (_, plans, _, _) = planned(service)?;
     let mut done = RefiledDto::default();
@@ -281,8 +290,48 @@ pub fn refile(
     if by_root.is_empty() {
         return Err("Those files are already in place, or no longer there. Check again.".into());
     }
+    // Every check that can refuse is made for every folder before any file moves, so a refusal
+    // never comes after part of the work is done.
+    for (root_id, plans) in &by_root {
+        refuse_ambiguous(service, *root_id)?;
+        if plans.iter().any(|plan| plan.item.in_rekordbox) {
+            rekordbox_write::ready(service, probe).map_err(|error| {
+                format!("rekordbox uses some of these files, so it has to be told where they go. {error}")
+            })?;
+        }
+    }
     for (root_id, plans) in by_root {
-        refuse_ambiguous(service, root_id)?;
+        match refile_root(service, probe, root_id, plans, &mut done) {
+            Ok(()) => {}
+            // Files of an earlier folder moved: say so with the error, rather than fail as if
+            // nothing happened.
+            Err(error) if done.moved > 0 => {
+                done.left.push(format!("Stopped part way: {error}"));
+                break;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    if done.relocated > 0 {
+        if let Err(error) = rekordbox_db::read(service, probe) {
+            done.left.push(format!(
+                "rekordbox followed the files, but reading it again did not work: {error}"
+            ));
+        }
+    }
+    Ok(done)
+}
+
+/// Move one music folder's chosen files, tell rekordbox, and read the folder again.
+fn refile_root(
+    service: &LibraryService,
+    probe: &rekordbox_db::Probe,
+    root_id: i64,
+    plans: Vec<Planned>,
+    done: &mut RefiledDto,
+) -> Result<(), String> {
+    let failed = |error: oc_core_db::Error| error.to_string();
+    {
         let root = plans[0].root.clone();
         let mut renamed = HashMap::new();
         let mut planned_moves = Vec::new();
@@ -349,12 +398,5 @@ pub fn refile(
         done.moved += moved.len();
         done.relocated += relocations.len();
     }
-    if done.relocated > 0 {
-        if let Err(error) = rekordbox_db::read(service, probe) {
-            done.left.push(format!(
-                "rekordbox followed the files, but reading it again did not work: {error}"
-            ));
-        }
-    }
-    Ok(done)
+    Ok(())
 }

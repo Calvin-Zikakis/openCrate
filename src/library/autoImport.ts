@@ -108,10 +108,16 @@ export async function autoImport(
       }
       const accepted = recipe ? acceptedForRecipe(plan.files, recipe) : [];
       const done = await oneAtATime(async () => {
+        // An import by hand may have gone first while this waited its turn: look again, so the
+        // release is never filed twice (into another folder, or under a recipe's names).
+        if (!current()) return null;
+        const now = (await admin.downloadReleases()).releases.find((other) => other.folderId === release.folderId && other.name === release.name);
+        if (!now || now.imported || now.alreadyThere) return null;
         const filed = await admin.importRelease(release.folderId, release.name, rootId, { ...options, accepted });
         if (filed.filed > 0) await afterImport(filed.rootId);
         return filed;
       });
+      if (!done) continue;
       if (done.filed > 0) outcome.imported.push(release.name);
       else outcome.waiting.push({ name: release.name, why: done.skipped[0]?.problem ?? "nothing was imported" });
     } catch (reason) {

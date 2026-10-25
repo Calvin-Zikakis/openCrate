@@ -86,7 +86,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
         convertFileSrc: (path: string, protocol: string) => `/__${protocol}/${encodeURIComponent(path)}`,
         invoke: async (command: string, args?: Record<string, any>) => {
           // As serde does in the host: a query's format is one of the formats or null.
-          if (args?.query && !(args.query.format === null || ["AIFF", "MP3", "FLAC"].includes(args.query.format))) {
+          if (args?.query && !(args.query.format === null || ["AIFF", "WAV", "MP3", "FLAC"].includes(args.query.format))) {
             throw `invalid args \`query\` for command \`${command}\`: unknown variant \`${args.query.format}\``;
           }
           calls.push({ command, args });
@@ -281,6 +281,9 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 ...((window as any).__moreNames ? [
                   { trackId: 4, title: "MAINTAIN", artist: "Studio 001" },
                   { trackId: 5, title: "01 - Night Drive", artist: "Studio 001" },
+                ] : []),
+                ...((window as any).__mixedNames ? [
+                  { trackId: 6, title: "02 - Deep Water", artist: "MOODRICH" },
                 ] : []),
               ];
             case "library_edit_each":
@@ -3131,4 +3134,47 @@ test("select all from the track menu asks the library for every id, and a revers
   // The usual order comes back with the next sort.
   await page.getByLabel("Sort library").selectOption("title");
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query).toEqual({ view: "tracks", search: "", sort: "title", format: null, artistId: null, releaseId: null, playlistId: null, crateId: null, reversed: false });
+});
+
+test("clean up: a capitals-only change waits for its own tick, even beside another fix of the same track", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__mixedNames = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const titles = page.getByRole("region", { name: "Titles and artists" });
+  await titles.getByRole("button", { name: "Check titles and artists" }).click();
+  const found = titles.getByRole("list", { name: "Proposed fixes" });
+  // The title's number goes ahead; the artist's capitals are a row of their own, unticked.
+  await expect(found.getByRole("checkbox", { name: "02 - Deep Water" })).toBeChecked();
+  await expect(found.getByRole("checkbox", { name: "MOODRICH" })).not.toBeChecked();
+  await titles.getByRole("button", { name: /^Clean up \d+ tracks?$/ }).click();
+  const sent: { trackId: number; changes: { field: string; value: string }[] }[] = await page.evaluate(() => (window as any).__editEach);
+  const six = sent.find((edit) => edit.trackId === 6);
+  expect(six?.changes).toEqual([{ field: "title", value: "Deep Water" }]);
+});
+
+test("crates: a question to remove tracks goes with its crate, and never acts on another", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const crates = page.getByRole("navigation", { name: "Crates" });
+  for (const name of ["Warm-up", "Peak"]) {
+    await crates.getByRole("button", { name: "New crate" }).click();
+    await crates.getByRole("textbox", { name: "New crate name" }).fill(name);
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Back to tracks" }).click();
+    for (const n of ["0001", "0002"]) await page.getByRole("button", { name: new RegExp(`Rust Track ${n},`) }).dragTo(crates.getByRole("button", { name: new RegExp(name) }));
+  }
+  await crates.getByRole("button", { name: /Warm-up/ }).click();
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0001").click();
+  await row("0002").click({ modifiers: ["ControlOrMeta"] });
+  await page.keyboard.press("Delete");
+  await expect(page.getByRole("alertdialog", { name: "Remove 2 tracks from Warm-up?" })).toBeVisible();
+  // The question has the keyboard, so Escape answers it.
+  await expect(page.getByRole("alertdialog").getByRole("button", { name: "Cancel" })).toBeFocused();
+  // Opening another crate drops the question; nothing leaves either crate.
+  await crates.getByRole("button", { name: /Peak/ }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.getByTestId("track-row")).toHaveCount(2);
+  expect((await calls(page)).filter((call) => call.command === "library_remove_from_crate")).toEqual([]);
 });

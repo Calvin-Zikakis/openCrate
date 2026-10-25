@@ -101,7 +101,16 @@ pub fn check(connection: &Connection) -> Result<Health> {
         for depth in 0..directories.len() {
             let name = String::from_utf8_lossy(directories[depth]);
             let suggested = oc_tag::tidy_name(&name);
-            if suggested != name && !suggested.is_empty() {
+            // Only a plain folder name is offered: "..;" tidies to "..", which would move the
+            // files out of the music folder.
+            if suggested != name
+                && oc_paths::check_component(
+                    suggested.as_bytes(),
+                    oc_paths::component::Flavor::Windows,
+                )
+                .is_ok()
+                && !suggested.contains(':')
+            {
                 let entry = folders
                     .entry((root_id, shown(&directories[..=depth])))
                     .or_insert((suggested, 0));

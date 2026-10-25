@@ -920,15 +920,9 @@ impl LibraryService {
                 "a crate cannot be merged into itself",
             ));
         }
-        let mut added = 0;
-        for crate_id in from {
-            let tracks = crate::crates::crate_tracks(self.pool.lease().connection(), crate_id)?;
-            added += self.add_to_crate(into, tracks)?;
-            if remove {
-                self.delete_crate(crate_id)?;
-            }
-        }
-        Ok(added)
+        let now = now_ms();
+        self.writer
+            .run(move |database| database.merge_crates(into, &from, remove, now))?
     }
 
     /// Put a crate in one of the library's orders, for good.
@@ -1076,13 +1070,15 @@ impl LibraryService {
         staged: PathBuf,
         destination: PathBuf,
     ) -> Result<oc_publish::Outcome> {
-        self.writer.run(move |database| {
-            let mut store = PublishStore::new(database);
-            let operation = store.begin(&staged, &destination)?;
-            let outcome =
-                oc_publish::Executor::new(&mut store, &mut oc_publish::NoFaults).run(operation)?;
-            Ok(outcome)
-        })?
+        // The file is hashed here, several times over a publication, not on the writer thread:
+        // only the saves go through it, so a long file from a network drive holds up nothing else.
+        let expected = oc_publish::identity_of(&staged)?
+            .ok_or_else(|| Error::Io(std::io::Error::from(std::io::ErrorKind::NotFound)))?;
+        let operation = self.writer.run(move |database| {
+            PublishStore::new(database).begin_with(&staged, &destination, expected)
+        })??;
+        let mut store = crate::publish_store::ThroughWriter(&self.writer);
+        Ok(oc_publish::Executor::new(&mut store, &mut oc_publish::NoFaults).run(operation)?)
     }
 
     /// Finish or reject every publication a crash interrupted. Run once at startup.
@@ -1225,6 +1221,16 @@ impl LibraryService {
         summary.scan = self
             .writer
             .run(move |database| database.apply_scan(root_id, &pass, now_ms()))??;
+        // A file that could not be opened last time (locked by another app, a network drive
+        // that dropped out) is tried again once per scan. One that is not audio stays as it is.
+        self.writer.run(move |database| {
+            database.connection.execute(
+                "UPDATE file SET tags_mtime_ms = NULL WHERE root_id = ?1 \
+                 AND tags_error LIKE 'file could not be opened%' \
+                 AND lifecycle = 'active' AND presence = 'present'",
+                [root_id],
+            )
+        })??;
 
         let tags_total = pending_tag_total(self.pool.lease().connection())?;
         options.report(ScanPhase::ReadingTags, files_seen, 0, tags_total);

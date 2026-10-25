@@ -307,11 +307,27 @@ impl Database {
              (SELECT track_id FROM file WHERE root_id = ?1)",
             [root_id],
         )?;
+        // Only this folder's tracks can be left without a file by removing it; a track kept on
+        // purpose with no file (an archived duplicate's crate places) belongs to no folder here.
+        transaction.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS removed_root_tracks (id INTEGER PRIMARY KEY)",
+            [],
+        )?;
+        transaction.execute("DELETE FROM removed_root_tracks", [])?;
+        transaction.execute(
+            "INSERT OR IGNORE INTO removed_root_tracks (id) SELECT track_id FROM file \
+             WHERE root_id = ?1 AND track_id IS NOT NULL",
+            [root_id],
+        )?;
         let removed = transaction.execute("DELETE FROM file WHERE root_id = ?1", [root_id])?;
+        transaction.execute(
+            "DELETE FROM removed_root_tracks WHERE id IN (SELECT track_id FROM file \
+             WHERE track_id IS NOT NULL)",
+            [],
+        )?;
         // Tracks left with no file go below; their undo history must not reach a later track.
         transaction.execute(
-            "DELETE FROM edit_history_item WHERE track_id IN (SELECT id FROM track WHERE NOT EXISTS \
-             (SELECT 1 FROM file WHERE file.track_id = track.id))",
+            "DELETE FROM edit_history_item WHERE track_id IN (SELECT id FROM removed_root_tracks)",
             [],
         )?;
         transaction.execute(
@@ -320,14 +336,14 @@ impl Database {
             [],
         )?;
         transaction.execute(
-            "DELETE FROM track_fts WHERE rowid IN (SELECT id FROM track WHERE NOT EXISTS \
-             (SELECT 1 FROM file WHERE file.track_id = track.id))",
+            "DELETE FROM track_fts WHERE rowid IN (SELECT id FROM removed_root_tracks)",
             [],
         )?;
         transaction.execute(
-            "DELETE FROM track WHERE NOT EXISTS (SELECT 1 FROM file WHERE file.track_id = track.id)",
+            "DELETE FROM track WHERE id IN (SELECT id FROM removed_root_tracks)",
             [],
         )?;
+        transaction.execute("DELETE FROM removed_root_tracks", [])?;
         transaction.execute("DELETE FROM root_alias WHERE root_id = ?1", [root_id])?;
         transaction.execute("DELETE FROM library_root WHERE id = ?1", [root_id])?;
         transaction.commit()?;

@@ -128,8 +128,8 @@ fn distinguishes_clean_close_from_dropped_owner() {
 }
 
 #[test]
-fn refuses_foreign_empty_and_future_databases_without_changing_them() {
-    for kind in ["foreign", "empty", "future"] {
+fn refuses_foreign_and_future_databases_without_changing_them() {
+    for kind in ["foreign", "future"] {
         let directory = tempdir().unwrap();
         let path = directory.path().join(DATABASE_NAME);
         if kind == "future" {
@@ -156,6 +156,18 @@ fn refuses_foreign_empty_and_future_databases_without_changing_them() {
         }
         assert_eq!(fs::read(&path).unwrap(), before);
     }
+}
+
+#[test]
+fn an_empty_file_from_a_first_start_that_stopped_is_begun_again() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join(DATABASE_NAME);
+    fs::write(&path, b"").unwrap();
+    let database = Database::open(directory.path()).unwrap();
+    assert_eq!(database.status(), OpenStatus::Created);
+    database.close().unwrap();
+    // A file with something in it is never begun again.
+    assert!(fs::metadata(&path).unwrap().len() > 0);
 }
 
 #[test]

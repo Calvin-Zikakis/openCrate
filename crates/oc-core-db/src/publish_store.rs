@@ -146,6 +146,17 @@ impl<'a> PublishStore<'a> {
     pub fn begin(&mut self, source: &Path, destination: &Path) -> Result<Operation> {
         let expected = identity_of(source)?
             .ok_or_else(|| Error::Io(std::io::Error::from(std::io::ErrorKind::NotFound)))?;
+        self.begin_with(source, destination, expected)
+    }
+
+    /// `begin` with the identity already worked out (off the writer thread: it reads the whole
+    /// file).
+    pub fn begin_with(
+        &mut self,
+        source: &Path,
+        destination: &Path,
+        expected: Identity,
+    ) -> Result<Operation> {
         let connection = self.database.connection();
         connection.execute(
             "INSERT INTO publish_operation (source_raw, destination_raw, size, sha256, phase, \
@@ -251,5 +262,36 @@ impl Store for PublishStore<'_> {
             operations.push(decode(row).map_err(|e| oc_publish::Error::Store(e.to_string()))?);
         }
         Ok(operations)
+    }
+}
+
+/// A store that does each save on the writer thread and nothing else there, so the file
+/// hashing a publication does runs beside it rather than holding up every other write.
+pub(crate) struct ThroughWriter<'a>(pub &'a crate::worker::Writer);
+
+impl ThroughWriter<'_> {
+    fn on_writer<R: Send + 'static>(
+        &self,
+        work: impl FnOnce(&mut PublishStore<'_>) -> oc_publish::Result<R> + Send + 'static,
+    ) -> oc_publish::Result<R> {
+        self.0
+            .run(move |database| work(&mut PublishStore::new(database)))
+            .map_err(|error| oc_publish::Error::Store(error.to_string()))?
+    }
+}
+
+impl Store for ThroughWriter<'_> {
+    fn save(&mut self, operation: &Operation) -> oc_publish::Result<()> {
+        let operation = operation.clone();
+        self.on_writer(move |store| store.save(&operation))
+    }
+
+    fn commit_record(&mut self, operation: &Operation) -> oc_publish::Result<()> {
+        let operation = operation.clone();
+        self.on_writer(move |store| store.commit_record(&operation))
+    }
+
+    fn unfinished(&self) -> oc_publish::Result<Vec<Operation>> {
+        self.on_writer(|store| store.unfinished())
     }
 }

@@ -166,6 +166,20 @@ pub fn tidy_folder(
         else {
             continue;
         };
+        // The new name must be one plain folder name, never "." or ".." or one with a separator:
+        // the files must stay inside the music folder.
+        if oc_paths::check_component(
+            untidy.suggested.as_bytes(),
+            oc_paths::component::Flavor::Windows,
+        )
+        .is_err()
+            || untidy.suggested.contains(':')
+        {
+            return Err(format!(
+                "\"{}\" is not a folder name openCrate can use, so nothing was moved.",
+                untidy.suggested
+            ));
+        }
         let mut to = music.clone();
         let mut old = music;
         let mut relative = components.clone();
@@ -228,17 +242,24 @@ pub fn tidy_folder(
     if let Some(old) = &old_folder {
         remove_empty(old);
     }
-    service
-        .files_moved(
-            root_id,
-            done.iter()
-                .filter_map(|moved| Some((moved.file_id, renamed.remove(&moved.file_id)?)))
-                .collect(),
-        )
-        .map_err(failed)?;
-    service
-        .scan_root(root_id, &ScanOptions::default())
-        .map_err(failed)?;
+    // The files have moved by now: a failure from here on is reported with the moves, so the
+    // page does not say nothing happened.
+    if let Err(error) = service.files_moved(
+        root_id,
+        done.iter()
+            .filter_map(|moved| Some((moved.file_id, renamed.remove(&moved.file_id)?)))
+            .collect(),
+    ) {
+        left.push(format!(
+            "The files moved, but the library could not follow them ({error}); scan the folder \
+             in Settings, then use Moved files in Clean up for any track left missing."
+        ));
+    } else if let Err(error) = service.scan_root(root_id, &ScanOptions::default()) {
+        left.push(format!(
+            "The files moved, but reading the folder again did not work ({error}); scan it in \
+             Settings."
+        ));
+    }
     if !relocations.is_empty() {
         if let Err(error) = rekordbox_db::read(service, probe) {
             left.push(format!(

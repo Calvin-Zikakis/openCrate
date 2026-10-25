@@ -171,6 +171,52 @@ impl Database {
         Ok(added)
     }
 
+    /// Merge crates into one, all or nothing: `from`'s tracks are appended to `into` in order,
+    /// and with `remove` the merged crates go. Returns how many tracks were added.
+    pub fn merge_crates(
+        &mut self,
+        into: i64,
+        from: &[i64],
+        remove: bool,
+        now_ms: i64,
+    ) -> Result<usize> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        exists(&transaction, into)?;
+        let mut next: i64 = transaction.query_row(
+            "SELECT COALESCE(MAX(position) + 1, 0) FROM crate_item WHERE crate_id = ?1",
+            [into],
+            |row| row.get(0),
+        )?;
+        let mut added = 0;
+        let mut done = std::collections::HashSet::new();
+        for crate_id in from {
+            // The same crate named twice is merged once.
+            if !done.insert(*crate_id) {
+                continue;
+            }
+            exists(&transaction, *crate_id)?;
+            let tracks = crate_tracks(&transaction, *crate_id)?;
+            {
+                let mut insert = transaction.prepare(
+                    "INSERT OR IGNORE INTO crate_item (crate_id, track_id, position, added_ms) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                )?;
+                for track in &tracks {
+                    let inserted = insert.execute(params![into, track, next, now_ms])?;
+                    added += inserted;
+                    next += i64::try_from(inserted).unwrap_or(0);
+                }
+            }
+            if remove {
+                transaction.execute("DELETE FROM crate WHERE id = ?1", [crate_id])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(added)
+    }
+
     /// Take tracks out of a crate (not out of the library). Returns how many were removed.
     pub fn remove_from_crate(&mut self, crate_id: i64, track_ids: &[i64]) -> Result<usize> {
         let transaction = self
@@ -221,15 +267,17 @@ impl Database {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         exists(&transaction, crate_id)?;
         let current = crate_tracks(&transaction, crate_id)?;
+        let held: std::collections::HashSet<i64> = current.iter().copied().collect();
+        let mut seen = std::collections::HashSet::new();
         let mut arranged: Vec<i64> = order
             .iter()
             .copied()
-            .filter(|id| current.contains(id))
+            .filter(|id| held.contains(id) && seen.insert(*id))
             .collect();
         let rest: Vec<i64> = current
             .iter()
             .copied()
-            .filter(|id| !arranged.contains(id))
+            .filter(|id| !seen.contains(id))
             .collect();
         arranged.extend(rest);
         write_order(&transaction, crate_id, &arranged)?;
@@ -241,6 +289,8 @@ impl Database {
 /// The order after moving `moving` before `before`. Pure, so the rule is easy to test.
 #[must_use]
 pub fn moved(current: &[i64], moving: &[i64], before: Option<i64>) -> Vec<i64> {
+    // A set: a whole library moved at once is 100,000 ids, too many to look through each time.
+    let moving: std::collections::HashSet<i64> = moving.iter().copied().collect();
     let picked: Vec<i64> = current
         .iter()
         .copied()

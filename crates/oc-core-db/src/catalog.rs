@@ -151,12 +151,27 @@ fn find_or_create_artist(
     outcome: &mut CatalogOutcome,
 ) -> Result<i64> {
     let key = sort_key(name);
-    if let Some(id) = connection
-        .query_row("SELECT id FROM artist WHERE sort_key = ?1", [&key], |row| {
-            row.get(0)
-        })
+    if let Some((id, stored)) = connection
+        .query_row(
+            "SELECT id, name FROM artist WHERE sort_key = ?1",
+            [&key],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
         .optional()?
     {
+        // The same artist spelled anew ("daft punk" retagged "Daft Punk"): the newest read
+        // spelling is the one shown and searched.
+        if stored != name {
+            connection.execute(
+                "UPDATE artist SET name = ?2 WHERE id = ?1",
+                params![id, name],
+            )?;
+            connection.execute("DELETE FROM artist_fts WHERE rowid = ?1", [id])?;
+            connection.execute(
+                "INSERT INTO artist_fts (rowid, name) VALUES (?1, ?2)",
+                params![id, name],
+            )?;
+        }
         return Ok(id);
     }
     connection.execute(
@@ -188,14 +203,26 @@ fn find_or_create_release(
     outcome: &mut CatalogOutcome,
 ) -> Result<i64> {
     let key = sort_key(spec.title);
-    if let Some(id) = connection
+    if let Some((id, stored)) = connection
         .query_row(
-            "SELECT id FROM release WHERE artist_id = ?1 AND sort_key = ?2",
+            "SELECT id, title FROM release WHERE artist_id = ?1 AND sort_key = ?2",
             params![spec.artist_id, key],
-            |row| row.get(0),
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?
     {
+        if stored != spec.title {
+            connection.execute(
+                "UPDATE release SET title = ?2 WHERE id = ?1",
+                params![id, spec.title],
+            )?;
+        }
+        // The artist's spelling may have changed too: the search row follows both.
+        connection.execute("DELETE FROM release_fts WHERE rowid = ?1", [id])?;
+        connection.execute(
+            "INSERT INTO release_fts (rowid, title, artist) VALUES (?1, ?2, ?3)",
+            params![id, spec.title, spec.artist_name],
+        )?;
         return Ok(id);
     }
     connection.execute(
@@ -246,6 +273,13 @@ fn catalog_file(
     let release_title = tags.album.as_deref().unwrap_or(UNKNOWN_RELEASE);
     let title = tags.title.as_deref().unwrap_or("Untitled");
 
+    // One artist in two spellings (an album artist guessed from the folder name, say) is the
+    // track's own spelling, so the two do not rename the artist back and forth.
+    let release_artist = if sort_key(release_artist) == sort_key(track_artist) {
+        track_artist
+    } else {
+        release_artist
+    };
     let artist_id = find_or_create_artist(connection, track_artist, outcome)?;
     let release_artist_id = if release_artist == track_artist {
         artist_id
@@ -400,6 +434,11 @@ impl Database {
                         "UPDATE file SET tags_mtime_ms = ?2, tags_error = ?3 WHERE id = ?1",
                         params![result.file_id, result.mtime_ms, message],
                     )?;
+                    // A track already known keeps what it has: guesses from the path, an empty
+                    // genre and no length must not replace good values over a read that failed.
+                    if file.track_id.is_some() {
+                        continue;
+                    }
                 }
             }
             catalog_file(

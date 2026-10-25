@@ -61,12 +61,20 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
 
   useEffect(() => {
     if (!menu) return;
-    menuRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+    // Focus goes back where the menu was opened from once it closes, unless a choice moved it on.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const menuElement = menuRef.current;
+    menuElement?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
     const close = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenu(null); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setMenu(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" || event.key === "Tab") setMenu(null); };
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", escape);
-    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", escape); };
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", escape);
+      const at = document.activeElement;
+      if (!at || at === document.body || menuElement?.contains(at)) requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) opener?.focus({ preventScroll: true }); });
+    };
   }, [menu]);
 
   useEffect(() => {
@@ -101,8 +109,10 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
   const makeNamed = async () => {
     if (!naming) return;
     const { parent, name, kind } = naming;
+    // Another write still under way (its note shows) keeps the name typed for Enter again.
+    if (busy && name.trim()) return;
     setNaming(null);
-    if (!name.trim() || busy) return;
+    if (!name.trim()) return;
     setNote({ text: `Making the ${kind} ${name.trim()} in rekordbox...`, failed: false, done: false });
     try {
       const made = kind === "folder" ? await admin.createRekordboxFolder(name, parent?.id ?? null) : await admin.createRekordboxPlaylist(name, parent?.id ?? null);

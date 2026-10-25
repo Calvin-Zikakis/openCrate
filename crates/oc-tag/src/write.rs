@@ -201,20 +201,58 @@ pub fn rewrite_cover(path: &Path, cover: Option<&Cover>) -> Result<(), ReadError
 /// must not share, and so half-write, one copy.
 static REWRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Files being rewritten now. A second rewrite of the same file waits for the first: both
+/// start from a copy of the file, so the one renamed last would drop the other's change.
+static BUSY: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
+static FREED: std::sync::Condvar = std::sync::Condvar::new();
+
+/// The file is ours to rewrite until this is dropped.
+struct Claim(std::path::PathBuf);
+
+impl Claim {
+    fn take(path: &Path) -> Self {
+        let mut busy = BUSY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while busy.iter().any(|other| other == path) {
+            busy = FREED
+                .wait(busy)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        busy.push(path.to_path_buf());
+        Self(path.to_path_buf())
+    }
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        let mut busy = BUSY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        busy.retain(|other| *other != self.0);
+        drop(busy);
+        FREED.notify_all();
+    }
+}
+
 /// `edit` fills a copy beside the file; the copy is flushed and takes the file's place in one
 /// rename. On any failure the copy is removed and the file is exactly as it was.
 fn rewrite_through_copy(
     path: &Path,
     edit: impl FnOnce(&Path) -> Result<(), ReadError>,
 ) -> Result<(), ReadError> {
-    let name = path
-        .file_name()
+    path.file_name()
         .ok_or_else(|| ReadError::Parse("not a file".into()))?;
+    let _claim = Claim::take(path);
+    // The copy keeps only the extension, so a long file name still has room for the prefix.
+    let extension = path
+        .extension()
+        .map(|extension| format!(".{}", extension.to_string_lossy()))
+        .unwrap_or_default();
     let copy = path.with_file_name(format!(
-        ".opencrate-retag-{}-{}-{}",
+        ".opencrate-retag-{}-{}{extension}",
         std::process::id(),
         REWRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        name.to_string_lossy()
     ));
     let result = edit(&copy).and_then(|()| {
         // Flushing needs write access on Windows.
@@ -223,6 +261,11 @@ fn rewrite_through_copy(
             .open(&copy)?
             .sync_all()?;
         std::fs::rename(&copy, path)?;
+        // The rename itself is made to last too, where the platform allows syncing a folder.
+        #[cfg(unix)]
+        if let Some(folder) = path.parent() {
+            let _ = std::fs::File::open(folder).and_then(|folder| folder.sync_all());
+        }
         Ok(())
     });
     if result.is_err() {

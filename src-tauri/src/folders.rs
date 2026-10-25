@@ -104,6 +104,11 @@ pub fn remove_root(
     if scan.is_running() {
         return Err("A scan is running. Cancel it or wait for it to finish first.".to_owned());
     }
+    if let Some(what) = scan.files_busy() {
+        return Err(format!(
+            "Files are being changed ({what}). Remove the folder when that is done."
+        ));
+    }
     service
         .remove_root(root_id)
         .map_err(|error| error.to_string())
@@ -328,10 +333,20 @@ impl ScanControl {
                  same files."
             ));
         }
-        self.files_held
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(what);
+        {
+            // One at a time: two commands changing files at once can each undo the other's work
+            // (a tag rewrite through a copy renamed back over a file another command moved).
+            let mut held = self
+                .files_held
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if let Some(busy) = held.first() {
+                return Err(format!(
+                    "openCrate is still {busy}; {what} can start once that is done."
+                ));
+            }
+            held.push(what);
+        }
         drop(state);
         Ok(FilesHold {
             control: Arc::clone(self),
@@ -415,6 +430,15 @@ impl ScanControl {
                 tags_total: 0,
             },
         };
+    }
+
+    /// What command holds the files right now, if one does.
+    pub fn files_busy(&self) -> Option<&'static str> {
+        self.files_held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .first()
+            .copied()
     }
 
     pub fn is_running(&self) -> bool {

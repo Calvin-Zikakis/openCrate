@@ -7,13 +7,15 @@ describe("cleanup rules for track details", () => {
     expect(removeNumberPrefix("1. Night Drive")).toBe("Night Drive");
     expect(removeNumberPrefix("07) Night Drive")).toBe("Night Drive");
     expect(removeNumberPrefix("A1 - Night Drive")).toBe("Night Drive");
-    expect(removeNumberPrefix("B - Firebird")).toBe("Firebird");
+    // A side letter alone is a name as often as a side: "A - Z", "E - Motion".
+    expect(removeNumberPrefix("B - Firebird")).toBe("B - Firebird");
     // A number that is part of the name stays.
     expect(removeNumberPrefix("808 State")).toBe("808 State");
     expect(removeNumberPrefix("99 Problems")).toBe("99 Problems");
     expect(removeNumberPrefix("A Love Supreme")).toBe("A Love Supreme");
     // A name that only starts with a letter or digit and a mark is a name.
-    for (const name of ["D.A.N.C.E.", "E.T.", "A-Trak Edit", "G-Funk Intro", "C-Section", "2-Step", "4-Ever", "B. Traits Theme"]) {
+    for (const name of ["D.A.N.C.E.", "E.T.", "A-Trak Edit", "G-Funk Intro", "C-Section", "2-Step", "4-Ever", "B. Traits Theme",
+      "A - Z", "H - Bomb", "C - Jam Blues", "E - Motion", "99 - Luftballons", "808 - State Of Mind", "3 - 2 - 1"]) {
       expect(removeNumberPrefix(name)).toBe(name);
     }
   });
@@ -29,6 +31,13 @@ describe("cleanup rules for track details", () => {
     expect(fixCasing("ST NICK B2B")).toBe("St Nick B2B");
     expect(fixCasing("iPhone Song")).toBe("iPhone Song");
     expect(fixCasing("Night Drive")).toBe("Night Drive");
+    // The last word is never made small; abbreviations stay.
+    expect(fixCasing("MALCOLM X")).toBe("Malcolm X");
+    expect(fixCasing("PROJECT X")).toBe("Project X");
+    expect(fixCasing("A X B")).toBe("A x B");
+    expect(fixCasing("LCD SOUNDSYSTEM")).toBe("LCD Soundsystem");
+    expect(fixCasing("4 AM")).toBe("4 AM");
+    expect(fixCasing("MDMA")).toBe("MDMA");
   });
 
   it("tells a change of capitals alone from one that changes the words", () => {
@@ -64,5 +73,9 @@ describe("cleanup rules for track details", () => {
     ]);
     // A title with a dash and a real artist is left alone.
     expect(proposeFixes({ trackId: 3, title: "Night Drive - Dub", artist: "Studio 001" })).toEqual([]);
+    // A version after the dash is not an artist before it.
+    for (const title of ["Night Drive - Original Mix", "Song - Remastered 2011", "Track - Extended", "Tune - Radio Edit", "3 - 2 - 1"]) {
+      expect(proposeFixes({ trackId: 4, title, artist: "Unknown Artist" }).filter((fix) => fix.field === "artist")).toEqual([]);
+    }
   });
 });

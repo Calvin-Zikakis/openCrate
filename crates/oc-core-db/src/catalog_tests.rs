@@ -996,3 +996,69 @@ fn genres_are_counted_by_how_each_track_spells_them() {
         .unwrap();
     assert_eq!(ids.len(), 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_known_track_keeps_its_details_when_its_file_cannot_be_opened_and_is_read_again_later() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let root = fixture
+        .service
+        .add_root(fixture.folder.path(), "Test")
+        .unwrap();
+    scan(&fixture, root);
+    let before = read(&fixture, &query(View::Tracks, "soft")).1[0].clone();
+    let path = fixture
+        .folder
+        .path()
+        .join("Studio 001/Between Spaces/02 - Studio 001 - Soft Focus.wav");
+    // Locked by another app (or a drive that dropped out) while it changed.
+    touch_later(&path, 60);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    scan(&fixture, root);
+    let during = read(&fixture, &query(View::Tracks, "soft")).1[0].clone();
+    assert_eq!(
+        (during.id, during.title.as_str(), during.artist.as_str()),
+        (before.id, before.title.as_str(), before.artist.as_str()),
+        "the track keeps what it had"
+    );
+    // Readable again: the next scan reads it, though its time did not change.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let again = scan(&fixture, root);
+    assert_eq!(again.tags_read, 1);
+}
+
+#[test]
+fn an_artist_and_release_retagged_in_other_capitals_show_the_new_spelling() {
+    let fixture = fixture();
+    let root = fixture
+        .service
+        .add_root(fixture.folder.path(), "Test")
+        .unwrap();
+    scan(&fixture, root);
+    let path = fixture
+        .folder
+        .path()
+        .join("Studio 001/Between Spaces/02 - Studio 001 - Soft Focus.wav");
+    write_tags(
+        &path,
+        &tags("Soft Focus", "STUDIO 001", "BETWEEN SPACES", 2),
+    );
+    touch_later(&path, 60);
+    let summary = scan(&fixture, root);
+    assert_eq!(summary.tags_read, 1, "{summary:?}");
+    let tracks = read(&fixture, &query(View::Tracks, "soft")).1;
+    assert_eq!(tracks[0].artist, "STUDIO 001", "{tracks:?}");
+    let artists = read(&fixture, &query(View::Artists, "studio")).1;
+    assert!(
+        artists.iter().any(|artist| artist.title == "STUDIO 001"),
+        "{artists:?}"
+    );
+    let releases = read(&fixture, &query(View::Releases, "between")).1;
+    assert!(
+        releases
+            .iter()
+            .any(|release| release.title == "BETWEEN SPACES"),
+        "{releases:?}"
+    );
+}

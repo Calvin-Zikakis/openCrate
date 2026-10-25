@@ -59,7 +59,12 @@ impl DetailCache {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
             }
         }
-        let made = compute(path).map(Arc::new);
+        // A decoder that panics still frees the key and wakes the waiters, who would otherwise
+        // wait for this track's waveform for good.
+        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| compute(path)))
+            .ok()
+            .flatten()
+            .map(Arc::new);
         let mut inner = self.lock();
         inner.decoding.retain(|decoding| *decoding != key);
         if let Some(made) = &made {

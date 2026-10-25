@@ -452,13 +452,23 @@ fn cues_are_read_in_seconds() {
 }
 
 fn fake_backup(backups: &Path, name: &str, taken_ms: i64, pinned: bool) -> PathBuf {
+    fake_backup_for(backups, name, taken_ms, pinned, "before-write")
+}
+
+fn fake_backup_for(
+    backups: &Path,
+    name: &str,
+    taken_ms: i64,
+    pinned: bool,
+    reason: &str,
+) -> PathBuf {
     let dir = backups.join(name);
     fs::create_dir_all(&dir).unwrap();
     let snapshot = Snapshot {
         master_db: dir.join("master.db"),
         dir: dir.clone(),
         taken_ms,
-        reason: "read".into(),
+        reason: reason.into(),
         db_version: None,
         app_version: None,
         tracks: 0,
@@ -471,6 +481,48 @@ fn fake_backup(backups: &Path, name: &str, taken_ms: i64, pinned: bool) -> PathB
     )
     .unwrap();
     dir
+}
+
+#[test]
+fn reads_are_pruned_apart_and_each_days_first_write_backup_stays() {
+    let backups = tempfile::tempdir().unwrap();
+    let day = 86_400_000;
+    // The first write of the day, then thirty more writes and as many reads.
+    let first = fake_backup_for(
+        backups.path(),
+        "first-write",
+        10 * day + 1,
+        false,
+        "before-write",
+    );
+    for i in 0..30 {
+        fake_backup_for(
+            backups.path(),
+            &format!("w{i:02}"),
+            10 * day + 100 + i,
+            false,
+            "before-write",
+        );
+        fake_backup_for(
+            backups.path(),
+            &format!("r{i:02}"),
+            10 * day + 200 + i,
+            false,
+            "read",
+        );
+    }
+    prune(backups.path(), 20).unwrap();
+    let left = list_backups(backups.path());
+    assert_eq!(
+        left.iter().filter(|b| b.reason == "read").count(),
+        5,
+        "a few reads"
+    );
+    assert!(first.is_dir(), "the day's first write backup is kept");
+    assert_eq!(
+        left.iter().filter(|b| b.reason == "before-write").count(),
+        21
+    );
 }
 
 #[test]

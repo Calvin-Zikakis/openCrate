@@ -174,6 +174,33 @@ test("body text tokens meet contrast and system reduced motion is respected", as
   await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveCSS("transition-duration", "0s");
 });
 
+test("light theme text and state colours meet contrast on every surface", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("group", { name: "Theme" }).getByRole("radio", { name: "Light" }).check();
+  await page.keyboard.press("Escape");
+  const ratios = await page.evaluate(() => {
+    const styles = getComputedStyle(document.documentElement);
+    const luminance = (value: string) => {
+      const parts = value.trim().replace("#", "").match(/.{2}/g);
+      if (!parts || parts.length !== 3) throw new Error(`Expected RGB token, got ${value}`);
+      const channels = parts.map((part) => parseInt(part, 16) / 255)
+        .map((channel) => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4);
+      return (channels[0] ?? 0) * .2126 + (channels[1] ?? 0) * .7152 + (channels[2] ?? 0) * .0722;
+    };
+    const results: { pair: string; ratio: number }[] = [];
+    for (const foreground of ["--text", "--secondary", "--faint", "--accent-text", "--ok", "--danger"]) {
+      for (const background of ["--base", "--panel", "--raised"]) {
+        const a = luminance(styles.getPropertyValue(foreground));
+        const b = luminance(styles.getPropertyValue(background));
+        results.push({ pair: `${foreground} on ${background}`, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) });
+      }
+    }
+    return results;
+  });
+  expect(ratios.filter((item) => item.ratio < 4.5)).toEqual([]);
+});
+
 test("appearance: dark by default, light when chosen and remembered, or following the computer", async ({ page }) => {
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor === "rgba(0, 0, 0, 0)"
     ? getComputedStyle(document.documentElement).backgroundColor : getComputedStyle(document.body).backgroundColor);
