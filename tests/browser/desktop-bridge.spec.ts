@@ -1624,7 +1624,7 @@ test("editing: tracks chosen together are edited at once, with cleanup shown bef
   await expect(preview).toContainText("Title: 02 - RUST TRACK 0002 -> Rust Track 0002");
   await expect(preview).toContainText("Title: 04 - RUST TRACK 0004 -> Rust Track 0004");
   // What was typed is listed too, before saving.
-  await expect(editor.getByRole("list", { name: "Changes to save" })).toHaveText("All 2 tracksGenre: House -> Deep House");
+  await expect(editor.getByRole("list", { name: "Changes to save" })).toHaveText("All 2 tracksGenre: House -> Deep HouseKeep as it is");
   await editor.getByRole("button", { name: "Save 3 changes" }).click();
   await expect(editor).toHaveCount(0);
   // Typed values and cleanup go in one call: one save, one Undo.
@@ -1734,9 +1734,11 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
   await editor.getByLabel("Label").fill("Night Label");
   await editor.getByLabel("Genre").fill("");
   const typed = editor.getByRole("list", { name: "Changes to save" });
-  await expect(typed.locator("li.emptied")).toHaveText("02 - RUST TRACK 0002Genre: House -> (empty), the tag is removed");
+  await expect(typed.locator("li.emptied")).toHaveText("02 - RUST TRACK 0002Genre: House -> (empty), the tag is removedKeep as it is");
   await expect(typed).toContainText("Label: (empty) -> Night Label");
-  await editor.getByLabel("Label").fill("");
+  // One change can be taken back on its own.
+  await typed.getByRole("listitem").filter({ hasText: "Label:" }).getByRole("button", { name: "Keep as it is" }).click();
+  await expect(editor.getByLabel("Label")).toHaveValue("");
   await expect(typed.locator("li")).toHaveCount(1);
   await editor.getByLabel("Genre").fill("Techno");
   await expect(typed.locator("li.emptied")).toHaveCount(0);
@@ -1751,6 +1753,13 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
   await expect(editor.getByRole("alertdialog", { name: "Discard the changes?" })).toContainText("2 changes are not saved yet.");
   await editor.getByRole("button", { name: "Discard" }).click();
   await expect(editor).toHaveCount(0);
+  // A saved recipe can be deleted.
+  await row("0004").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Edit details..." }).click();
+  const managing = page.getByRole("dialog", { name: "Edit details" });
+  await managing.getByRole("button", { name: "Manage recipes..." }).click();
+  await expect(managing.getByRole("list", { name: "Saved recipes" })).toContainText("Techno import");
+  await page.keyboard.press("Escape");
 
   await row("0004").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit details..." }).click();
@@ -1860,6 +1869,36 @@ test("clean up: a change of capitals alone starts unticked, and the same fix on 
   await titles.getByRole("button", { name: "Clean up 3 tracks" }).click();
   const sent = await page.evaluate(() => (window as any).__editEach as { trackId: number }[]);
   expect(sent.map((edit) => edit.trackId).sort()).toEqual([1, 3, 5]);
+});
+
+test("tracks are taken out of a crate from the menu in any order, and a track opens its release", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const crates = page.getByRole("navigation", { name: "Crates" });
+  await crates.getByRole("button", { name: "New crate" }).click();
+  await crates.getByRole("textbox", { name: "New crate name" }).fill("Warm-up");
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Back to tracks" }).click();
+  for (const n of ["0001", "0002", "0003"]) await page.getByRole("button", { name: new RegExp(`Rust Track ${n},`) }).dragTo(crates.getByRole("button", { name: /Warm-up/ }));
+  await crates.getByRole("button", { name: /Warm-up/ }).click();
+  await page.getByLabel("Sort library").selectOption("title");
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0001").click();
+  await row("0002").click({ modifiers: ["ControlOrMeta"] });
+  await row("0002").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove 2 tracks from the crate" }).click();
+  await expect(page.getByTestId("track-row")).toHaveCount(1);
+  // The keyboard does it too, in this order.
+  await row("0003").focus();
+  await page.keyboard.press("Delete");
+  await expect(page.getByText("This crate is empty")).toBeVisible();
+
+  // From a track to its release.
+  await page.getByRole("button", { name: "Back to tracks" }).click();
+  await row("0002").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /^Go to the release/ }).click();
+  await expect(page.getByText("RELEASE", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Sort library")).toHaveValue("track");
 });
 
 test("a crate is exported as an M3U8 or CSV to a file the owner picks", async ({ page }) => {

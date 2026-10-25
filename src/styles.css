@@ -588,3 +588,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 
 /* The editor's "not saved yet" question stays in view at the top while it waits. */
 .editor-discard { position: sticky; top: 0; z-index: 2; background: var(--raised); padding: 8px 10px; border-radius: 8px; margin-bottom: 10px; }
+/* Each listed change can be taken back on its own. */
+.cleanup-changes li { position: relative; padding-right: 96px; }
+.cleanup-changes .keep-button { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; }
+.recipes .recipe-list, .recipes .recipe-replace { flex-basis: 100%; }
+.recipes .recipe-replace { color: var(--warn); }

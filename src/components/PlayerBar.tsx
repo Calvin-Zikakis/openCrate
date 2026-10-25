@@ -52,7 +52,7 @@ interface Props {
   queue: LibraryItem[];
   onQueueChange: (queue: LibraryItem[]) => void;
   /** What is loaded, and whether it is playing, for the list to mark it. */
-  onNowPlaying?: (now: { id: number; playing: boolean } | null) => void;
+  onNowPlaying?: (now: { id: number; playing: boolean; item: LibraryItem | null } | null) => void;
   analysis?: React.ReactNode;
   /** Changes when the library may have changed, so a cover saved since is shown. */
   version?: number;
@@ -243,7 +243,8 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
 
   const nowId = playing?.item.id ?? null;
   const nowPlaying = Boolean(state?.playing);
-  useEffect(() => { onNowPlaying?.(nowId === null ? null : { id: nowId, playing: nowPlaying }); }, [nowId, nowPlaying, onNowPlaying]);
+  const loadedItem = playing?.item ?? null;
+  useEffect(() => { onNowPlaying?.(nowId === null ? null : { id: nowId, playing: nowPlaying, item: loadedItem }); }, [nowId, nowPlaying, loadedItem, onNowPlaying]);
 
   const shown = playing?.item ?? selected;
   const duration = state?.durationMs ?? (playing ? playing.item.duration * 1000 : 0);

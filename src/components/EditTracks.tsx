@@ -62,6 +62,8 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
   /** The rules pressed in this editor, for saving as a recipe. */
   const [applied, setApplied] = useState<string[]>([]);
   const [naming, setNaming] = useState(false);
+  /** The saved recipes listed, to delete one. */
+  const [managing, setManaging] = useState(false);
   const [recipeName, setRecipeName] = useState("");
   /** The owner's own fields on these tracks, kept in openCrate rather than in the files. */
   const [custom, setCustom] = useState<CustomFields | null>(null);
@@ -127,7 +129,7 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
     saveRecipes(localStorage, next);
     setNaming(false);
     setRecipeName("");
-    setNote(`Saved the recipe "${name}".`);
+    setNote(recipes.some((found) => found.name === name) ? `Replaced the recipe "${name}".` : `Saved the recipe "${name}".`);
   };
 
   const typedChanges = Object.entries(typed)
@@ -281,6 +283,7 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
             </select>
           </label>}
           {!naming && (Object.keys(typed).length > 0 || applied.length > 0) && <button className="link-button" onClick={() => setNaming(true)}>Save as recipe...</button>}
+          {recipes.length > 0 && <button className="link-button" aria-expanded={managing} onClick={() => setManaging(!managing)}>{managing ? "Done with recipes" : "Manage recipes..."}</button>}
           {naming && <span className="recipe-name">
             <input {...PLAIN_TEXT} autoFocus aria-label="Recipe name" value={recipeName} placeholder="Name" onChange={(event) => setRecipeName(event.target.value)}
               onKeyDown={(event) => {
@@ -288,9 +291,21 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
                 // Escape gives up on the name, not on the whole editor.
                 if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setNaming(false); }
               }} />
-            <button className="secondary-button" disabled={!recipeName.trim()} onClick={saveRecipe}>Save</button>
+            <button className="secondary-button" disabled={!recipeName.trim()} onClick={saveRecipe}>{recipes.some((found) => found.name === recipeName.trim()) ? "Replace" : "Save"}</button>
             <button className="link-button" onClick={() => setNaming(false)}>Cancel</button>
           </span>}
+          {naming && recipes.some((found) => found.name === recipeName.trim()) && <small className="recipe-replace">{`A recipe named "${recipeName.trim()}" exists; saving replaces it.`}</small>}
+          {managing && <ul className="cleanup-changes recipe-list" aria-label="Saved recipes">{recipes.map((recipe) => <li key={recipe.name}>
+            <strong>{recipe.name}</strong>
+            <small>{[...Object.entries(recipe.values).map(([field, value]) => `${label(field as EditField)}: ${value || "(empty)"}`), ...recipe.rules.map((id) => RULES.find((rule) => rule.id === id)?.label ?? id)].join("; ") || "Nothing in it"}</small>
+            <button className="link-button keep-button" aria-label={`Delete the recipe ${recipe.name}`} onClick={() => {
+              const next = recipes.filter((found) => found.name !== recipe.name);
+              setRecipes(next);
+              saveRecipes(localStorage, next);
+              setNote(`Deleted the recipe "${recipe.name}".`);
+              if (next.length === 0) setManaging(false);
+            }}>Delete</button>
+          </li>)}</ul>}
         </div>}
         <h3>Your fields</h3>
         <p className="settings-copy">Fields of your own, such as an energy or a mood. They are kept in openCrate, not in the files, and are saved when you leave the field, so Cancel does not undo them.</p>
@@ -323,10 +338,18 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
           return <li key={change.field} className={emptied ? "emptied" : undefined}>
             <strong>{single ? tracks[0]?.title || "Untitled" : `All ${trackIds.length} tracks`}</strong>
             <small>{`${label(change.field)}: ${from === null ? "several values" : from || "(empty)"} -> `}{emptied ? <em>(empty), the tag is removed</em> : change.value}</small>
+            <button className="link-button keep-button" title={`Keep the ${label(change.field).toLowerCase()} as it is`} onClick={() => setTyped((before) => { const rest = { ...before }; delete rest[change.field]; return rest; })}>Keep as it is</button>
           </li>;
         })}</ul>}
         {cleanedChanges.length > 0 && <ul className="cleanup-changes" aria-label="Cleanup changes">{cleanedChanges.map((change) => <li key={`${change.trackId}:${change.field}`}>
           <strong>{change.title || "Untitled"}</strong><small>{`${label(change.field)}: ${change.from || "(empty)"} -> ${change.to || "(empty)"}`}</small>
+          <button className="link-button keep-button" title={`Keep the ${label(change.field).toLowerCase()} of ${change.title || "Untitled"} as it is`} onClick={() => setCleaned((before) => {
+            const next = new Map(before);
+            const fields = { ...next.get(change.trackId) };
+            delete fields[change.field];
+            next.set(change.trackId, fields);
+            return next;
+          })}>Keep as it is</button>
         </li>)}</ul>}
         <p className="settings-copy">Saving writes into the files' tags. If rekordbox has these tracks, the next Sync with rekordbox offers the change to it.{art !== null ? " A cover change is not kept in Recent changes, so Undo cannot bring the old picture back, and rekordbox keeps its own copy of the artwork until it reads the file again." : ""}</p>
         {left.length > 0 && <div role="alert" className="inline-error"><p>Some files were left as they were:</p><ul>{left.map((why) => <li key={why}>{why}</li>)}</ul></div>}

@@ -27,6 +27,10 @@ interface Props {
   onSelectionChange?: (trackIds: number[]) => void;
   /** Right-click, then "Edit details". */
   onEdit?: (trackIds: number[]) => void;
+  /** Take tracks out of the crate shown, in whatever order it is sorted. */
+  onRemoveFromCrate?: (trackIds: number[]) => void;
+  /** Open a track's release or artist. */
+  onGoTo?: (item: LibraryItem, kind: "releases" | "artists") => void;
   /** The loaded track, marked in place of its number. */
   nowPlaying?: { id: number; playing: boolean } | null;
   /** Right-click, then "Play next" (`next`) or "Add to queue". */
@@ -77,7 +81,7 @@ function keyNote(item: LibraryItem): string | undefined {
   return item.rekordboxKey ? "From rekordbox" : "From the file's tags. rekordbox has no key for this track yet.";
 }
 
-export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
+export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, onRemoveFromCrate, onGoTo, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -93,6 +97,9 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   const anchor = useRef<number | null>(null);
   /** The tracks an action on `item` covers: the whole selection when the item is in it. */
   const chosen = (item: LibraryItem) => (selection?.has(item.id) && selection.size > 1 ? [...selection] : [item.id]);
+  /** What shows as chosen is what Edit, a drag and the menu act on: the chosen tracks, or the
+   * selected one when none are. */
+  const isChosen = (item: LibraryItem) => (selection && selection.size > 0 ? selection.has(item.id) : selected?.id === item.id);
   /** The track a right-click menu is open for, and where. */
   const [menu, setMenu] = useState<{ item: LibraryItem; index: number; x: number; y: number } | null>(null);
   const isGrid = query.view !== "tracks";
@@ -280,7 +287,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
               className={drag ? "reorder-slide" : undefined}
               style={shift ? { transform: `translateY(${shift}px)` } : undefined}>
               <button
-                className={isGrid ? "release-card" : `track-row track-columns${selected?.id === item.id || selection?.has(item.id) ? " is-selected" : ""}${item.missing ? " is-missing" : ""}${isSource ? (drag?.insertAt === null ? " is-drag-source" : " is-drag-gap") : ""}`}
+                className={isGrid ? "release-card" : `track-row track-columns${isChosen(item) ? " is-selected" : ""}${item.missing ? " is-missing" : ""}${isSource ? (drag?.insertAt === null ? " is-drag-source" : " is-drag-gap") : ""}`}
                 draggable={!isGrid && (dragTracks || reorderable)}
                 onDragStart={(event) => {
                   const many = selection?.has(item.id) && selection.size > 1 ? page.items.filter((loaded) => selection.has(loaded.id)) : [];
@@ -294,7 +301,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                 style={isGrid ? undefined : { height: rowHeight }}
                 data-index={index} data-testid={isGrid ? "library-card" : "track-row"}
                 aria-label={isGrid ? `${item.title}, ${item.trackCount} tracks` : `${item.title}, ${item.artist}`}
-                aria-pressed={isGrid ? undefined : selected?.id === item.id || Boolean(selection?.has(item.id))}
+                aria-pressed={isGrid ? undefined : isChosen(item)}
                 onClick={(event) => {
                   // WebKit does not focus a button on click; the keyboard should carry on from here.
                   event.currentTarget.focus();
@@ -342,7 +349,35 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                   else if (isGrid && event.key === "ArrowLeft") delta = -1;
                   if (delta !== 0) {
                     event.preventDefault();
-                    focusRow(index + delta);
+                    const target = index + delta;
+                    const next = page.items[target - page.start];
+                    // The keyboard selects as it moves, as a click does; Shift takes the rows between.
+                    if (!isGrid && !event.altKey && next && target >= 0 && target < page.total) {
+                      if (event.shiftKey && onSelectionChange) {
+                        const from = anchor.current ?? index;
+                        anchor.current = from;
+                        const [low, high] = from < target ? [from, target] : [target, from];
+                        onSelectionChange(page.items.filter((_, at) => at + page.start >= low && at + page.start <= high).map((loaded) => loaded.id));
+                      } else {
+                        anchor.current = target;
+                        onSelectionChange?.([next.id]);
+                        onSelect(next, target);
+                      }
+                    }
+                    focusRow(target);
+                  }
+                  if (!isGrid && event.key === "Escape" && selection && selection.size > 1) {
+                    event.preventDefault();
+                    onSelectionChange?.([item.id]);
+                  }
+                  if (!isGrid && (onQueue || onEdit) && (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) {
+                    event.preventDefault();
+                    const box = event.currentTarget.getBoundingClientRect();
+                    if (!selection?.has(item.id)) {
+                      onSelectionChange?.([item.id]);
+                      onSelect(item, index);
+                    }
+                    setMenu({ item, index, x: box.left + 40, y: box.bottom });
                   }
                   if (reorderable && reorder && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
                     // Alt+Up/Down moves the track within the crate, for those not using a mouse.
@@ -352,9 +387,11 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                     void reorder.move([item.id], up ? idAt(index - 1) : idAt(index + 2)).then(() => focusRow(index + (up ? -1 : 1)));
                     return;
                   }
-                  if (reorderable && reorder?.remove && (event.key === "Delete" || event.key === "Backspace")) {
+                  if (onRemoveFromCrate && (event.key === "Delete" || event.key === "Backspace")) {
+                    // Every chosen track goes, in any order the crate is sorted; focus moves on.
                     event.preventDefault();
-                    void reorder.remove([item.id]);
+                    onRemoveFromCrate(chosen(item));
+                    requestAnimationFrame(() => focusRow(Math.min(index, page.total - 2)));
                     return;
                   }
                   if (event.key === "Home" || event.key === "End") {
@@ -388,6 +425,11 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
         ];
       })() : []),
       ...(onEdit ? [{ label: chosen(menu.item).length > 1 ? `Edit details (${chosen(menu.item).length} tracks)...` : "Edit details...", run: () => onEdit(chosen(menu.item)) }] : []),
+      ...(onRemoveFromCrate ? [{ label: chosen(menu.item).length > 1 ? `Remove ${chosen(menu.item).length} tracks from the crate` : "Remove from the crate", run: () => { const at = menu.index; onRemoveFromCrate(chosen(menu.item)); requestAnimationFrame(() => focusRow(Math.min(at, page.total - 2))); } }] : []),
+      ...(onGoTo ? [
+        ...(query.releaseId === null ? [{ label: `Go to the release (${menu.item.release})`, run: () => onGoTo(menu.item, "releases") }] : []),
+        ...(query.artistId === null ? [{ label: `Go to the artist (${menu.item.artist})`, run: () => onGoTo(menu.item, "artists") }] : []),
+      ] : []),
     ]} />}
   </section>;
 }
