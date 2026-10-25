@@ -66,6 +66,12 @@ const typing = (target: EventTarget | null) =>
 /** A cover's address, changed with the library so the window loads a cover saved since. */
 const withVersion = (url: string | null, version: number) => (url && version > 0 ? `${url}${url.includes("?") ? "&" : "?"}v=${version}` : url);
 
+/** A control Space acts on by itself: a button, box, choice or link, other than a track row. */
+function spacePresses(target: EventTarget | null): boolean {
+  if (!(target instanceof Element) || target.closest("[data-testid=track-row]")) return false;
+  return target.closest("button, select, summary, a[href], input[type=checkbox], input[type=radio], [role=button], [role=menuitem], [role=checkbox], [role=switch], [role=radio], [role=tab]") !== null;
+}
+
 export function PlayerBar({ api, selected, selectedIndex, query, request, queue, onQueueChange, onNowPlaying, analysis, version = 0 }: Props) {
   const admin = api.admin;
   const [playing, setPlaying] = useState<Playing | null>(null);
@@ -201,7 +207,11 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.code !== "Space" || event.repeat || typing(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (document.querySelector("[role=dialog]")) return;
+      // A dialog open (the editor, Settings, a question) keeps Space for itself.
+      if (document.querySelector("dialog[open], [role=dialog], [role=alertdialog]")) return;
+      // Space presses a focused button or ticks a box; only a track row, or nothing in
+      // particular, means play or pause.
+      if (spacePresses(event.target)) return;
       event.preventDefault();
       void toggle();
     };

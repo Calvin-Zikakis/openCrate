@@ -26,12 +26,14 @@ pub enum SortDto {
     Playlist,
     Crate,
     Custom,
+    Track,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum FormatDto {
     Aiff,
+    Wav,
     Mp3,
     Flac,
 }
@@ -60,6 +62,7 @@ impl SortDto {
             Self::Playlist => Sort::Playlist,
             Self::Crate => Sort::Crate,
             Self::Custom => Sort::Custom,
+            Self::Track => Sort::Track,
         }
     }
 }
@@ -75,6 +78,7 @@ impl QueryDto {
         query.sort = self.sort.to_sort();
         query.format = self.format.map(|format| match format {
             FormatDto::Aiff => Format::Aiff,
+            FormatDto::Wav => Format::Wav,
             FormatDto::Mp3 => Format::Mp3,
             FormatDto::Flac => Format::Flac,
         });

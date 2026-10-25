@@ -35,11 +35,14 @@ pub enum Sort {
     Crate,
     /// The owner's own arrangement of the whole track list.
     Custom,
+    /// Release by release, each in disc and track order: how a release or an artist reads.
+    Track,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Format {
     Aiff,
+    Wav,
     Mp3,
     Flac,
 }
@@ -49,6 +52,7 @@ impl Format {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Aiff => "AIFF",
+            Self::Wav => "WAV",
             Self::Mp3 => "MP3",
             Self::Flac => "FLAC",
         }
@@ -395,6 +399,11 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                 (Sort::Recent | Sort::Playlist | Sort::Crate, _) => "t.added_ms DESC, t.id DESC",
                 (Sort::Title, _) => "t.title_key, t.id",
                 (Sort::Artist, _) => "t.artist_key, t.release_id, t.disc_no, t.track_no, t.id",
+                // The release by subquery: some callers order `track t` alone, with no join.
+                (Sort::Track, _) => {
+                    "(SELECT o.sort_key FROM release o WHERE o.id = t.release_id), t.release_id, \
+                     t.disc_no, t.track_no, t.title_key, t.id"
+                }
                 (Sort::Bpm, _) => {
                     "COALESCE(t.bpm, t.tag_bpm) IS NULL, COALESCE(t.bpm, t.tag_bpm), t.id"
                 }
@@ -416,7 +425,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                     "r.added_ms DESC, r.id DESC"
                 }
                 Sort::Artist => "r.artist_key, r.sort_key, r.id",
-                Sort::Title | Sort::Bpm => "r.sort_key, r.id",
+                Sort::Title | Sort::Bpm | Sort::Track => "r.sort_key, r.id",
             },
             order_playlist: None,
             alias: "r",
@@ -428,7 +437,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                       (SELECT COUNT(*) FROM track t WHERE t.artist_id = a.id), 0, 0, 0",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => "a.id DESC",
-                Sort::Title | Sort::Artist | Sort::Bpm => "a.sort_key, a.id",
+                Sort::Title | Sort::Artist | Sort::Bpm | Sort::Track => "a.sort_key, a.id",
             },
             order_playlist: None,
             alias: "a",

@@ -375,6 +375,45 @@ fn release_and_artist_views_report_counts_and_obey_sort_search_and_format() {
 }
 
 #[test]
+fn a_release_reads_in_track_order_not_newest_first() {
+    let (_directory, database) = seeded(TRACKS);
+    let reader = database.reader().unwrap();
+    let mut query = LibraryQuery::new(View::Tracks);
+    query.release_id = Some(3);
+    query.sort = Sort::Track;
+    let ids: Vec<i64> = all_items(&reader, &query)
+        .iter()
+        .map(|item| item.id)
+        .collect();
+    assert_eq!(
+        ids,
+        (21..=30).collect::<Vec<i64>>(),
+        "tracks 1 to 10 of the release"
+    );
+    query.sort = Sort::Recent;
+    let newest: Vec<i64> = all_items(&reader, &query)
+        .iter()
+        .map(|item| item.id)
+        .collect();
+    assert_eq!(newest, (21..=30).rev().collect::<Vec<i64>>());
+    // An artist's tracks go release by release.
+    let mut artist = LibraryQuery::new(View::Tracks);
+    artist.artist_id = Some(1);
+    artist.sort = Sort::Track;
+    let releases: Vec<i64> = all_items(&reader, &artist)
+        .iter()
+        .map(|item| item.release_id)
+        .collect();
+    let mut grouped = releases.clone();
+    grouped.dedup();
+    assert_eq!(
+        grouped.len(),
+        releases.len() / 10,
+        "each release's tracks together"
+    );
+}
+
+#[test]
 fn windows_are_validated_and_overshooting_returns_the_total() {
     let (_directory, database) = seeded(TRACKS);
     let reader = database.reader().unwrap();

@@ -233,6 +233,8 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"
       ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>This crate is empty</h2><p>Drag tracks from your library onto the crate's name in the sidebar.</p></div>
+      : query.playlistId !== null && !query.search && query.format === "all"
+        ? <div className="empty-state"><Icon name="queue" size={36} /><h2>None of this playlist is in your folders</h2><p>rekordbox has these tracks somewhere else. Add the folder they are in as a music folder in Settings to see them here.</p></div>
       : !query.search && query.format === "all" && query.playlistId === null && query.artistId === null && query.releaseId === null && (onOpenSettings || onOpenImport)
         ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>No music in your library yet</h2><p>Add a music folder in Settings, or bring in music from a download folder with Import.</p>
           <div className="empty-actions">{onOpenSettings && <button className="secondary-button" onClick={onOpenSettings}>Open Settings</button>}{onOpenImport && <button className="secondary-button" onClick={onOpenImport}>Go to Import</button>}</div></div>
@@ -375,7 +377,16 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     </div>
     {menu && <RowMenu item={menu.item} x={menu.x} y={menu.y} onClose={() => setMenu(null)} actions={[
       ...(onPlay && !menu.item.missing ? [{ label: "Play now", run: () => onPlay(menu.item, menu.index) }] : []),
-      ...(onQueue && !menu.item.missing ? [{ label: "Play next", run: () => onQueue(menu.item, true) }, { label: "Add to queue", run: () => onQueue(menu.item, false) }] : []),
+      ...(onQueue && !menu.item.missing ? (() => {
+        // With several chosen, all of them, in list order (those with a file to play).
+        const many = selection?.has(menu.item.id) && selection.size > 1 ? page.items.filter((loaded) => selection.has(loaded.id) && !loaded.missing) : [menu.item];
+        const count = many.length > 1 ? ` (${many.length} tracks)` : "";
+        return [
+          // Play next puts them at the front in their own order.
+          { label: `Play next${count}`, run: () => { for (const item of [...many].reverse()) onQueue(item, true); } },
+          { label: `Add to queue${count}`, run: () => { for (const item of many) onQueue(item, false); } },
+        ];
+      })() : []),
       ...(onEdit ? [{ label: chosen(menu.item).length > 1 ? `Edit details (${chosen(menu.item).length} tracks)...` : "Edit details...", run: () => onEdit(chosen(menu.item)) }] : []),
     ]} />}
   </section>;

@@ -48,12 +48,17 @@ describe("reading through the Rust backend", () => {
     expect(item).toMatchObject({ kind: "releases", bpm: null, format: null, trackCount: 10, duration: 0 });
   });
 
+  it("reads a track in any format the library knows, WAV and M4A included", async () => {
+    const api = new TauriLibraryApi(vi.fn().mockResolvedValue({ items: [{ ...row, format: "WAV" }, { ...row, id: 8, format: "M4A" }], total: 2, start: 0 }));
+    expect((await api.read(DEFAULT_QUERY, 0, 2, live())).items.map((item) => item.format)).toEqual(["WAV", "M4A"]);
+  });
+
   it("refuses unreadable replies instead of rendering them", async () => {
     for (const bad of [
       null, "text", { items: "no", total: 1, start: 0 }, { items: [], total: "1", start: 0 },
       { items: [{ ...row, id: "7" }], total: 1, start: 0 },
       { items: [{ ...row, kind: "playlists" }], total: 1, start: 0 },
-      { items: [{ ...row, format: "WAV" }], total: 1, start: 0 },
+      { items: [{ ...row, format: "<b>WAV</b>" }], total: 1, start: 0 },
       { items: [{ ...row, bpm: "fast" }], total: 1, start: 0 },
       { items: [{ ...row, title: undefined }], total: 1, start: 0 },
       { items: [null], total: 1, start: 0 },

@@ -72,6 +72,8 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
   const [art, setArt] = useState<TrackArt | null>(null);
   /** Bumped on each pick, so the preview loads the new image. */
   const [picks, setPicks] = useState(0);
+  /** Closing with changes not saved waits for a yes. */
+  const [discarding, setDiscarding] = useState(false);
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -210,12 +212,24 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
     }
   };
 
-  return <dialog ref={dialog} className="settings-dialog editor-dialog" aria-labelledby="editor-title" onCancel={onClose}>
+  /** Close, unless there are changes not saved yet: those are asked about first. */
+  const requestClose = () => {
+    if (busy) return;
+    if (changeCount > 0) setDiscarding(true);
+    else onClose();
+  };
+
+  return <dialog ref={dialog} className="settings-dialog editor-dialog" aria-labelledby="editor-title" onCancel={(event) => { event.preventDefault(); requestClose(); }}>
     <div className="dialog-heading">
       <div><h2 id="editor-title">{single ? "Edit details" : `Edit ${trackIds.length} tracks`}</h2></div>
-      <button className="icon-button" aria-label="Close the editor" onClick={onClose}><Icon name="close" /></button>
+      <button className="icon-button" aria-label="Close the editor" onClick={requestClose}><Icon name="close" /></button>
     </div>
     <div className="dialog-body">
+      {discarding && <div className="crate-confirm editor-discard" role="alertdialog" aria-label="Discard the changes?" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDiscarding(false); } }}>
+        <span>{`${plural(changeCount, "change is", "changes are")} not saved yet.`}</span>
+        <button className="link-button" onClick={onClose}>Discard</button>
+        <button className="link-button" autoFocus onClick={() => setDiscarding(false)}>Keep editing</button>
+      </div>}
       {!tracks && !error && <p className="settings-copy" role="status">Reading the tags...</p>}
       {tracks && <>
         <div className="editor-cover" role="group" aria-label="Cover">
@@ -269,13 +283,17 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
           {!naming && (Object.keys(typed).length > 0 || applied.length > 0) && <button className="link-button" onClick={() => setNaming(true)}>Save as recipe...</button>}
           {naming && <span className="recipe-name">
             <input {...PLAIN_TEXT} autoFocus aria-label="Recipe name" value={recipeName} placeholder="Name" onChange={(event) => setRecipeName(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") saveRecipe(); }} />
+              onKeyDown={(event) => {
+                if (event.key === "Enter") saveRecipe();
+                // Escape gives up on the name, not on the whole editor.
+                if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setNaming(false); }
+              }} />
             <button className="secondary-button" disabled={!recipeName.trim()} onClick={saveRecipe}>Save</button>
             <button className="link-button" onClick={() => setNaming(false)}>Cancel</button>
           </span>}
         </div>}
         <h3>Your fields</h3>
-        <p className="settings-copy">Fields of your own, such as an energy or a mood. They are kept in openCrate, not in the files, and are saved as you type them.</p>
+        <p className="settings-copy">Fields of your own, such as an energy or a mood. They are kept in openCrate, not in the files, and are saved when you leave the field, so Cancel does not undo them.</p>
         <div className="custom-fields" role="group" aria-label="Your fields">
           {customNames.map((name) => {
             const shared = customShared(name);
@@ -315,7 +333,7 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
         {error && <p role="alert" className="inline-error">{error}</p>}
         <div className="warning-actions">
           <button className="import-button" disabled={busy || nothing} onClick={() => void save()}>{busy ? "Saving..." : nothing ? "Save" : `Save ${plural(changeCount, "change", "changes")}`}</button>
-          <button className="secondary-button" disabled={busy} onClick={onClose}>{left.length > 0 ? "Close" : "Cancel"}</button>
+          <button className="secondary-button" disabled={busy} onClick={requestClose}>{left.length > 0 ? "Close" : "Cancel"}</button>
         </div>
       </>}
       {error && !tracks && <p role="alert" className="inline-error">{error}</p>}

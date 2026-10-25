@@ -36,6 +36,11 @@ test("search, formats, sorting and rapid changes show only current results", asy
 
 test("searching artists for a track's title finds its artist, which opens on that track", async ({ page }) => {
   await page.goto("/");
+  // The search carries from Tracks to Artists: the box looks in all three.
+  await page.getByRole("textbox", { name: "Search library" }).fill("Morning Light 099999");
+  await page.getByRole("button", { name: "Artists", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Search library" })).toHaveValue("Morning Light 099999");
+  await page.getByRole("textbox", { name: "Search library" }).fill("");
   await page.getByRole("button", { name: "Artists", exact: true }).click();
   await page.getByRole("textbox", { name: "Search library" }).fill("Morning Light 099999");
   await expect(page.getByRole("status")).toContainText(/\b1 artist matching/);

@@ -79,7 +79,6 @@ interface PageWire {
 }
 
 const VIEWS: readonly string[] = ["tracks", "releases", "artists"];
-const FORMATS: readonly string[] = ["AIFF", "MP3", "FLAC"];
 
 /** How the desktop app turns a release id (or "track-7", "picked") into an address the window
  * can load, if it can. */
@@ -162,7 +161,8 @@ function toItem(value: unknown): LibraryItem {
     title === null || artist === null || release === null || musicalKey === null ||
     typeof row.kind !== "string" || !VIEWS.includes(row.kind) ||
     (row.bpm !== null && number(row.bpm) === null) ||
-    (row.format !== null && (typeof row.format !== "string" || !FORMATS.includes(row.format)))
+    // Any container the library knows: a WAV, M4A or OGG file is a track like any other.
+    (row.format !== null && (typeof row.format !== "string" || !/^[A-Z0-9]{1,8}$/.test(row.format)))
   ) {
     throw new Error("The library returned an unreadable row.");
   }

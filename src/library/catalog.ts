@@ -49,6 +49,7 @@ export function createCatalog(count = 100_000) {
     if (cached) return cached;
     const rows = [...sources[view]].sort((a, b) => {
       if (sort === "recent") return b.id - a.id;
+      if (sort === "track") return a.releaseId - b.releaseId || a.id - b.id;
       if (sort === "bpm") return (a.bpm ?? Infinity) - (b.bpm ?? Infinity) || a.id - b.id;
       const valueA = sort === "artist" ? a.artist : a.title;
       const valueB = sort === "artist" ? b.artist : b.title;

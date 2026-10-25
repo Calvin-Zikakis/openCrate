@@ -1,6 +1,7 @@
 export type View = "tracks" | "releases" | "artists";
-export type Sort = "recent" | "title" | "artist" | "bpm" | "playlist" | "crate" | "custom";
-export type Format = "AIFF" | "MP3" | "FLAC";
+export type Sort = "recent" | "title" | "artist" | "bpm" | "playlist" | "crate" | "custom" | "track";
+/** The formats the list can be filtered by. */
+export type Format = "AIFF" | "WAV" | "MP3" | "FLAC";
 
 export interface LibraryItem {
   id: number;
@@ -13,7 +14,8 @@ export interface LibraryItem {
   bpm: number | null;
   musicalKey: string;
   duration: number;
-  format: Format | null;
+  /** The file's container as the library names it: "AIFF", "WAV", "MP3", "M4A" and so on. */
+  format: string | null;
   trackCount: number;
   /** A track none of whose files is on disk right now (not the same as an offline folder). */
   missing: boolean;

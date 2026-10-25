@@ -1572,6 +1572,19 @@ test("player: a row's play button, a queue, and dropping a track on the player",
   // A track dropped on the player plays.
   await row("0007").dragTo(bar);
   await expect(now).toContainText("Rust Track 0007");
+
+  // With several chosen, the menu queues all of them, in list order.
+  await row("0002").click();
+  await row("0003").click({ modifiers: ["ControlOrMeta"] });
+  await row("0003").click({ button: "right" });
+  await page.getByRole("menu", { name: "Rust Track 0003" }).getByRole("menuitem", { name: "Add to queue (2 tracks)" }).click();
+  await expect(queue.getByRole("listitem")).toHaveText([/Rust Track 0002/, /Rust Track 0003/]);
+  // Space with the editor open belongs to the editor, not the player.
+  await page.keyboard.press("ControlOrMeta+KeyI");
+  await expect(page.getByRole("dialog", { name: "Edit 2 tracks" })).toBeVisible();
+  const before = await loads();
+  await page.keyboard.press("Space");
+  expect(await loads()).toEqual(before);
 });
 
 test("player: a release, artist, crate or playlist plays from its first playable track", async ({ page }) => {
@@ -1733,7 +1746,11 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
   await page.keyboard.type("Techno import");
   await page.keyboard.press("Enter");
   await expect(editor.getByRole("status")).toHaveText('Saved the recipe "Techno import".');
+  // Changes not saved are asked about before the editor closes.
   await page.keyboard.press("Escape");
+  await expect(editor.getByRole("alertdialog", { name: "Discard the changes?" })).toContainText("2 changes are not saved yet.");
+  await editor.getByRole("button", { name: "Discard" }).click();
+  await expect(editor).toHaveCount(0);
 
   await row("0004").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit details..." }).click();
@@ -1947,8 +1964,17 @@ test("a release page can choose, find or remove its cover", async ({ page }) => 
   await page.goto("/");
   await page.getByRole("button", { name: "Releases", exact: true }).click();
   await page.getByTestId("library-card").first().click();
+  // A release opens in track order, and keeps its cover actions with the header folded.
+  await expect(page.getByLabel("Sort library")).toHaveValue("track");
   const cover = page.getByRole("group", { name: "Cover" });
-  await cover.getByRole("button", { name: "Remove cover" }).click();
+  await page.getByRole("button", { name: "Hide header" }).click();
+  await expect(cover).toBeVisible();
+  // Removing asks first, since it cannot be undone.
+  await cover.getByRole("button", { name: "Remove cover..." }).click();
+  await cover.getByRole("alertdialog").getByRole("button", { name: "Keep it" }).click();
+  expect((await calls(page)).filter((call) => call.command === "library_remove_release_art")).toHaveLength(0);
+  await cover.getByRole("button", { name: "Remove cover..." }).click();
+  await cover.getByRole("alertdialog").getByRole("button", { name: "Remove it" }).click();
   await expect(cover.locator("small")).toContainText("The cover was removed from 2 files.");
   await cover.getByRole("button", { name: "Choose cover..." }).click();
   const sent = (await calls(page)).filter((call) => /release_art/.test(call.command)).map((call) => [call.command, call.args.releaseId]);
