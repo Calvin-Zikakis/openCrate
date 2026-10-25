@@ -198,7 +198,9 @@ pub fn files_below(
     for row in rows {
         let (file_id, path) = row?;
         let components: Vec<&[u8]> = path.split(|byte| *byte == 0).collect();
-        if components.len() > depth && shown(&components[..depth]) == folder {
+        // An empty folder name is the whole music folder.
+        if folder.is_empty() || (components.len() > depth && shown(&components[..depth]) == folder)
+        {
             found.push((
                 file_id,
                 components.iter().map(|part| part.to_vec()).collect(),

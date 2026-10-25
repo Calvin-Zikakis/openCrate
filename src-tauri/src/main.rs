@@ -27,6 +27,9 @@ mod moved;
 mod moved_tests;
 mod plan;
 mod player;
+mod refile;
+#[cfg(test)]
+mod refile_tests;
 mod rekordbox_db;
 mod rekordbox_merge;
 mod rekordbox_send;
@@ -433,6 +436,29 @@ async fn library_check(state: State<'_, AppState>) -> Result<folders::HealthDto,
     tauri::async_runtime::spawn_blocking(move || folders::check_health(&service))
         .await
         .map_err(|error| error.to_string())?
+}
+
+/// Files whose place by the folder layout differs from where they are.
+#[tauri::command]
+async fn library_refile_plan(state: State<'_, AppState>) -> Result<refile::RefilePlanDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || refile::refile_plan(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Move the chosen files to their places by the folder layout; rekordbox follows the ones it uses.
+#[tauri::command]
+async fn library_refile(
+    state: State<'_, AppState>,
+    file_ids: Vec<i64>,
+) -> Result<refile::RefiledDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        refile::refile(&service, &rekordbox_db::Probe::installed(), &file_ids)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Missing files, and where each most likely is now.
@@ -1649,6 +1675,8 @@ fn main() -> Result<(), tauri::Error> {
             library_remove_release_art,
             library_track_covers,
             library_moved_files,
+            library_refile_plan,
+            library_refile,
             library_relink,
             library_relink_chosen,
             library_pick_cover,

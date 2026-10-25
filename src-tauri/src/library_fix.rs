@@ -30,18 +30,18 @@ pub struct TidiedDto {
     pub left: Vec<String>,
 }
 
-struct Move {
-    file_id: i64,
-    from: PathBuf,
-    to: PathBuf,
+pub(crate) struct Move {
+    pub(crate) file_id: i64,
+    pub(crate) from: PathBuf,
+    pub(crate) to: PathBuf,
     /// rekordbox's ids for the file: none when it does not use it, more than one when it holds
     /// the file twice.
-    keys: Vec<String>,
+    pub(crate) keys: Vec<String>,
 }
 
 /// Moving files in a folder where rekordbox has entries matching more than one file could leave
 /// those entries pointing at nothing, so the move waits until they are sorted out.
-fn refuse_ambiguous(service: &LibraryService, root_id: i64) -> Result<(), String> {
+pub(crate) fn refuse_ambiguous(service: &LibraryService, root_id: i64) -> Result<(), String> {
     let ambiguous = service
         .rekordbox_ambiguous_in_root(root_id)
         .map_err(|error| error.to_string())?;
@@ -58,7 +58,7 @@ fn refuse_ambiguous(service: &LibraryService, root_id: i64) -> Result<(), String
 
 /// Move each planned file to its tidy place, unless that place is taken on disk or still
 /// listed for a file gone missing there (noted in `left`). A failed move puts back what moved.
-fn move_tidied(
+pub(crate) fn move_tidied(
     service: &LibraryService,
     root_id: i64,
     moves: Vec<Move>,
@@ -545,7 +545,7 @@ fn is_mount_root(_music: &Path, _parent: &Path) -> bool {
 
 /// Move files back, newest first, and say how that went: "everything moved so far was put back",
 /// or which files could not be and where they are now.
-fn undo(done: &[Move]) -> String {
+pub(crate) fn undo(done: &[Move]) -> String {
     let stuck: Vec<String> = done
         .iter()
         .rev()

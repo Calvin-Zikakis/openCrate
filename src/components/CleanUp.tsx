@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onlyCasing, proposeFixes, type ProposedFix } from "../library/cleanup";
-import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, MovedFiles, Relinked, Sort } from "../library/types";
+import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, MovedFiles, RefilePlan, Relinked, Sort } from "../library/types";
 import { Icon } from "./Icon";
 import { PLAIN_TEXT } from "./plainText";
 
@@ -59,6 +59,7 @@ export function CleanUp({ admin, onChanged }: Props) {
     <TitlesCard admin={admin} onChanged={changed} />
     <ArtCard admin={admin} onChanged={changed} />
     <CratesCard admin={admin} onChanged={changed} />
+    <RefileCard admin={admin} onChanged={onChanged} />
   </div>;
 }
 
@@ -140,6 +141,86 @@ function MovedCard({ admin, onChanged }: Props) {
           <button className="secondary-button" disabled={busy} aria-label={`Choose the file for ${file.title}`} onClick={() => void act(() => admin.relinkChosen(file.fileId))}>Choose file...</button>
         </li>)}</ul>
       </>}
+    </>}
+  </section>;
+}
+
+function RefileCard({ admin, onChanged }: Props) {
+  const [plan, setPlan] = useState<RefilePlan | null>(null);
+  const [unticked, setUnticked] = useState<Set<number>>(new Set());
+  const [folded, setFolded] = useState(false);
+  const [busy, setBusy] = useState<"checking" | "moving" | null>(null);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  const check = async () => {
+    setBusy("checking");
+    setError("");
+    try {
+      setPlan(await admin.refilePlan());
+      setUnticked(new Set());
+      setFolded(false);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const move = async () => {
+    if (!plan) return;
+    const chosen = plan.moves.filter((item) => !unticked.has(item.fileId)).map((item) => item.fileId);
+    setBusy("moving");
+    setError("");
+    setNote("");
+    try {
+      const done = await admin.refile(chosen);
+      setNote(`${plural(done.moved, "file was", "files were")} moved${done.relocated > 0 ? `; rekordbox was told where ${plural(done.relocated, "file", "files")} went` : ""}.${done.left.length > 0 ? ` Left where they are: ${done.left.join(" ")}` : ""}`);
+      onChanged();
+      setPlan(await admin.refilePlan());
+      setUnticked(new Set());
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const ticked = plan ? plan.moves.length - unticked.size : 0;
+  const toggle = (fileId: number) => setUnticked((before) => {
+    const next = new Set(before);
+    if (!next.delete(fileId)) next.add(fileId);
+    return next;
+  });
+
+  return <section className="sync-card" role="region" aria-label="Folder layout">
+    <h2>Folder layout</h2>
+    <p className="settings-copy">The folder layout in Settings decides where imports go. This finds music already in your folders that is filed some other way, works out each file's place from its own tags, and moves the files you tick. A file is never moved over another. If rekordbox uses a file, it is told where it went, which needs reading and writing rekordbox on. Checking reads every file's tags, so it can take a while.</p>
+    <div className="merge-actions">
+      <button className="secondary-button" disabled={busy !== null} onClick={() => void check()}>{busy === "checking" ? "Reading tags..." : plan ? "Check again" : "Check against the layout"}</button>
+      {plan && plan.moves.length + plan.skipped.length > 0 && <button className="link-button" aria-expanded={!folded} onClick={() => setFolded(!folded)}>{folded ? `Show the list (${plan.moves.length + plan.skipped.length})` : "Hide the list"}</button>}
+    </div>
+    {error && <p role="alert" className="inline-error">{error}</p>}
+    {note && <p role="status" className="settings-copy">{note}</p>}
+    {plan && <p className="settings-copy">{`Layout: ${plan.layout}. ${plural(plan.inPlace, "file is", "files are")} already in place${plan.moves.length > 0 ? `; ${plural(plan.moves.length, "file is", "files are")} filed another way` : ""}.`}</p>}
+    {plan && !folded && plan.moves.length > 0 && <>
+      <div className="merge-actions">
+        <button className="link-button" disabled={busy !== null} onClick={() => setUnticked(new Set())}>Tick all</button>
+        <button className="link-button" disabled={busy !== null} onClick={() => setUnticked(new Set(plan.moves.map((item) => item.fileId)))}>Untick all</button>
+      </div>
+      <ul className="folder-list" aria-label="Files to move">{plan.moves.slice(0, DRAWN).map((item) => <li key={item.fileId} className="merge-row">
+        <label className="send-row">
+          <input type="checkbox" checked={!unticked.has(item.fileId)} onChange={() => toggle(item.fileId)} aria-label={item.from} />
+          <span className="folder-text">
+            <small>{`From: ${item.rootLabel}: ${item.from}`}</small>
+            <small>{`To: ${item.to}${item.inRekordbox ? " (rekordbox uses it)" : ""}`}</small>
+          </span>
+        </label>
+      </li>)}</ul>
+      {plan.moves.length > DRAWN && <p className="settings-copy">{`And ${plan.moves.length - DRAWN} more, moved while ticked.`}</p>}
+      <button className="import-button" disabled={busy !== null || ticked === 0} onClick={() => void move()}>{busy === "moving" ? "Moving..." : `Move ${plural(ticked, "file", "files")}`}</button>
+    </>}
+    {plan && !folded && plan.skipped.length > 0 && <>
+      <p className="settings-copy">{`${plural(plan.skipped.length, "file stays", "files stay")} where ${plan.skipped.length === 1 ? "it is" : "they are"}:`}</p>
+      <ul className="check-list" aria-label="Files left where they are">{plan.skipped.slice(0, DRAWN).map((item) => <li key={item.path}><strong>{item.path}</strong> <small>{item.why}</small></li>)}</ul>
     </>}
   </section>;
 }

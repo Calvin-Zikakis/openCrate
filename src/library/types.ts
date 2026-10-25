@@ -476,6 +476,10 @@ export interface MovedFile { fileId: number; title: string; artist: string; path
 /** Missing files, each with the file it most likely is now, or none found. */
 export interface MovedFiles { moved: { missing: MovedFile; found: MovedFile; sameFile: boolean }[]; unmatched: MovedFile[] }
 export interface Relinked { relinked: number; relocated: number; left: string[] }
+/** A file whose place by the folder layout differs from where it is; paths are inside the music folder. */
+export interface RefileMove { fileId: number; rootLabel: string; from: string; to: string; inRekordbox: boolean }
+export interface RefilePlan { layout: string; moves: RefileMove[]; skipped: { path: string; why: string }[]; inPlace: number }
+export interface Refiled { moved: number; relocated: number; left: string[] }
 
 export type ExportFormat = "m3u8" | "csv";
 export interface Exported { path: string; tracks: number; withoutFile: number }
@@ -664,6 +668,10 @@ export interface LibraryAdmin {
   relink(pairs: [number, number][]): Promise<Relinked>;
   /** Relink a missing file to one picked with the system picker; null when cancelled. */
   relinkChosen(missingFileId: number): Promise<Relinked | null>;
+  /** Files whose place by the folder layout differs from where they are. Reads every file's tags. */
+  refilePlan(): Promise<RefilePlan>;
+  /** Move the chosen files to their places by the layout; rekordbox follows the ones it uses. */
+  refile(fileIds: number[]): Promise<Refiled>;
   /** Pick a cover image with the system picker and hold it until `setTracksArt(…, "picked")`; false when cancelled. */
   pickCover(): Promise<boolean>;
   setTracksArt(trackIds: number[], art: TrackArt): Promise<ArtChanged>;

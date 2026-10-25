@@ -313,6 +313,21 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return { relinked: (args?.pairs ?? []).length, relocated: 1, left: [] };
             case "library_relink_chosen":
               return null;
+            case "library_refile_plan": {
+              const moved: number[] = (window as any).__refiled ?? [];
+              const all = [
+                { fileId: 1, rootLabel: "Music", from: "Unsorted/night.aif", to: "Studio 001/Between Spaces/01 - Studio 001 - Night Drive.aif", inRekordbox: true },
+                { fileId: 2, rootLabel: "Music", from: "Unsorted/soft.aif", to: "Studio 001/Between Spaces/02 - Studio 001 - Soft Focus.aif", inRekordbox: false },
+              ];
+              return {
+                layout: "{folder_artist}/{release}/{track:02} - {artist} - {title}", inPlace: 3 + moved.length,
+                moves: all.filter((item) => !moved.includes(item.fileId)),
+                skipped: [{ path: "Music: Unsorted/nobody.aif", why: "it has no artist or title in its tags" }],
+              };
+            }
+            case "library_refile":
+              (window as any).__refiled = [...((window as any).__refiled ?? []), ...(args?.fileIds ?? [])];
+              return { moved: (args?.fileIds ?? []).length, relocated: 0, left: [] };
             case "library_track_covers":
               return { state: (args?.trackIds ?? []).length > 1 ? "mixed" : "same", folderImage: true };
             case "library_pick_cover":
@@ -2005,6 +2020,23 @@ test("clean up: a file moved outside openCrate is found and relinked; one not fo
   expect(await page.evaluate(() => (window as any).__relinked)).toEqual([13]);
   await card.getByRole("button", { name: "Hide the list" }).click();
   await expect(card.getByRole("list", { name: "Not found" })).toHaveCount(0);
+});
+
+test("clean up: music filed another way is moved by the folder layout, only what is ticked", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const card = page.getByRole("region", { name: "Folder layout" });
+  await card.getByRole("button", { name: "Check against the layout" }).click();
+  await expect(card).toContainText("3 files are already in place; 2 files are filed another way.");
+  const list = card.getByRole("list", { name: "Files to move" });
+  await expect(list).toContainText("To: Studio 001/Between Spaces/01 - Studio 001 - Night Drive.aif (rekordbox uses it)");
+  await expect(card.getByRole("list", { name: "Files left where they are" })).toContainText("it has no artist or title in its tags");
+  await list.getByRole("checkbox", { name: "Unsorted/night.aif" }).uncheck();
+  await card.getByRole("button", { name: "Move 1 file" }).click();
+  await expect(card.getByRole("status")).toHaveText("1 file was moved.");
+  expect(await page.evaluate(() => (window as any).__refiled)).toEqual([2]);
+  await expect(list.getByRole("listitem")).toHaveCount(1);
 });
 
 test("clean up: a change that cannot be put back can be forgotten, so earlier ones can be undone", async ({ page }) => {

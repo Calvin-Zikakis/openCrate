@@ -36,7 +36,7 @@ export function FolderLayout({ admin, open }: { admin: LibraryAdmin; open: boole
   const preset = layout.presets.find((item) => item.layout === layout.layout);
   return <>
     <h3>Folder layout</h3>
-    <p className="settings-copy">How imported music is arranged in your music folder. Music already there is not moved.</p>
+    <p className="settings-copy">How imported music is arranged in your music folder. Music already there stays where it is unless you move it with Folder layout on the Clean up screen.</p>
     <div className="layout-options" role="radiogroup" aria-label="Folder layout">
       {layout.presets.map((item) => <label key={item.layout} className="layout-option">
         <input type="radio" name="folder-layout" checked={preset?.layout === item.layout} onChange={() => void choose(item.layout)} />

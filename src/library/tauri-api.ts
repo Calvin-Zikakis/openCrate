@@ -16,6 +16,8 @@ import {
   type MovedFile,
   type MovedFiles,
   type Relinked,
+  type RefilePlan,
+  type Refiled,
   type LookupKeys,
   type MergeApplied,
   type MergeChange,
@@ -551,6 +553,29 @@ function toRelinked(value: unknown): Relinked {
   return { relinked: whole(value.relinked, what), relocated: whole(value.relocated, what), left: value.left.map((item) => text(item, what)) };
 }
 
+function toRefilePlan(value: unknown): RefilePlan {
+  const what = "re-file plan";
+  if (!isRecord(value) || !Array.isArray(value.moves) || !Array.isArray(value.skipped)) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    layout: text(value.layout, what),
+    inPlace: whole(value.inPlace, what),
+    moves: value.moves.map((item: unknown) => {
+      if (!isRecord(item)) throw new Error(`The library returned an unreadable ${what}.`);
+      return { fileId: whole(item.fileId, what), rootLabel: text(item.rootLabel, what), from: text(item.from, what), to: text(item.to, what), inRekordbox: flag(item.inRekordbox, what) };
+    }),
+    skipped: value.skipped.map((item: unknown) => {
+      if (!isRecord(item)) throw new Error(`The library returned an unreadable ${what}.`);
+      return { path: text(item.path, what), why: text(item.why, what) };
+    }),
+  };
+}
+
+function toRefiled(value: unknown): Refiled {
+  const what = "re-file";
+  if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
+  return { moved: whole(value.moved, what), relocated: whole(value.relocated, what), left: value.left.map((item) => text(item, what)) };
+}
+
 function toArtChanged(value: unknown): ArtChanged {
   const what = "art change";
   if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
@@ -809,6 +834,8 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       if (!isRecord(value) || !["none", "same", "mixed"].includes(value.state as string)) throw new Error("The library returned unreadable covers.");
       return { state: value.state as TrackCovers["state"], folderImage: flag(value.folderImage, "covers") };
     },
+    refilePlan: async () => toRefilePlan(await invoke("library_refile_plan").catch((error: unknown) => { throw failure(error); })),
+    refile: async (fileIds) => toRefiled(await invoke("library_refile", { fileIds }).catch((error: unknown) => { throw failure(error); })),
     movedFiles: async () => toMovedFiles(await invoke("library_moved_files").catch((error: unknown) => { throw failure(error); })),
     relink: async (pairs) => toRelinked(await invoke("library_relink", { pairs }).catch((error: unknown) => { throw failure(error); })),
     relinkChosen: async (missing) => {
