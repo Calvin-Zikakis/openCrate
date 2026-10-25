@@ -26,7 +26,9 @@ export function Sync({ admin, onChanged }: Props) {
   const [reads, setReads] = useState(0);
   const [suggestions, setSuggestions] = useState<AliasSuggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
+  /** Which read is under way, so only its button says so. */
+  type Busy = "again" | "choose" | "direct" | "alias";
+  const [busy, setBusy] = useState<Busy | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
 
@@ -46,8 +48,8 @@ export function Sync({ admin, onChanged }: Props) {
 
   useEffect(() => { void load(); }, [load]);
 
-  const run = async (work: () => Promise<ImportResult | null>) => {
-    setBusy(true);
+  const run = async (work: () => Promise<ImportResult | null>, what: Busy = "again") => {
+    setBusy(what);
     setNote("");
     setError("");
     try {
@@ -62,22 +64,22 @@ export function Sync({ admin, onChanged }: Props) {
       setError(message(reason));
       await load();
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
-  const choose = () => void run(() => admin.importExport());
-  const readLibrary = () => void run(() => admin.readRekordboxDatabase());
+  const choose = () => void run(() => admin.importExport(), "choose");
+  const readLibrary = () => void run(() => admin.readRekordboxDatabase(), "direct");
   const direct = database?.enabled ? database : null;
   const blocked = direct?.running ? "rekordbox is running. Quit it to read its library."
     : direct?.needsConfirmation ? `rekordbox is now ${direct.appVersion ?? "a new version"}. Confirm the warning in Settings before reading it.` : "";
-  const readButton = direct && <button className="secondary-button" disabled={busy || blocked !== ""} onClick={readLibrary}>{busy ? "Reading..." : "Read from rekordbox"}</button>;
+  const readButton = direct && <button className="secondary-button" disabled={busy !== null || blocked !== ""} onClick={readLibrary}>{busy === "direct" ? "Reading..." : "Read from rekordbox"}</button>;
   const fromLibrary = mirror?.kind === "master_db";
   const again = () => mirror && void run(() => admin.rereadMirror(mirror.sourceId));
   /** Take one suggestion, or all of them, then read once so the new matches show. */
   const accept = (taken: AliasSuggestion[]) => mirror && void run(async () => {
     for (const suggestion of taken) await admin.addAlias(suggestion.rootId, suggestion.prefix);
     return mirror.kind === "master_db" ? admin.readRekordboxDatabase() : admin.rereadMirror(mirror.sourceId);
-  });
+  }, "alias");
 
   return <div className="sync-screen">
     <div className="feature-empty sync-hero">
@@ -94,7 +96,7 @@ export function Sync({ admin, onChanged }: Props) {
       <p className="settings-copy">In rekordbox, choose File, then Export Collection in xml format. Then pick that file here. Add your music folder in Settings first so entries can be matched.</p>
       {direct && <p className="settings-copy">Or read rekordbox's own library directly. openCrate backs it up first and reads the copy.</p>}
       <div className="sync-actions">
-        <button className="secondary-button" disabled={busy} onClick={choose}>{busy ? "Reading..." : "Choose export..."}</button>
+        <button className="secondary-button" disabled={busy !== null} onClick={choose}>{busy === "choose" ? "Reading..." : "Choose export..."}</button>
         {readButton}
       </div>
     </div>}
@@ -106,9 +108,9 @@ export function Sync({ admin, onChanged }: Props) {
           <small>{mirror.lastReadMs ? `Read ${new Date(mirror.lastReadMs).toLocaleString()}` : "Not read yet"}{mirror.generation > 0 ? ` - version ${mirror.generation}` : ""}</small>
         </div>
         <div className="sync-actions">
-          {fromLibrary ? readButton : <button className="secondary-button" disabled={busy} onClick={again}>{busy ? "Reading..." : "Read again"}</button>}
+          {fromLibrary ? readButton : <button className="secondary-button" disabled={busy !== null} onClick={again}>{busy === "again" ? "Reading..." : "Read again"}</button>}
           {!fromLibrary && readButton}
-          <button className="secondary-button" disabled={busy} onClick={choose}>{fromLibrary ? "Choose export..." : "Choose another..."}</button>
+          <button className="secondary-button" disabled={busy !== null} onClick={choose}>{busy === "choose" ? "Reading..." : fromLibrary ? "Choose export..." : "Choose another..."}</button>
         </div>
       </div>
       {mirror.changedSinceRead && <p className="inline-error">{fromLibrary
@@ -135,9 +137,9 @@ export function Sync({ admin, onChanged }: Props) {
           <strong>{number(suggestion.entries)} entries start with {suggestion.prefix}</strong>
           <small>They match files in {suggestion.rootLabel}</small>
         </div>
-        <button className="secondary-button" disabled={busy} aria-label={`Use ${suggestion.prefix} for ${suggestion.rootLabel}`} onClick={() => accept([suggestion])}>Use this</button>
+        <button className="secondary-button" disabled={busy !== null} aria-label={`Use ${suggestion.prefix} for ${suggestion.rootLabel}`} onClick={() => accept([suggestion])}>Use this</button>
       </li>)}</ul>
-      {suggestions.length > 1 && <button className="import-button" disabled={busy} onClick={() => accept(suggestions)}>{busy ? "Reading..." : `Use all ${suggestions.length}`}</button>}
+      {suggestions.length > 1 && <button className="import-button" disabled={busy !== null} onClick={() => accept(suggestions)}>{busy === "alias" ? "Reading..." : `Use all ${suggestions.length}`}</button>}
     </div>}
   </div>;
 }

@@ -830,13 +830,13 @@ test("a folder is removed only after confirmation, and the library reloads", asy
 
   await dialog.getByRole("button", { name: "Remove Music" }).click();
   await expect(dialog.getByRole("alertdialog")).toContainText("Your music files are not touched.");
-  await dialog.getByRole("button", { name: "Keep it" }).click();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
   await expect(dialog.getByText("/Users/dj/Music")).toBeVisible();
   expect((await calls(page)).filter((call) => call.command === "library_remove_root")).toHaveLength(0);
 
   await dialog.getByRole("button", { name: "Remove Music" }).click();
-  await dialog.getByRole("button", { name: "Remove from library" }).click();
+  await dialog.getByRole("button", { name: "Remove folder" }).click();
   await expect(dialog.getByText("No folders yet")).toBeVisible();
   const removal = (await calls(page)).filter((call) => call.command === "library_remove_root");
   expect(removal.map((call) => call.args)).toEqual([{ rootId: 7 }]);
@@ -864,11 +864,11 @@ test("download folders are added, switched off and removed, and a refused folder
   await dialog.getByRole("button", { name: "Turn on Downloads" }).click();
   await expect(dialog.getByText("Watching", { exact: true })).toBeVisible();
 
-  // Both ask first; Keep it as it is changes nothing.
+  // Both ask first; Cancel changes nothing.
   await dialog.getByRole("button", { name: "Count what is in Downloads now as already there" }).click();
-  await dialog.getByRole("alertdialog").getByRole("button", { name: "Keep it as it is" }).click();
+  await dialog.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await dialog.getByRole("button", { name: "Count what is in Downloads now as already there" }).click();
-  await dialog.getByRole("alertdialog").getByRole("button", { name: "Count them" }).click();
+  await dialog.getByRole("alertdialog").getByRole("button", { name: "Count them as there" }).click();
   await expect(dialog.getByText("Everything in Downloads now counts as already there.")).toBeVisible();
   await dialog.getByRole("button", { name: "Remove Downloads from download folders" }).click();
   await dialog.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
@@ -1765,13 +1765,13 @@ test("editing: a recipe saves typed values and cleanup rules and applies them ag
   // Changes not saved are asked about before the editor closes.
   await page.keyboard.press("Escape");
   await expect(editor.getByRole("alertdialog", { name: "Discard the changes?" })).toContainText("2 changes are not saved yet.");
-  await editor.getByRole("button", { name: "Discard" }).click();
+  await editor.getByRole("button", { name: "Discard changes" }).click();
   await expect(editor).toHaveCount(0);
   // A saved recipe can be deleted.
   await row("0004").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit details..." }).click();
   const managing = page.getByRole("dialog", { name: "Edit details" });
-  await managing.getByRole("button", { name: "Manage recipes..." }).click();
+  await managing.getByRole("button", { name: "Manage recipes" }).click();
   await expect(managing.getByRole("list", { name: "Saved recipes" })).toContainText("Techno import");
   await page.keyboard.press("Escape");
 
@@ -1891,10 +1891,13 @@ test("tracks are taken out of a crate from the menu in any order, and a track op
   const crates = page.getByRole("navigation", { name: "Crates" });
   // The column headings sort; a second click on Title / Artist sorts by artist.
   const headings = page.getByRole("group", { name: "Sort by column" });
-  await headings.getByRole("button", { name: "Title / Artist" }).click();
+  await headings.getByRole("button", { name: "Title", exact: true }).click();
   await expect(page.getByLabel("Sort library")).toHaveValue("title");
-  await headings.getByRole("button", { name: "Title / Artist" }).click();
+  await headings.getByRole("button", { name: "Artist", exact: true }).click();
   await expect(page.getByLabel("Sort library")).toHaveValue("artist");
+  // The heading already sorting the list turns it round.
+  await headings.getByRole("button", { name: "Artist", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Reverse the order" })).toHaveAttribute("aria-pressed", "true");
   await headings.getByRole("button", { name: "BPM" }).click();
   await expect(page.getByLabel("Sort library")).toHaveValue("bpm");
   await headings.getByRole("button", { name: "#" }).click();
@@ -1909,13 +1912,23 @@ test("tracks are taken out of a crate from the menu in any order, and a track op
   await page.getByRole("button", { name: "Back to tracks" }).click();
   for (const n of ["0001", "0002", "0003"]) await page.getByRole("button", { name: new RegExp(`Rust Track ${n},`) }).dragTo(crates.getByRole("button", { name: /Warm-up/ }));
   await crates.getByRole("button", { name: /Warm-up/ }).click();
-  await page.getByLabel("Sort library").selectOption("title");
   const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  // Back from a release reached from the crate goes to the crate, not to a grid never visited.
+  await row("0002").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /^Go to the release/ }).click();
+  await expect(page.getByText("RELEASE", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Back to Warm-up" }).click();
+  await expect(page.getByRole("heading", { name: "Warm-up" })).toBeVisible();
+  await page.getByLabel("Sort library").selectOption("title");
   await row("0001").click();
   await row("0002").click({ modifiers: ["ControlOrMeta"] });
   await row("0002").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Remove 2 tracks from the crate" }).click();
+  // Several at once ask first; one alone goes straight away.
+  await page.getByRole("menuitem", { name: "Remove 2 tracks from the crate..." }).click();
+  await expect(page.getByTestId("track-row")).toHaveCount(3);
+  await page.getByRole("alertdialog", { name: "Remove 2 tracks from Warm-up?" }).getByRole("button", { name: "Remove tracks" }).click();
   await expect(page.getByTestId("track-row")).toHaveCount(1);
+  await expect(page.getByRole("status").filter({ hasText: "Removed 2 tracks from Warm-up." })).toBeVisible();
   // The keyboard does it too, in this order.
   await row("0003").focus();
   await page.keyboard.press("Delete");
@@ -2038,12 +2051,12 @@ test("a release page can choose, find or remove its cover", async ({ page }) => 
   await expect(cover).toBeVisible();
   // Removing asks first, since it cannot be undone.
   await cover.getByRole("button", { name: "Remove cover..." }).click();
-  await cover.getByRole("alertdialog").getByRole("button", { name: "Keep it" }).click();
+  await cover.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   expect((await calls(page)).filter((call) => call.command === "library_remove_release_art")).toHaveLength(0);
   await cover.getByRole("button", { name: "Remove cover..." }).click();
-  await cover.getByRole("alertdialog").getByRole("button", { name: "Remove it" }).click();
+  await cover.getByRole("alertdialog").getByRole("button", { name: "Remove cover" }).click();
   await expect(cover.locator("small")).toContainText("The cover was removed from 2 files.");
-  await cover.getByRole("button", { name: "Choose cover..." }).click();
+  await cover.getByRole("button", { name: "Choose image..." }).click();
   const sent = (await calls(page)).filter((call) => /release_art/.test(call.command)).map((call) => [call.command, call.args.releaseId]);
   expect(sent).toEqual([["library_remove_release_art", 1], ["library_set_release_art", 1]]);
 });
@@ -2078,7 +2091,7 @@ test("clean up: crates are compared, sorted and merged", async ({ page }) => {
   // Sorting for good asks first.
   await card.getByRole("button", { name: "Sort crate..." }).click();
   await expect(card.getByRole("alertdialog")).toContainText("Warm-up takes BPM order for good");
-  await card.getByRole("alertdialog").getByRole("button", { name: "Sort it" }).click();
+  await card.getByRole("alertdialog").getByRole("button", { name: "Sort crate" }).click();
   await expect(card.getByRole("status")).toContainText("Warm-up is now in BPM order.");
   // A comparison of crates as they were is gone once one changes.
   await expect(card.getByRole("region", { name: "Comparison" })).toHaveCount(0);
@@ -2089,7 +2102,7 @@ test("clean up: crates are compared, sorted and merged", async ({ page }) => {
   await card.getByRole("checkbox", { name: "Remove the merged crate" }).check();
   await card.getByRole("button", { name: "Merge..." }).click();
   await expect(card.getByRole("alertdialog")).toContainText("Peak's tracks go into Warm-up, and Peak is removed.");
-  await card.getByRole("alertdialog").getByRole("button", { name: "Merge" }).click();
+  await card.getByRole("alertdialog").getByRole("button", { name: "Merge crates" }).click();
   await expect(card.getByRole("status")).toContainText("1 track added to Warm-up; Peak removed.");
   await expect(crates.getByRole("button", { name: /Peak/ })).toHaveCount(0);
 });
@@ -2384,7 +2397,7 @@ test("crates: make one, drag tracks onto it, reorder by dragging and keyboard, r
   await crates.getByRole("button", { name: /Opening/ }).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await expect(crates.getByRole("alertdialog")).toContainText("The tracks stay in your library.");
-  await crates.getByRole("button", { name: "Delete", exact: true }).click();
+  await crates.getByRole("button", { name: "Delete crate", exact: true }).click();
   await expect(crates.getByRole("button", { name: /Opening/ })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Tracks", exact: true })).toBeVisible();
 });
@@ -2944,12 +2957,13 @@ test("send to rekordbox: a stale or missing read is pointed out", async ({ page 
   await expect(page.getByRole("region", { name: "New in your library" })).toContainText("rekordbox has not been read yet");
 });
 
-test("send to rekordbox: nothing new shows no card", async ({ page }) => {
+test("send to rekordbox: nothing new keeps the card, saying rekordbox has everything", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.goto("/");
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await expect(page.getByRole("heading", { name: "No export yet" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "New in your library" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "New in your library" })).toContainText("rekordbox has every track openCrate filed.");
+  await expect(page.getByRole("region", { name: "New in your library" }).getByRole("checkbox")).toHaveCount(0);
 });
 
 test("crates for rekordbox: a crate is switched into the file and the file updated", async ({ page }) => {
@@ -2984,7 +2998,7 @@ test("send to rekordbox: a track kept out is hidden and can be brought back", as
   await card.getByRole("button", { name: "Keep Late Train out of rekordbox" }).click();
   await expect(card.getByRole("checkbox")).toHaveCount(2);
   await expect(card.getByRole("button", { name: "Send 2 to rekordbox" })).toBeEnabled();
-  await card.getByRole("button", { name: "Show 1 hidden track" }).click();
+  await card.getByRole("button", { name: "Show the 1 track kept out" }).click();
   await card.getByRole("button", { name: "Bring Late Train back" }).click();
   await expect(card.getByRole("checkbox")).toHaveCount(3);
   const hides = (await calls(page)).filter((call) => call.command === "rekordbox_hide").map((call) => call.args);
@@ -3005,7 +3019,7 @@ test("first start: the welcome walks through the music folder, downloads and rek
   await welcome.getByRole("button", { name: "Open the rekordbox screen" }).click();
   await expect(page.getByRole("heading", { name: "No export yet" })).toBeVisible();
   await page.getByRole("button", { name: "Tracks", exact: true }).click();
-  await page.getByRole("region", { name: "Welcome to openCrate" }).getByRole("button", { name: "Done for now" }).click();
+  await page.getByRole("region", { name: "Welcome to openCrate" }).getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("region", { name: "Welcome to openCrate" })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("status")).toBeVisible();

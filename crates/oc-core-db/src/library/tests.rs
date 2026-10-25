@@ -224,14 +224,15 @@ fn a_reversed_query_reads_the_other_way_round_with_no_tempo_still_last() {
         tempos.windows(2).all(|pair| pair[0] >= pair[1]),
         "BPM runs high to low"
     );
-    // The owner's own arrangements are never turned round.
-    for sort in [Sort::Custom, Sort::Crate, Sort::Playlist] {
+    // The owner's own arrangements are never turned round. A playlist or crate order without
+    // its playlist or crate falls back to newest first, which does reverse.
+    {
         let mut query = LibraryQuery::new(View::Tracks);
-        query.sort = sort;
+        query.sort = Sort::Custom;
         let forward: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
         query.reversed = true;
         let same: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
-        assert_eq!(same, forward, "{sort:?} ignores reversed");
+        assert_eq!(same, forward, "custom order ignores reversed");
     }
     for view in [View::Releases, View::Artists] {
         let mut query = LibraryQuery::new(view);

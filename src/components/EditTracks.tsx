@@ -221,7 +221,7 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
     else onClose();
   };
 
-  return <dialog ref={dialog} className="settings-dialog editor-dialog" aria-labelledby="editor-title" onCancel={(event) => { event.preventDefault(); requestClose(); }}>
+  return <dialog ref={dialog} className="settings-dialog editor-dialog" aria-labelledby="editor-title" onCancel={(event) => { event.preventDefault(); if (discarding) setDiscarding(false); else requestClose(); }} onClose={onClose}>
     <div className="dialog-heading">
       <div><h2 id="editor-title">{single ? "Edit details" : `Edit ${trackIds.length} tracks`}</h2></div>
       <button className="icon-button" aria-label="Close the editor" onClick={requestClose}><Icon name="close" /></button>
@@ -229,7 +229,7 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
     <div className="dialog-body">
       {discarding && <div className="crate-confirm editor-discard" role="alertdialog" aria-label="Discard the changes?" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDiscarding(false); } }}>
         <span>{`${plural(changeCount, "change is", "changes are")} not saved yet.`}</span>
-        <button className="link-button" onClick={onClose}>Discard</button>
+        <button className="link-button" onClick={onClose}>Discard changes</button>
         <button className="link-button" autoFocus onClick={() => setDiscarding(false)}>Keep editing</button>
       </div>}
       {!tracks && !error && <p className="settings-copy" role="status">Reading the tags...</p>}
@@ -278,12 +278,12 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
               const idle = applyRules(recipe.rules.flatMap((id) => RULES.filter((rule) => rule.id === id)), typing);
               setNote(`Applied "${recipe.name}".${idle ? ` ${idle}` : ""}`);
             }}>
-              <option value="">Apply a recipe...</option>
+              <option value="">Apply a recipe</option>
               {recipes.map((recipe) => <option key={recipe.name} value={recipe.name}>{recipe.name}</option>)}
             </select>
           </label>}
           {!naming && (Object.keys(typed).length > 0 || applied.length > 0) && <button className="link-button" onClick={() => setNaming(true)}>Save as recipe...</button>}
-          {recipes.length > 0 && <button className="link-button" aria-expanded={managing} onClick={() => setManaging(!managing)}>{managing ? "Done with recipes" : "Manage recipes..."}</button>}
+          {recipes.length > 0 && <button className="link-button" aria-expanded={managing} onClick={() => setManaging(!managing)}>{managing ? "Done with recipes" : "Manage recipes"}</button>}
           {naming && <span className="recipe-name">
             <input {...PLAIN_TEXT} autoFocus aria-label="Recipe name" value={recipeName} placeholder="Name" onChange={(event) => setRecipeName(event.target.value)}
               onKeyDown={(event) => {

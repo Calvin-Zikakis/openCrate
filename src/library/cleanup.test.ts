@@ -12,6 +12,10 @@ describe("cleanup rules for track details", () => {
     expect(removeNumberPrefix("808 State")).toBe("808 State");
     expect(removeNumberPrefix("99 Problems")).toBe("99 Problems");
     expect(removeNumberPrefix("A Love Supreme")).toBe("A Love Supreme");
+    // A name that only starts with a letter or digit and a mark is a name.
+    for (const name of ["D.A.N.C.E.", "E.T.", "A-Trak Edit", "G-Funk Intro", "C-Section", "2-Step", "4-Ever", "B. Traits Theme"]) {
+      expect(removeNumberPrefix(name)).toBe(name);
+    }
   });
 
   it("fixes casing only where a whole value is in one case", () => {

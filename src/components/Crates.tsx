@@ -62,15 +62,15 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
   const submitName = async () => {
     if (!naming) return;
     const { id, name } = naming;
+    // Cleared before the wait: a blur while the crate is made must not make a second one.
+    setNaming(null);
     try {
       if (id === null) {
         const made = await admin.createCrate(name);
-        setNaming(null);
         await load();
         onOpen(made);
       } else {
         await admin.renameCrate(id, name);
-        setNaming(null);
         await load();
         const renamed = crates.find((crate) => crate.id === id);
         if (renamed) onRenamed({ ...renamed, name: name.trim() });
@@ -163,9 +163,9 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
         </button>}
         {confirming?.id === crate.id && <div className="crate-confirm" role="alertdialog" aria-label={`Delete ${crate.name}?`} onKeyDown={(event) => { if (event.key === "Escape") setConfirming(null); }}>
           <span>Delete {crate.name}? The tracks stay in your library.</span>
-          <button className="link-button" onClick={() => void remove(crate)}>Delete</button>
-          {/* Focus starts on Keep it: Enter alone should not delete. */}
-          <button className="link-button" autoFocus onClick={() => setConfirming(null)}>Keep it</button>
+          <button className="link-button" onClick={() => void remove(crate)}>Delete crate</button>
+          {/* Focus starts on Cancel: Enter alone should not delete. */}
+          <button className="link-button" autoFocus onClick={() => setConfirming(null)}>Cancel</button>
         </div>}
       </li>)}
       {naming?.id === null && <li>{nameInput("New crate name")}</li>}

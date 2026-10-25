@@ -32,8 +32,17 @@ export function leftOut(left: string[]): string {
   return ` ${plural(left.length, "file was", "files were")} left as they were. ${groups.join(" ")}`;
 }
 
-/** Rows drawn; ticking all still covers every one. */
+/** Rows drawn at first; Show more draws the next lot, so every row can be seen and unticked. */
 const DRAWN = 300;
+
+/** The first `shown` rows of a long list, with a link for the next lot. */
+function useDrawn(total: number) {
+  const [shown, setShown] = useState(DRAWN);
+  const more = total > shown
+    ? <p className="settings-copy"><button className="link-button" onClick={() => setShown((count) => count + DRAWN)}>{`Show ${Math.min(DRAWN, total - shown)} more`}</button>{` ${total - shown} of ${total} not shown yet; ticked ones count all the same.`}</p>
+    : null;
+  return { shown, more };
+}
 
 interface Props {
   admin: LibraryAdmin;
@@ -115,6 +124,8 @@ function MovedCard({ admin, onChanged }: Props) {
     }
   };
   const total = found ? found.moved.length + found.unmatched.length : 0;
+  const movedDrawn = useDrawn(found?.moved.length ?? 0);
+  const unmatchedDrawn = useDrawn(found?.unmatched.length ?? 0);
 
   return <section className="sync-card" role="region" aria-label="Moved files">
     <h2>Moved files</h2>
@@ -134,7 +145,7 @@ function MovedCard({ admin, onChanged }: Props) {
           <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set())}>Tick all</button>
           <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(found.moved.map((item) => item.missing.fileId)))}>Untick all</button>
         </div>}
-        <ul className="folder-list" aria-label="Found elsewhere">{found.moved.slice(0, DRAWN).map((item) => <li key={item.missing.fileId} className="folder-row">
+        <ul className="folder-list" aria-label="Found elsewhere">{found.moved.slice(0, movedDrawn.shown).map((item) => <li key={item.missing.fileId} className="folder-row">
           <label className="send-row">
             <input type="checkbox" checked={!unticked.has(item.missing.fileId)} aria-label={`Relink ${item.missing.title}`} onChange={() => setUnticked((before) => {
               const next = new Set(before);
@@ -148,6 +159,7 @@ function MovedCard({ admin, onChanged }: Props) {
             </span>
           </label>
         </li>)}</ul>
+        {movedDrawn.more}
         {(() => {
           const chosen = found.moved.filter((item) => !unticked.has(item.missing.fileId));
           return <button className="import-button" disabled={busy || chosen.length === 0} onClick={() => void act(() => admin.relink(chosen.map((item) => [item.missing.fileId, item.found.fileId])))}>{busy ? "Relinking..." : `Relink ${plural(chosen.length, "track", "tracks")}`}</button>;
@@ -155,13 +167,14 @@ function MovedCard({ admin, onChanged }: Props) {
       </>}
       {found.unmatched.length > 0 && <>
         <p className="settings-copy">{`${plural(found.unmatched.length, "missing file was", "missing files were")} not found. If you know where one is now, choose it; it has to be in one of your music folders.`}</p>
-        <ul className="folder-list" aria-label="Not found">{found.unmatched.slice(0, DRAWN).map((file) => <li key={file.fileId} className="folder-row">
+        <ul className="folder-list" aria-label="Not found">{found.unmatched.slice(0, unmatchedDrawn.shown).map((file) => <li key={file.fileId} className="folder-row">
           <div className="folder-text">
             <strong>{`${file.title || "Untitled"} - ${file.artist}`}</strong>
             <small>{`Was: ${file.path}`}</small>
           </div>
           <button className="secondary-button" disabled={busy} aria-label={`Choose the file for ${file.title}`} onClick={() => void act(() => admin.relinkChosen(file.fileId))}>Choose file...</button>
         </li>)}</ul>
+        {unmatchedDrawn.more}
       </>}
     </>}
   </section>;
@@ -169,6 +182,8 @@ function MovedCard({ admin, onChanged }: Props) {
 
 function RefileCard({ admin, onChanged }: Props) {
   const [plan, setPlan] = useState<RefilePlan | null>(null);
+  const movesDrawn = useDrawn(plan?.moves.length ?? 0);
+  const skippedDrawn = useDrawn(plan?.skipped.length ?? 0);
   const [unticked, setUnticked] = useState<Set<number>>(new Set());
   const [folded, setFolded] = useState(false);
   const [busy, setBusy] = useState<"checking" | "moving" | null>(null);
@@ -229,7 +244,7 @@ function RefileCard({ admin, onChanged }: Props) {
         <button className="link-button" disabled={busy !== null} onClick={() => setUnticked(new Set())}>Tick all</button>
         <button className="link-button" disabled={busy !== null} onClick={() => setUnticked(new Set(plan.moves.map((item) => item.fileId)))}>Untick all</button>
       </div>
-      <ul className="folder-list" aria-label="Files to move">{plan.moves.slice(0, DRAWN).map((item) => <li key={item.fileId} className="merge-row">
+      <ul className="folder-list" aria-label="Files to move">{plan.moves.slice(0, movesDrawn.shown).map((item) => <li key={item.fileId} className="merge-row">
         <label className="send-row">
           <input type="checkbox" checked={!unticked.has(item.fileId)} onChange={() => toggle(item.fileId)} aria-label={item.from} />
           <span className="folder-text">
@@ -238,12 +253,12 @@ function RefileCard({ admin, onChanged }: Props) {
           </span>
         </label>
       </li>)}</ul>
-      {plan.moves.length > DRAWN && <p className="settings-copy">{`And ${plan.moves.length - DRAWN} more, moved while ticked.`}</p>}
+      {movesDrawn.more}
       <button className="import-button" disabled={busy !== null || ticked === 0} onClick={() => void move()}>{busy === "moving" ? "Moving..." : `Move ${plural(ticked, "file", "files")}`}</button>
     </>}
     {plan && !folded && plan.skipped.length > 0 && <>
       <p className="settings-copy">{`${plural(plan.skipped.length, "file stays", "files stay")} where ${plan.skipped.length === 1 ? "it is" : "they are"}:`}</p>
-      <ul className="check-list" aria-label="Files left where they are">{plan.skipped.slice(0, DRAWN).map((item) => <li key={item.path}><strong>{item.path}</strong> <small>{item.why}</small></li>)}</ul>
+      <ul className="check-list" aria-label="Files left where they are">{plan.skipped.slice(0, skippedDrawn.shown).map((item) => <li key={item.path}><strong>{item.path}</strong> <small>{item.why}</small></li>)}</ul>
     </>}
   </section>;
 }
@@ -285,24 +300,31 @@ function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
   };
   /** Merge every group into the spelling its box shows, one group after another. Each merge is
    * its own entry in Recent changes, so any one can be undone. */
+  const [progress, setProgress] = useState("");
+  const stopAsked = useRef(false);
   const mergeAll = async () => {
     if (!genres) return;
     setBusy(true);
     setError("");
     setNote("");
+    stopAsked.current = false;
     let files = 0;
     let merged = 0;
+    let tried = 0;
     const left: string[] = [];
     try {
-      for (const group of genres.groups) {
+      for (const [index, group] of genres.groups.entries()) {
+        if (stopAsked.current) break;
+        tried += 1;
         const to = (names[group.members.join("|")] ?? group.suggested).trim();
         if (!to) continue;
+        setProgress(`Merging group ${index + 1} of ${genres.groups.length}: ${to}...`);
         const done = await admin.renameGenres(group.members.filter((member) => member !== to), to);
         files += done.files;
         merged += 1;
         left.push(...done.left);
       }
-      setNote(`${plural(merged, "group", "groups")} merged; ${plural(files, "file has", "files have")} a new genre.${leftOut(left)}`);
+      setNote(`${plural(merged, "group", "groups")} merged; ${plural(files, "file has", "files have")} a new genre.${tried < genres.groups.length ? ` Stopped with ${plural(genres.groups.length - tried, "group", "groups")} not merged.` : ""}${leftOut(left)}`);
       setNames({});
       await load();
       onChanged();
@@ -310,6 +332,7 @@ function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
       setError(`${merged > 0 ? `${plural(merged, "group was", "groups were")} merged before this. ` : ""}${message(reason)}`);
       await load();
     } finally {
+      setProgress("");
       setBusy(false);
     }
   };
@@ -319,9 +342,8 @@ function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
     <p className="settings-copy">Genres that differ only in case, spaces or punctuation are grouped, with the commonest spelling suggested. Merge a group into one spelling, or rename any genre.</p>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {note && <p role="status" className="settings-copy">{note}</p>}
-    {busy && <p role="status" className="settings-copy">Writing the new genre into the files...</p>}
+    {busy && <p role="status" className="settings-copy">{progress || "Writing the new genre into the files..."}{progress && <> <button className="link-button" onClick={() => { stopAsked.current = true; }}>Stop after this one</button></>}</p>}
     {genres && genres.groups.length === 0 && <p className="settings-copy">{genres.genres.length === 0 ? "No track has a genre yet." : "No genres are spelled two ways."}</p>}
-    {genres && genres.groups.length > 1 && <button className="import-button" disabled={busy} onClick={() => void mergeAll()}>{busy ? "Merging..." : `Merge all ${genres.groups.length} groups`}</button>}
     {genres && genres.groups.length > 0 && <ul className="folder-list" aria-label="Genres spelled alike">{genres.groups.map((group) => {
       const key = group.members.join("|");
       const to = names[key] ?? group.suggested;
@@ -334,6 +356,7 @@ function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
         <button className="secondary-button" disabled={busy || !to.trim()} onClick={() => void rename(group.members.filter((member) => member !== to.trim()), to)}>Merge</button>
       </li>;
     })}</ul>}
+    {genres && genres.groups.length > 1 && <button className="import-button" disabled={busy} onClick={() => void mergeAll()}>{busy ? "Merging..." : `Merge all ${genres.groups.length} groups`}</button>}
     {genres && genres.genres.length > 0 && <button className="link-button" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>{showAll ? "Hide the list of genres" : `Show all ${plural(genres.genres.length, "genre", "genres")}`}</button>}
     {showAll && genres && <ul className="folder-list" aria-label="All genres">{genres.genres.map((genre) => {
       const to = names[genre.name] ?? genre.name;
@@ -409,6 +432,7 @@ function TitlesCard({ admin, onChanged }: Props) {
     return next;
   });
   const casingOnly = groups.filter((group) => group.fixes.every(onlyCasing)).length;
+  const groupsDrawn = useDrawn(groups.length);
 
   return <section className="sync-card" role="region" aria-label="Titles and artists">
     <h2>Titles and artists</h2>
@@ -426,13 +450,13 @@ function TitlesCard({ admin, onChanged }: Props) {
         <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(found.map((track) => track.trackId)))}>Untick all</button>
       </div>
       {casingOnly > 0 && <p className="settings-copy">{`${plural(casingOnly, "suggestion only changes", "suggestions only change")} capitals and ${casingOnly === 1 ? "starts" : "start"} unticked: all capitals or all lower case is often how an artist writes a name.`}</p>}
-      <ul className="folder-list" aria-label="Proposed fixes">{groups.slice(0, DRAWN).map((group) => <li key={group.trackIds.join(",")} className="merge-row">
+      <ul className="folder-list" aria-label="Proposed fixes">{groups.slice(0, groupsDrawn.shown).map((group) => <li key={group.trackIds.join(",")} className="merge-row">
         <label className="send-row">
           <input type="checkbox" checked={group.trackIds.every((id) => !unticked.has(id))} onChange={() => toggleGroup(group.trackIds)} aria-label={group.fixes.map((fix) => fix.from).join(", ")} />
           <span className="folder-text">{group.fixes.map((fix) => <small key={fix.field}>{`${fix.field === "title" ? "Title" : "Artist"}: ${fix.from} -> ${fix.to}`}</small>)}{group.trackIds.length > 1 && <small>{`${group.trackIds.length} tracks`}</small>}</span>
         </label>
       </li>)}</ul>
-      {groups.length > DRAWN && <p className="settings-copy">{`And ${groups.length - DRAWN} more, included while ticked.`}</p>}
+      {groupsDrawn.more}
       <button className="import-button" disabled={busy || ticked === 0} onClick={() => void apply()}>{busy ? "Cleaning up..." : `Clean up ${plural(ticked, "track", "tracks")}`}</button>
     </>}
   </section>;
@@ -510,6 +534,7 @@ function ArtCard({ admin, onChanged }: Props) {
     ].filter(Boolean).join(" "));
   };
   const withFolder = missing?.filter((found) => found.folderImage).length ?? 0;
+  const missingDrawn = useDrawn(missing?.length ?? 0);
 
   return <section className="sync-card" role="region" aria-label="Album art">
     <h2>Album art</h2>
@@ -528,16 +553,17 @@ function ArtCard({ admin, onChanged }: Props) {
         {withFolder > 1 && withFolder < missing.length && <button className="secondary-button" disabled={busy !== null} onClick={() => void fillAll("folder")}>{`Use the folder image for the ${withFolder} that have one`}</button>}
       </div>}
       {missing.length > 1 && <p className="settings-copy">Find a cover for all takes the image beside the files where there is one and asks the Cover Art Archive for the rest, one release a second. You can stop it; what was given stays.</p>}
-      <ul className="folder-list" aria-label="Releases without art">{missing.slice(0, DRAWN).map((release) => <li key={release.releaseId} className="folder-row">
+      <ul className="folder-list" aria-label="Releases without art">{missing.slice(0, missingDrawn.shown).map((release) => <li key={release.releaseId} className="folder-row">
         <div className="folder-text">
           <strong>{release.title}</strong>
           <small>{`${release.artist} - ${plural(release.files, "file", "files")}`}{notes[release.releaseId] ? ` - ${notes[release.releaseId]}` : ""}</small>
+          {busy === release.releaseId && <small role="status">Looking for a cover...</small>}
         </div>
         {release.folderImage && <button className="secondary-button" disabled={busy !== null} aria-label={`Use the folder image for ${release.title}`} onClick={() => void fill(release, "folder")}>Use folder image</button>}
-        <button className="secondary-button" disabled={busy !== null} aria-label={`Find a cover online for ${release.title}`} onClick={() => void fill(release, "online")}>Find online</button>
+        <button className="secondary-button" disabled={busy !== null} aria-label={`Find a cover online for ${release.title}`} onClick={() => void fill(release, "online")}>Find cover online</button>
         <button className="secondary-button" disabled={busy !== null} aria-label={`Choose an image for ${release.title}`} onClick={() => void fill(release, "choose")}>Choose image...</button>
       </li>)}</ul>
-      {missing.length > DRAWN && <p className="settings-copy">{`And ${missing.length - DRAWN} more.`}</p>}
+      {missingDrawn.more}
     </>}
   </section>;
 }
@@ -707,7 +733,7 @@ function CratesCard({ admin, onChanged }: Props) {
         {asking === "sort"
           ? <div className="crate-confirm" role="alertdialog" aria-label={`Sort ${name(sorted)}?`} onKeyDown={(event) => { if (event.key === "Escape") setAsking(null); }}>
             <span>{`${name(sorted)} takes ${orderWords(order)} order for good; the order it has now is not kept.`}</span>
-            <button className="link-button" disabled={busy} onClick={() => void act(async () => { await admin.sortCrate(sorted!, order); return `${name(sorted)} is now in ${orderWords(order)} order.`; })}>Sort it</button>
+            <button className="link-button" disabled={busy} onClick={() => void act(async () => { await admin.sortCrate(sorted!, order); return `${name(sorted)} is now in ${orderWords(order)} order.`; })}>Sort crate</button>
             <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
           </div>
           : <button className="secondary-button" disabled={busy || sorted === null} onClick={() => setAsking("sort")}>Sort crate...</button>}
@@ -723,7 +749,7 @@ function CratesCard({ admin, onChanged }: Props) {
             <button className="link-button" disabled={busy} onClick={() => void act(async () => {
               const added = await admin.mergeCrates(into!, [from!], remove);
               return `${plural(added, "track", "tracks")} added to ${name(into)}${remove ? `; ${name(from)} removed` : ""}.`;
-            })}>Merge</button>
+            })}>Merge crates</button>
             <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
           </div>
           : <button className="secondary-button" disabled={busy || into === null || from === null || into === from} onClick={() => setAsking("merge")}>Merge...</button>}

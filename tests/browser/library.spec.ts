@@ -204,7 +204,7 @@ test("the navigation folds to a row of icons so the lists below get the height, 
   const navigation = page.getByRole("navigation", { name: "Main navigation" });
   const tall = (await navigation.boundingBox())!.height;
   await expect(navigation.getByRole("button", { name: "Releases" })).toContainText("Releases");
-  await page.getByRole("button", { name: "Fold the navigation" }).click();
+  await page.getByRole("button", { name: "Hide the navigation" }).click();
   await expect(sidebar).toHaveClass(/nav-folded/);
   expect((await navigation.boundingBox())!.height).toBeLessThan(tall / 3);
   // Every screen is still a click away.
@@ -213,7 +213,7 @@ test("the navigation folds to a row of icons so the lists below get the height, 
   await page.reload();
   await expect(page.getByRole("button", { name: "Show the navigation" })).toHaveAttribute("aria-expanded", "false");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Fold the navigation" }).uncheck();
+  await page.getByRole("checkbox", { name: "Hide the navigation" }).uncheck();
   await expect(sidebar).not.toHaveClass(/nav-folded/);
 });
 

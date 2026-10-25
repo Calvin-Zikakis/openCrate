@@ -80,14 +80,14 @@ export function Downloads({ admin, open }: Props) {
         </div>
         <span className={`folder-badge ${folder.online ? "available" : "unavailable"}`}>{folder.online ? (folder.enabled ? "Watching" : "Off") : "Offline"}</span>
         <button className="secondary-button" aria-label={`${folder.enabled ? "Turn off" : "Turn on"} ${folder.label}`} onClick={() => void toggle(folder)}>{folder.enabled ? "Turn off" : "Turn on"}</button>
-        <button className="link-button" aria-label={`Count what is in ${folder.label} now as already there`} title="Only what arrives after this counts as new" onClick={() => setAsking({ folder, what: "retake" })}>Count what's here as already there...</button>
+        <button className="link-button" aria-label={`Count what is in ${folder.label} now as already there`} title="Only what arrives after this counts as new" onClick={() => setAsking({ folder, what: "retake" })}>Count what is here as already there...</button>
         <button className="link-button" aria-label={`Remove ${folder.label} from download folders`} onClick={() => setAsking({ folder, what: "remove" })}>Remove...</button>
         {asking?.folder.id === folder.id && <div className="crate-confirm" role="alertdialog" aria-label={asking.what === "remove" ? `Remove ${folder.label}?` : `Count what is in ${folder.label} as already there?`} onKeyDown={(event) => { if (event.key === "Escape") setAsking(null); }}>
           <span>{asking.what === "remove"
             ? `${folder.label} stops being watched. Nothing in it is touched, and music already imported from it stays in your library.`
             : `Every release in ${folder.label} now, imported or not, moves to "Already there" and stops showing as new.`}</span>
-          <button className="link-button" onClick={() => void (asking.what === "remove" ? remove(folder) : retake(folder))}>{asking.what === "remove" ? "Remove" : "Count them"}</button>
-          <button className="link-button" autoFocus onClick={() => setAsking(null)}>Keep it as it is</button>
+          <button className="link-button" onClick={() => void (asking.what === "remove" ? remove(folder) : retake(folder))}>{asking.what === "remove" ? "Remove folder" : "Count them as there"}</button>
+          <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
         </div>}
       </li>)}</ul>}
     <button className="secondary-button" disabled={adding} onClick={() => void add()}>Add download folder...</button>

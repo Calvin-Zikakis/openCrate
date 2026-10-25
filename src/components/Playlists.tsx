@@ -47,6 +47,16 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
   const [naming, setNaming] = useState<{ parent: PlaylistInfo | null; name: string; kind: Kind } | null>(null);
   /** What can be made, and where: in `parent` (null: the top of the tree). */
   const [menu, setMenu] = useState<{ parent: PlaylistInfo | null; x: number; y: number; playlist?: PlaylistInfo } | null>(null);
+  /** Whether a playlist or folder can be made: writing to rekordbox on, and its version confirmed. */
+  const [canWrite, setCanWrite] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    admin.rekordboxDatabase().then((status) => {
+      if (live) setCanWrite(status.enabled && status.writeEnabled && !status.needsConfirmation && !status.writeNeedsConfirmation);
+    }, () => { if (live) setCanWrite(false); });
+    return () => { live = false; };
+  }, [admin, version]);
+  const cannotWrite = canWrite === false ? "Needs writing to rekordbox on in Settings" : undefined;
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -197,7 +207,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
       {onBrowse
         ? <button className={`nav-caption caption-button${over === -1 ? " is-drop-target" : ""}`} aria-current={browsing ? "page" : undefined} title="Show every folder and playlist" onClick={onBrowse} onContextMenu={(event) => openMenu(event, null)} onKeyDown={menuKeys(null)} {...crateTarget(null)}>PLAYLISTS</button>
         : <div className={`nav-caption${over === -1 ? " is-drop-target" : ""}`} onContextMenu={(event) => openMenu(event, null)} {...crateTarget(null)}>PLAYLISTS</div>}
-      <button className="icon-button crate-add" aria-label="New rekordbox playlist or folder" aria-haspopup="menu" title="New playlist or folder" disabled={busy} onClick={(event) => openMenu(event, null)}>+</button>
+      <button className="icon-button crate-add" aria-label="New rekordbox playlist or folder" aria-haspopup="menu" title={cannotWrite ?? "New playlist or folder"} disabled={busy || canWrite === false} onClick={(event) => openMenu(event, null)}>+</button>
     </div>
     {naming && naming.parent === null && nameInput}
   </>;
@@ -212,8 +222,9 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
     {note && <p className={note.failed ? "crate-error" : "crate-note"} role={note.failed ? "alert" : "status"}>{note.text}</p>}
     {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={menu.parent ? `${menu.parent.name} actions` : "New in playlists"} style={inWindow(menu.x, menu.y)}>
       {menu.playlist && <button type="button" role="menuitem" onClick={() => { onOpen(menu.playlist!); setMenu(null); }}>{`Open ${menu.playlist.name}`}</button>}
-      <button type="button" role="menuitem" disabled={busy} onClick={() => startNaming(menu.parent, "playlist")}><Icon name="queue" size={14} />{menu.parent ? `New playlist in ${menu.parent.name}` : "New playlist"}</button>
-      <button type="button" role="menuitem" disabled={busy} onClick={() => startNaming(menu.parent, "folder")}><Icon name="folder" size={14} />{menu.parent ? `New folder in ${menu.parent.name}` : "New folder"}</button>
+      <button type="button" role="menuitem" disabled={busy || canWrite === false} title={cannotWrite} onClick={() => startNaming(menu.parent, "playlist")}><Icon name="queue" size={14} />{menu.parent ? `New playlist in ${menu.parent.name}` : "New playlist"}</button>
+      <button type="button" role="menuitem" disabled={busy || canWrite === false} title={cannotWrite} onClick={() => startNaming(menu.parent, "folder")}><Icon name="folder" size={14} />{menu.parent ? `New folder in ${menu.parent.name}` : "New folder"}</button>
+      {cannotWrite && <p className="settings-copy menu-note">{cannotWrite}.</p>}
     </div>}
   </>;
   if (rows.length === 0) {
@@ -230,13 +241,13 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
     ? <li key={row.id}>
       <button className={`tree-folder${over === row.id ? " is-drop-target" : ""}`} aria-expanded={open.has(row.id)} style={{ paddingLeft: 12 + depth * 12 }} onClick={(event) => { if (!macRightClick(event)) toggle(row.id); }} {...crateTarget(row)}
         onContextMenu={(event) => openMenu(event, row)} onKeyDown={menuKeys(row)}>
-        <span aria-hidden="true">{open.has(row.id) ? "v" : ">"}</span><span className="truncate">{row.name}</span>
+        <span aria-hidden="true">{open.has(row.id) ? "\u25BE" : "\u25B8"}</span><span className="truncate" title={row.name}>{row.name}</span>
       </button>
       {open.has(row.id) && <ul>{naming?.parent?.id === row.id && <li style={{ paddingLeft: 12 + (depth + 1) * 12 }}>{nameInput}</li>}{render(row.id, depth + 1)}</ul>}
     </li>
     : <li key={row.id}>
       <button className={`tree-playlist${over === row.id ? " is-drop-target" : ""}`} aria-current={activeId === row.id ? "true" : undefined} style={{ paddingLeft: 12 + depth * 12 }}
-        title={`${row.inLibrary} of ${row.entries} entries are in your library`} onClick={(event) => { if (!macRightClick(event)) onOpen(row); }}
+        title={`${row.name}: ${row.inLibrary} of ${row.entries} entries are in your library`} onClick={(event) => { if (!macRightClick(event)) onOpen(row); }}
         onContextMenu={(event) => openMenu(event, parentOf(row), row)} onKeyDown={menuKeys(parentOf(row), row)}
         onDragOver={(event) => {
           if (!carriesTracks(event.dataTransfer) || busy) return;

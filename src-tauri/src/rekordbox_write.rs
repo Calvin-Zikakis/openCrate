@@ -157,7 +157,7 @@ fn write(
     let done = write::add_to_playlist(
         location,
         &rekordbox_db::backups_dir(service),
-        probe.running(),
+        probe.running_now(),
         now_ms(),
         playlist,
         members,
@@ -309,7 +309,7 @@ fn create(
     let made = writer(
         location,
         &rekordbox_db::backups_dir(service),
-        probe.running(),
+        probe.running_now(),
         now_ms(),
         name,
         &parent,

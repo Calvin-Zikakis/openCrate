@@ -86,6 +86,16 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
   const [detail, setDetail] = useState<WaveDetail | null>(null);
   const [cues, setCues] = useState<TrackCue[]>([]);
   const [queueOpen, setQueueOpen] = useState(false);
+  /** The volume before Mute, so Unmute puts it back. */
+  const [beforeMute, setBeforeMute] = useState<number | null>(null);
+  // Escape closes the queue, as it does every other pop-up. A click elsewhere leaves it open: tracks
+  // are added to it from the list while it shows.
+  useEffect(() => {
+    if (!queueOpen) return;
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !document.querySelector("dialog[open]")) setQueueOpen(false); };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [queueOpen]);
   const [dropping, setDropping] = useState(false);
 
   /** Load and play a track. A track that cannot be played stops the player, so the previous
@@ -237,8 +247,14 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
 
   const changeVolume = (value: number) => {
     setVolume(value);
+    if (value > 0) setBeforeMute(null);
     try { localStorage.setItem(VOLUME_KEY, String(value)); } catch { /* applied, not remembered */ }
     if (playing) void admin?.player("volume", value).catch(() => undefined);
+  };
+  const muted = volume === 0;
+  const toggleMute = () => {
+    if (muted) changeVolume(beforeMute && beforeMute > 0 ? beforeMute : 1);
+    else { setBeforeMute(volume); changeVolume(0); }
   };
 
   const nowId = playing?.item.id ?? null;
@@ -278,7 +294,7 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
     <div className="player-center">
       <div className="transport">
         <button className="icon-button previous" disabled={!playing} aria-label="Previous track" onClick={() => void previous()}><Icon name="next" size={17} /></button>
-        <button className="play-button" disabled={!canPlay} aria-label={!admin ? "Playback not available in demo" : isPlaying ? "Pause" : "Play"} onClick={() => void toggle()}><Icon name={isPlaying ? "pause" : "play"} size={18} /></button>
+        <button className="play-button" disabled={!canPlay} aria-label={!admin ? "Playback not available in demo" : isPlaying ? "Pause" : "Play"} title={admin ? `${isPlaying ? "Pause" : "Play"} (Space)` : undefined} onClick={() => void toggle()}><Icon name={isPlaying ? "pause" : "play"} size={18} /></button>
         <button className="icon-button" disabled={!playing || (playing.index === null && queue.length === 0)} aria-label="Next track" onClick={() => void next(false)}><Icon name="next" size={17} /></button>
       </div>
       {admin && playing
@@ -311,7 +327,9 @@ export function PlayerBar({ api, selected, selectedIndex, query, request, queue,
         <Icon name="queue" size={18} />{queue.length > 0 && <span className="queue-count" aria-hidden="true">{queue.length}</span>}
       </button>}
       {!admin && <span>Visual preview only</span>}
-      <Icon name="volume" size={18} />
+      {admin
+        ? <button className={`icon-button mute-button${muted ? " is-muted" : ""}`} aria-pressed={muted} aria-label={muted ? "Unmute" : "Mute"} title={muted ? "Unmute" : "Mute"} onClick={toggleMute}><Icon name="volume" size={18} /></button>
+        : <Icon name="volume" size={18} />}
       {admin
         ? <input className="volume" type="range" aria-label="Volume" min={0} max={1} step={0.05} value={volume} onChange={(event) => changeVolume(Number(event.target.value))} />
         : <div className="volume-preview" />}

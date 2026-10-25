@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { oneAtATime } from "../library/autoImport";
 import type { Accepted, DownloadRelease, ImportOptions, ImportPlan, LibraryAdmin, PlanFile, ReleaseLookup } from "../library/types";
 
@@ -53,7 +53,7 @@ type Stage =
   | { kind: "review"; plans: { release: DownloadRelease; plan: ImportPlan }[]; failed: { name: string; error: string }[] }
   | { kind: "importing"; done: number; total: number; current: string }
   | { kind: "scanning" }
-  | { kind: "finished"; filed: number; skipped: number; failed: { name: string; error: string }[] };
+  | { kind: "finished"; filed: number; skipped: number; failed: { name: string; error: string }[]; notTried: number };
 
 interface Props {
   admin: LibraryAdmin;
@@ -74,12 +74,17 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
   const [lookups, setLookups] = useState<Record<string, Lookup>>({});
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const busy = stage.kind === "checking" || stage.kind === "importing" || stage.kind === "scanning";
+  /** Set by Stop: the run ends after the release in hand. */
+  const stopAsked = useRef(false);
+  const stop = () => { stopAsked.current = true; };
 
   const check = async () => {
     if (rootId === null || busy) return;
+    stopAsked.current = false;
     const plans: { release: DownloadRelease; plan: ImportPlan }[] = [];
     const failed: { name: string; error: string }[] = [];
     for (const [index, release] of releases.entries()) {
+      if (stopAsked.current) { setStage({ kind: "idle" }); return; }
       setStage({ kind: "checking", done: index, total: releases.length });
       try {
         plans.push({ release, plan: await admin.planRelease(release.folderId, release.name, rootId, options) });
@@ -95,7 +100,9 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
   /** Look up each release with doubtful tags, one at a time. */
   const lookUp = async (plans: { release: DownloadRelease; plan: ImportPlan }[]) => {
     if (rootId === null) return;
+    stopAsked.current = false;
     for (const { release } of plans) {
+      if (stopAsked.current) break;
       const key = keyOf(release);
       setLookups((before) => ({ ...before, [key]: { state: "asking" } }));
       try {
@@ -112,8 +119,11 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
     const going = plans.filter(({ plan }) => plan.ready > 0);
     let filed = 0;
     let skipped = 0;
+    let notTried = 0;
     const failed = [...earlier];
+    stopAsked.current = false;
     for (const [index, { release }] of going.entries()) {
+      if (stopAsked.current) { notTried = going.length - index; break; }
       setStage({ kind: "importing", done: index, total: going.length, current: release.name });
       try {
         const lookup = lookups[keyOf(release)];
@@ -129,7 +139,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
       setStage({ kind: "scanning" });
       await rescan(rootId);
     }
-    setStage({ kind: "finished", filed, skipped, failed });
+    setStage({ kind: "finished", filed, skipped, failed, notTried });
     // A run that filed something was already followed by a rescan, which reads the rest again.
     if (filed === 0) onFinished?.();
   };
@@ -138,15 +148,15 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
   return <div className="import-all">
     {(stage.kind === "idle" || stage.kind === "finished") && releases.length > 0 &&
       <button className="import-button" disabled={rootId === null} onClick={() => void check()}>{label ? label(releases.length) : `Import all ${plural(releases.length, "finished release", "finished releases")}...`}</button>}
-    {stage.kind === "checking" && <p className="settings-copy" role="status">{`Reading the tags of release ${stage.done + 1} of ${stage.total}...`}</p>}
+    {stage.kind === "checking" && <p className="settings-copy" role="status">{`Reading the tags of release ${stage.done + 1} of ${stage.total}...`} <button className="link-button" onClick={stop}>Stop</button></p>}
     {stage.kind === "review" && <Review stage={stage} lookups={lookups} unticked={unticked}
       onToggle={(source) => setUnticked((before) => { const next = new Set(before); if (next.has(source)) next.delete(source); else next.add(source); return next; })}
       onLookUp={(plans) => void lookUp(plans)}
       onCancel={() => setStage({ kind: "idle" })} onImport={() => void run(stage.plans, stage.failed)} />}
-    {stage.kind === "importing" && <p className="settings-copy" role="status">{`Importing ${stage.done + 1} of ${stage.total}: ${stage.current}`}</p>}
+    {stage.kind === "importing" && <p className="settings-copy" role="status">{`Importing ${stage.done + 1} of ${stage.total}: ${stage.current}`} <button className="link-button" onClick={stop}>Stop after this one</button></p>}
     {stage.kind === "scanning" && <p className="settings-copy" role="status">Adding them to your library...</p>}
     {stage.kind === "finished" && <div role="status" className="import-result">
-      <p className="settings-copy">{`${plural(stage.filed, "file is", "files are")} now in your music folder.`}{stage.skipped > 0 ? ` ${plural(stage.skipped, "file was", "files were")} left in the download folder; the notes under each release say why.` : ""} The originals are still in the download folders.</p>
+      <p className="settings-copy">{`${plural(stage.filed, "file is", "files are")} now in your music folder.`}{stage.skipped > 0 ? ` ${plural(stage.skipped, "file was", "files were")} left in the download folder; the notes under each release say why.` : ""}{stage.notTried > 0 ? ` Stopped with ${plural(stage.notTried, "release", "releases")} not imported.` : ""} The originals are still in the download folders.</p>
       {stage.failed.map((item) => <p key={item.name} className="inline-error">{`${item.name}: ${item.error}`}</p>)}
     </div>}
   </div>;

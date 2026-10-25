@@ -494,6 +494,7 @@ fn track_fields_are_written_after_a_backup_and_read_back() {
         content: content.clone(),
         field,
         value: value.to_owned(),
+        expected: None,
     };
     let backup = set_fields(
         &world.location,
@@ -539,6 +540,7 @@ fn field_edits_are_refused_while_rekordbox_runs_or_for_a_track_it_lacks() {
         content,
         field: TrackText::Title,
         value: "X".into(),
+        expected: None,
     };
     let error = set_fields(
         &world.location,
@@ -813,6 +815,7 @@ fn live_copy_takes_every_write() {
             content: content.clone(),
             field: TrackText::Title,
             value: "Copy Check (Edited)".into(),
+            expected: None,
         }],
     )
     .unwrap();
@@ -915,6 +918,7 @@ fn live_installed_write() {
             content,
             field: TrackText::Title,
             value: "openCrate Check (Edited)".into(),
+            expected: None,
         }],
     )
     .unwrap();

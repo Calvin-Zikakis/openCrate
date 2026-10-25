@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { DuplicateCopies, LibraryAdmin, LibraryHealth, ResolvedDuplicate, TidiedFolder } from "../library/types";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -33,6 +33,47 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
   const [tidied, setTidied] = useState<TidiedFolder | null>(null);
   const [tidyError, setTidyError] = useState("");
   const [resolving, setResolving] = useState<{ duplicate: Duplicate; copies: DuplicateCopies | null; keep: number | null } | null>(null);
+  /** Tidy all: asked first, then one folder after another with a Stop. */
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const [progress, setProgress] = useState("");
+  const stopAsked = useRef(false);
+  const tidyAll = async () => {
+    if (!health) return;
+    setConfirmingAll(false);
+    setChecking(true);
+    setTidyError("");
+    setTidied(null);
+    stopAsked.current = false;
+    let moved = 0;
+    let relocated = 0;
+    let done = 0;
+    const left: string[] = [];
+    const failed: string[] = [];
+    for (const [index, folder] of health.untidy.entries()) {
+      if (stopAsked.current) break;
+      setProgress(`Tidying ${index + 1} of ${health.untidy.length}: ${folder.folder}...`);
+      try {
+        const result = await admin.tidyFolder(folder.rootId, folder.folder);
+        moved += result.moved;
+        relocated += result.relocated;
+        left.push(...result.left);
+        done += 1;
+      } catch (reason) {
+        failed.push(`${folder.folder}: ${message(reason)}`);
+      }
+    }
+    setProgress("");
+    const notTried = health.untidy.length - done - failed.length;
+    setTidied({ folder: "every folder listed", moved, relocated, suggested: `tidy names (${plural(done, "folder", "folders")})`, left: [...failed, ...left, ...(notTried > 0 ? [`Stopped with ${plural(notTried, "folder", "folders")} not tidied.`] : [])] });
+    try {
+      setHealth(await admin.checkLibrary());
+    } catch (reason) {
+      setTidyError(message(reason));
+    } finally {
+      setChecking(false);
+    }
+    onChanged?.();
+  };
   const [resolved, setResolved] = useState<ResolvedDuplicate | null>(null);
 
   const openResolve = async (duplicate: Duplicate) => {
@@ -117,6 +158,16 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
       </>}
       {health.untidy.length > 0 && <>
         <h4>{plural(health.untidy.length, "folder name looks untidy", "folder names look untidy")}</h4>
+        {progress && <p className="settings-copy" role="status">{progress} <button className="link-button" onClick={() => { stopAsked.current = true; }}>Stop after this one</button></p>}
+        {health.untidy.length > 1 && !progress && (confirmingAll
+          ? <div className="warning-panel" role="region" aria-label="Tidy every folder?">
+            <p className="settings-copy">{`Every folder listed moves to its tidy name, beside where it is now, one folder after another. A file whose new place is already taken stays where it is. If rekordbox uses any of them, openCrate backs up rekordbox's library and tells it where they went; this needs writing to rekordbox on, and rekordbox closed. You can stop between folders.`}</p>
+            <div className="warning-actions">
+              <button className="import-button" disabled={checking} onClick={() => void tidyAll()}>{`Tidy ${plural(health.untidy.length, "folder", "folders")}`}</button>
+              <button className="secondary-button" disabled={checking} onClick={() => setConfirmingAll(false)}>Cancel</button>
+            </div>
+          </div>
+          : <button className="secondary-button" disabled={checking} onClick={() => { setConfirmingAll(true); setConfirming(null); setTidyError(""); setTidied(null); }}>{`Tidy all ${health.untidy.length} folders...`}</button>)}
         <ul className="check-list">{health.untidy.map((item) => <li key={`${item.rootLabel}/${item.folder}`}>
           <code>{item.folder}</code>{" would be "}<code>{item.suggested}</code> <small>{`${item.rootLabel}, ${plural(item.files, "file", "files")}`}</small>
           <button className="link-button" disabled={checking} aria-label={`Tidy ${item.folder}`} onClick={() => { setConfirming(item); setTidyError(""); setTidied(null); }}>Tidy...</button>
@@ -146,7 +197,7 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
                 </label>)}
               </fieldset>
               <div className="warning-actions">
-                <button className="import-button" disabled={checking || resolving.keep === null} onClick={() => void resolve()}>Keep this copy</button>
+                <button className="import-button" disabled={checking || resolving.keep === null} onClick={() => void resolve()}>Keep this copy, archive the others</button>
                 <button className="secondary-button" disabled={checking} onClick={() => setResolving(null)}>Cancel</button>
               </div>
             </>}

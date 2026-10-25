@@ -1,10 +1,12 @@
 /** Cleanup rules the track editor offers. Each returns the value unchanged when it does not apply,
  * so the editor can show only what a rule would change. */
 
-/** "01 - Title", "1. Title", "07) Title", "A1 - Title" (a vinyl side): the number goes. A number
- * that is part of the name, with no separator after it ("808 State"), stays. */
+/** "01 - Title", "1. Title", "07) Title", "A1 - Title" (a vinyl side), "B - Title": the number
+ * goes. A number that is part of the name, with no separator after it ("808 State"), stays, and so
+ * does a name that merely starts with a letter or digit and a mark ("D.A.N.C.E.", "A-Trak Edit",
+ * "2-Step"): a side letter alone needs " - " after it, and a mark needs a space after it. */
 export function removeNumberPrefix(title: string): string {
-  const stripped = title.replace(/^\s*(?:\d{1,3}|[A-H]\d{0,2})\s*(?:[-–.)_]|\s-\s)\s*/u, "");
+  const stripped = title.replace(/^\s*(?:(?:\d{1,3}|[A-H]\d{1,2})\s*(?:[.)_]|[-–])\s+|[A-H]\s+[-–]\s+)/u, "");
   return stripped.trim() === "" ? title : stripped;
 }
 

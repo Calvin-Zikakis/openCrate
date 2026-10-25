@@ -74,13 +74,16 @@ export function Folders({ admin, open, onChanged }: Props) {
   /** Folders still to scan after the one running: Scan all goes through them one at a time. */
   const queued = useRef<number[]>([]);
   const [queuedCount, setQueuedCount] = useState(0);
+  /** A queued scan has been asked for and not yet reported running: ticks wait for it. */
+  const starting = useRef(false);
 
   useEffect(() => {
     if (!open || !watching) return;
     let stopped = false;
     const timer = setInterval(() => {
+      if (starting.current) return;
       admin.scanStatus().then((next) => {
-        if (stopped) return;
+        if (stopped || starting.current) return;
         setStatus(next);
         if (next.state !== "running") {
           void refresh();
@@ -93,7 +96,9 @@ export function Folders({ admin, open, onChanged }: Props) {
             return;
           }
           setQueuedCount(queued.current.length);
-          admin.scan(following, false).then(() => admin.scanStatus()).then((started) => { if (!stopped) setStatus(started); }, (reason: unknown) => {
+          starting.current = true;
+          admin.scan(following, false).then(() => admin.scanStatus()).then((started) => { starting.current = false; if (!stopped) setStatus(started); }, (reason: unknown) => {
+            starting.current = false;
             if (stopped) return;
             queued.current = [];
             setQueuedCount(0);
@@ -179,11 +184,11 @@ export function Folders({ admin, open, onChanged }: Props) {
         <button className="secondary-button" disabled={scanning} aria-label={`Scan ${folder.label}`} onClick={() => void start(folder.id)}>
           {running?.rootId === folder.id ? "Scanning..." : "Scan"}
         </button>
-        <button className="link-button" disabled={scanning} aria-label={`Remove ${folder.label}`} onClick={() => setConfirming(folder.id)}>Remove</button>
+        <button className="link-button" disabled={scanning} aria-label={`Remove ${folder.label}`} onClick={() => setConfirming(folder.id)}>Remove...</button>
         {confirming === folder.id && <div className="folder-confirm" role="alertdialog" aria-label={`Remove ${folder.label}?`}>
           <span>Remove {folder.label} from the library? Your music files are not touched.</span>
-          <button className="secondary-button" onClick={() => void remove(folder.id)}>Remove from library</button>
-          <button className="link-button" onClick={() => setConfirming(null)}>Keep it</button>
+          <button className="secondary-button" onClick={() => void remove(folder.id)}>Remove folder</button>
+          <button className="link-button" autoFocus onClick={() => setConfirming(null)}>Cancel</button>
         </div>}
       </li>)}</ul>}
     <div className="merge-actions">

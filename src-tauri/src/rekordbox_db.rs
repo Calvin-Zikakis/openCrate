@@ -25,6 +25,8 @@ pub struct Probe {
     pub location: Option<LibraryLocation>,
     pub app_version: Option<String>,
     running: std::cell::Cell<Option<bool>>,
+    /// A test's answer, which stands for every ask.
+    forced: std::cell::Cell<Option<bool>>,
     ask_running: Box<dyn Fn() -> bool + Send>,
 }
 
@@ -41,6 +43,7 @@ impl Probe {
             location,
             app_version,
             running: std::cell::Cell::new(None),
+            forced: std::cell::Cell::new(None),
             ask_running: Box::new(rekordbox::rekordbox_running),
         }
     }
@@ -55,11 +58,25 @@ impl Probe {
     #[cfg(test)]
     pub fn set_running(&self, running: bool) {
         self.running.set(Some(running));
+        self.forced.set(Some(running));
     }
 
+    /// Whether rekordbox runs, asked once per probe: enough for a status or a read.
     pub(crate) fn running(&self) -> bool {
         if let Some(known) = self.running.get() {
             return known;
+        }
+        let found = (self.ask_running)();
+        self.running.set(Some(found));
+        found
+    }
+
+    /// Whether rekordbox runs right now, asked afresh: for the moment just before a write, which
+    /// may come long after the probe's first answer (a health check, tag reads or file moves in
+    /// between). A test's `set_running` still stands.
+    pub(crate) fn running_now(&self) -> bool {
+        if let Some(forced) = self.forced.get() {
+            return forced;
         }
         let found = (self.ask_running)();
         self.running.set(Some(found));

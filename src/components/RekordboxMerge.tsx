@@ -25,6 +25,8 @@ export function RekordboxMerge({ admin, onChanged }: Props) {
   const [kept, setKept] = useState<Map<string, Side>>(new Map());
   const [applied, setApplied] = useState<MergeApplied | null>(null);
   const [busy, setBusy] = useState<"reviewing" | "syncing" | null>(null);
+  /** Rows drawn per group; Show more adds the next lot. */
+  const [drawn, setDrawn] = useState<Record<string, number>>({});
   const [error, setError] = useState("");
 
   const load = async () => {
@@ -111,8 +113,8 @@ export function RekordboxMerge({ admin, onChanged }: Props) {
         <button type="button" className="link-button" disabled={busy !== null || !review?.canWrite} title={review?.canWrite ? undefined : "Needs writing to rekordbox on in Settings"} onClick={() => items.forEach((change) => choose(change, "openCrate"))}>Keep openCrate's for all</button>
         <button type="button" className="link-button" disabled={busy !== null} onClick={() => items.forEach((change) => choose(change, null))}>Decide later</button>
       </div>}
-      <ul className="folder-list">{items.slice(0, DRAWN).map(row)}</ul>
-      {items.length > DRAWN && <p className="settings-copy">{`And ${items.length - DRAWN} more, included when you tick all.`}</p>}
+      <ul className="folder-list">{items.slice(0, drawn[direction] ?? DRAWN).map(row)}</ul>
+      {items.length > (drawn[direction] ?? DRAWN) && <p className="settings-copy"><button type="button" className="link-button" onClick={() => setDrawn((before) => ({ ...before, [direction]: (before[direction] ?? DRAWN) + DRAWN }))}>{`Show ${Math.min(DRAWN, items.length - (drawn[direction] ?? DRAWN))} more`}</button>{` ${items.length - (drawn[direction] ?? DRAWN)} of ${items.length} not shown yet; Tick all covers them too.`}</p>}
     </fieldset>;
   };
 

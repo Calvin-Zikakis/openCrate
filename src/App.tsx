@@ -129,12 +129,21 @@ export function App({ api }: { api: LibraryApi }) {
   /** What the last cover change on a release page did. */
   const [coverNote, setCoverNote] = useState("");
   const [coverBusy, setCoverBusy] = useState(false);
+  /** What the cover change is doing right now, while it takes a moment. */
+  const [coverStep, setCoverStep] = useState("");
+  /** What the last list action did (tracks added to or removed from a crate), under the heading. */
+  const [listNote, setListNote] = useState("");
+  /** Removing several tracks from a crate waits for a yes. */
+  const [removeAsk, setRemoveAsk] = useState<number[] | null>(null);
+  /** The owner's crates, for Add to a crate in the track menu. */
+  const [crateList, setCrateList] = useState<CrateInfo[]>([]);
   /** Removing a release's cover waits for a yes: it cannot be undone. */
   const [coverAsk, setCoverAsk] = useState(false);
   const changeCover = async (releaseId: number, action: "choose" | "online" | "remove") => {
     if (!api.admin) return;
     setCoverBusy(true);
     setCoverNote("");
+    setCoverStep(action === "online" ? "Looking for a cover online..." : action === "remove" ? "Removing the cover from the files..." : "");
     try {
       const done = action === "remove" ? await api.admin.removeReleaseArt(releaseId) : await api.admin.setReleaseArt(releaseId, action);
       if (done) {
@@ -145,6 +154,7 @@ export function App({ api }: { api: LibraryApi }) {
       setCoverNote(reason instanceof Error ? reason.message : "Something went wrong.");
     } finally {
       setCoverBusy(false);
+      setCoverStep("");
     }
   };
   /** The loaded track and whether it plays, marked in the list. */
@@ -220,7 +230,7 @@ export function App({ api }: { api: LibraryApi }) {
   // Keyed on what the query uses, so a refreshed focus (a new name) is not a new list.
   const query = useMemo(() => queryOf(screen, search, sort, format, focus, playlist, crate, reversed), [screen, search, sort, format, focus?.kind, focus?.id, playlist, crate, reversed]);
   /** The grid a release or artist was opened from, so Back returns to it as it was. */
-  const [backTo, setBackTo] = useState<{ screen: View; sort: Sort; reversed: boolean; top: number } | null>(null);
+  const [backTo, setBackTo] = useState<{ screen: View; sort: Sort; reversed: boolean; top: number } | { crate: CrateInfo; top: number } | { playlist: PlaylistInfo; top: number } | null>(null);
   // A new list says how long it is once read; until then the last count does not apply.
   useEffect(() => { setListTotal(null); }, [query, libraryVersion]);
   const openPlaylist = (next: PlaylistInfo, browsed = false) => {
@@ -230,6 +240,34 @@ export function App({ api }: { api: LibraryApi }) {
     setScreen("tracks"); setFocus(null); setPlaylist(null); setCrate(next); setSearch(""); setFormat("all"); setSort("crate"); setReversed(false);
   };
   const crateChanged = useCallback(() => setCrateVersion((value) => value + 1), []);
+  useEffect(() => {
+    if (!api.admin) return;
+    let live = true;
+    api.admin.crates().then((found) => { if (live) setCrateList(found); }, () => undefined);
+    return () => { live = false; };
+  }, [api.admin, crateVersion]);
+  const addToCrate = async (crateId: number, ids: number[]) => {
+    const target = crateList.find((found) => found.id === crateId);
+    try {
+      const added = await api.admin!.addToCrate(crateId, ids);
+      setListNote(added === 0 ? `${target?.name ?? "The crate"} already had ${ids.length === 1 ? "that track" : "those tracks"}.` : `Added ${added} to ${target?.name ?? "the crate"}.`);
+      crateChanged();
+    } catch (reason) {
+      setListNote(`Could not add to ${target?.name ?? "the crate"}: ${reason instanceof Error ? reason.message : "something went wrong"}.`);
+    }
+  };
+  /** Take tracks out of the open crate; several at once ask first, since there is no undo. */
+  const removeFromCrate = async (ids: number[]) => {
+    if (!crate) return;
+    setRemoveAsk(null);
+    try {
+      const removed = await api.admin!.removeFromCrate(crate.id, ids);
+      setListNote(`Removed ${removed === 1 ? "1 track" : `${removed} tracks`} from ${crate.name}.`);
+      crateChanged();
+    } catch (reason) {
+      setListNote(`Could not remove from ${crate.name}: ${reason instanceof Error ? reason.message : "something went wrong"}.`);
+    }
+  };
   const admin = api.admin;
   /** Where to put a list back after it is read again, for that list only: a different list
    * starts at the top. */
@@ -250,7 +288,7 @@ export function App({ api }: { api: LibraryApi }) {
       }
       crateChanged();
     },
-  } : null), [admin, arrangeable, sort, crateChanged]);
+  } : null), [admin, arrangeable, sort, crateChanged, query]);
   const crateOrder = useMemo(() => (admin && crate && sort === "crate" ? {
     move: async (trackIds: number[], beforeId: number | null) => {
       // Tracks dragged in from elsewhere join the crate first, then take their place.
@@ -273,6 +311,7 @@ export function App({ api }: { api: LibraryApi }) {
   // A search stays: an artist or release found by a track's title opens on that track.
   const openItem = (item: LibraryItem) => {
     if (screen === "releases" || screen === "artists") setBackTo({ screen, sort, reversed, top: scrollTop() });
+    else if (!crate && !playlist) setBackTo(null);
     // A release or an artist reads in track order, as on the record.
     setFocus(item); setScreen("tracks"); setFormat("all"); setSort("track"); setReversed(false);
   };
@@ -293,22 +332,36 @@ export function App({ api }: { api: LibraryApi }) {
 
   /** A track's release or artist, from the track menu. */
   const goTo = (item: LibraryItem, kind: "releases" | "artists") => {
-    setBackTo(null);
+    // Back returns to the crate or playlist the track was found in.
+    setBackTo(crate ? { crate, top: scrollTop() } : playlist ? { playlist, top: scrollTop() } : null);
     setPlaylist(null); setCrate(null); setSearch("");
     // Its track count is not known here; the heading uses the list's own count.
     openItem({ ...item, kind, id: kind === "releases" ? item.releaseId : item.artistId, title: kind === "releases" ? item.release : item.artist, trackCount: -1 });
   };
   /** Back from a release or artist: the grid in the order and at the place it was left. */
   const backFromFocus = (kind: View) => {
-    const back = backTo?.screen === kind ? backTo : { screen: kind, sort: "recent" as Sort, reversed: false, top: 0 };
+    if (backTo && "crate" in backTo) {
+      const { crate: again, top } = backTo;
+      setRestore({ query: JSON.stringify(queryOf("tracks", "", "crate", "all", null, null, again)), top });
+      openCrate(again); setBackTo(null);
+      return;
+    }
+    if (backTo && "playlist" in backTo) {
+      const { playlist: again, top } = backTo;
+      setRestore({ query: JSON.stringify(queryOf("tracks", "", "playlist", "all", null, again, null)), top });
+      openPlaylist(again, fromBrowser); setBackTo(null);
+      return;
+    }
+    const back = backTo && "screen" in backTo && backTo.screen === kind ? backTo : { screen: kind, sort: "recent" as Sort, reversed: false, top: 0 };
     setRestore({ query: JSON.stringify(queryOf(back.screen, search, back.sort, "all", null, null, null, back.reversed)), top: back.top });
     setScreen(back.screen); setFocus(null); setSort(back.sort); setReversed(back.reversed); setBackTo(null);
   };
   const isLibrary = screen !== "import" && screen !== "sync" && screen !== "cleanup" && screen !== "playlists";
-  useEffect(() => { setCoverNote(""); setExportNote(""); setCoverAsk(false); }, [focus, crate, playlist, screen]);
+  // Keyed on identity: a release re-read after a cover change is the same page, and keeps its note.
+  useEffect(() => { setCoverNote(""); setExportNote(""); setCoverAsk(false); setListNote(""); }, [focusKey, crate?.id, playlist?.id, screen]);
   const selectionSet = useMemo(() => new Set(selection), [selection]);
   // A new list starts with nothing chosen.
-  useEffect(() => { setSelection([]); }, [query]);
+  useEffect(() => { setSelection([]); setSelected(null); setSelectedIndex(null); }, [query]);
   // Cmd+A (Ctrl+A) outside a text box chooses every track of the list shown, as it does in it.
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -317,7 +370,8 @@ export function App({ api }: { api: LibraryApi }) {
       const target = event.target as HTMLElement | null;
       if (target && (target.closest("input, textarea, select, [contenteditable=true]"))) return;
       event.preventDefault();
-      api.ids(query).then(setSelection, () => undefined);
+      const key = shownQuery.current;
+      api.ids(query).then((ids) => { if (shownQuery.current === key) setSelection(ids); }, (reason: unknown) => setListNote(`Could not select every track: ${reason instanceof Error ? reason.message : "the library could not be asked"}.`));
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
@@ -350,7 +404,7 @@ export function App({ api }: { api: LibraryApi }) {
       <a className="brand" href="#main" onClick={() => navigate("tracks")} aria-label="openCrate home"><span className="brand-mark">oc</span><span>openCrate<span className="brand-period">.</span></span></a>
       <div className="nav-head">
         <div className="nav-caption">YOUR LIBRARY</div>
-        <button className="icon-button nav-fold" aria-expanded={!preferences.navFolded} aria-label={preferences.navFolded ? "Show the navigation" : "Fold the navigation"} title={preferences.navFolded ? "Show the navigation with its names" : "Fold the navigation to icons, so crates and playlists get the room"} onClick={() => updatePreferences({ ...preferences, navFolded: !preferences.navFolded })}><Icon name="back" size={14} /></button>
+        <button className="icon-button nav-fold" aria-expanded={!preferences.navFolded} aria-label={preferences.navFolded ? "Show the navigation" : "Hide the navigation"} title={preferences.navFolded ? "Show the navigation with its names" : "Hide the navigation behind icons, so crates and playlists get the room"} onClick={() => updatePreferences({ ...preferences, navFolded: !preferences.navFolded })}><Icon name="back" size={14} /></button>
       </div>
       <nav className="main-nav" aria-label="Main navigation">{NAV.map(({ screen: target, name, icon }) => <button key={target} aria-label={name} title={preferences.navFolded ? name : undefined} onClick={() => navigate(target)} aria-current={(focus && !crate && !playlist ? focus.kind : screen) === target ? "page" : undefined} className={target === "import" ? "nav-divider" : ""}><Icon name={icon} /><span>{name}</span>{screen === target && <span className="nav-dot" />}</button>)}</nav>
       <div className="sidebar-lists">
@@ -362,9 +416,14 @@ export function App({ api }: { api: LibraryApi }) {
     </aside>
     <div className="workspace">
       <header className="topbar">
-        <div className="search-box"><Icon name="search" /><input {...PLAIN_TEXT} ref={searchInput} aria-label="Search library" placeholder="Search tracks, artists, releases" value={search} onChange={(event) => { setSearch(event.target.value); if (!isLibrary) setScreen("tracks"); }} /><kbd>/</kbd>{search && <button className="icon-button" aria-label="Clear search" onClick={() => setSearch("")}><Icon name="close" size={16} /></button>}</div>
+        <div className="search-box"><Icon name="search" /><input {...PLAIN_TEXT} ref={searchInput} aria-label="Search library" placeholder="Search tracks, artists, releases" value={search} onChange={(event) => { setSearch(event.target.value); if (!isLibrary) setScreen("tracks"); }} onKeyDown={(event) => {
+          // Escape clears the search, and a second one hands the keyboard back to the list.
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          if (search) setSearch(""); else { event.currentTarget.blur(); document.querySelector<HTMLElement>("[data-testid=track-row]")?.focus(); }
+        }} /><kbd>/</kbd>{search && <button className="icon-button" aria-label="Clear search" onClick={() => setSearch("")}><Icon name="close" size={16} /></button>}</div>
         <span className="demo-badge">{api.admin ? (api.admin.persistent ? "LOCAL LIBRARY" : "DEMO DATABASE") : "SYNTHETIC DEMO"}</span>
-        <button className="icon-button settings-trigger" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>
+        <button className="icon-button settings-trigger" aria-label="Settings" title="Settings (Cmd+,)" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>
       </header>
       <main id="main" tabIndex={-1} className={preferences.headerFolded ? "header-folded" : undefined}>
         {api.admin && <Offline admin={api.admin} version={libraryVersion} />}
@@ -373,30 +432,36 @@ export function App({ api }: { api: LibraryApi }) {
         {isLibrary ? <>
           {api.admin && <Welcome admin={api.admin} onOpenRekordbox={() => navigate("sync")} onLibraryChanged={refreshLibrary} />}
           <div className={`library-hero${preferences.headerFolded ? " folded" : ""}`}>
-            <div>{focus && <button className="back-link" onClick={() => backFromFocus(focus.kind)}><Icon name="back" size={14} />Back to {focus.kind}</button>}{crate && <button className="back-link" onClick={() => { setCrate(null); setSort("recent"); }}><Icon name="back" size={14} />Back to tracks</button>}{playlist && <button className="back-link" onClick={() => { setPlaylist(null); setSort("recent"); if (fromBrowser) setScreen("playlists"); setFromBrowser(false); }}><Icon name="back" size={14} />{fromBrowser ? "Back to playlists" : "Back to tracks"}</button>}{(playlist || crate || focus) && <div className="eyebrow">{playlist ? "REKORDBOX PLAYLIST" : crate ? "CRATE" : focus?.kind === "artists" ? "ARTIST" : "RELEASE"}</div>}<h1>{heading}</h1>{playlist ? <p>{`${playlist.inLibrary} of ${playlist.entries} tracks are in your library. The rest are not in your folders.`}</p> : focus ? <p>{(() => { const count = focus.trackCount >= 0 ? focus.trackCount : listTotal ?? 0; return `${count} ${count === 1 ? "track" : "tracks"}`; })()}{focus.kind === "releases" ? ` by ${focus.artist}` : ""}</p> : crate ? <p>Kept in openCrate only. rekordbox is not changed.</p> : <p className="page-note">{PAGE_NOTES[screen === "releases" || screen === "artists" ? screen : "tracks"]}</p>}{api.admin && (playlist || crate || focus) && <button className="play-all" onClick={() => void playAll()}><Icon name="play" size={16} />Play all</button>}{api.admin && screen === "tracks" && listTotal !== 0 && <div className="cover-actions" role="group" aria-label="Export">
+            <div>{focus && <button className="back-link" onClick={() => backFromFocus(focus.kind)}><Icon name="back" size={14} />Back to {backTo && "crate" in backTo ? backTo.crate.name : backTo && "playlist" in backTo ? backTo.playlist.name : focus.kind}</button>}{crate && <button className="back-link" onClick={() => { setCrate(null); setSort("recent"); setReversed(false); }}><Icon name="back" size={14} />Back to tracks</button>}{playlist && <button className="back-link" onClick={() => { setPlaylist(null); setSort("recent"); setReversed(false); if (fromBrowser) setScreen("playlists"); setFromBrowser(false); }}><Icon name="back" size={14} />{fromBrowser ? "Back to playlists" : "Back to tracks"}</button>}{(playlist || crate || focus) && <div className="eyebrow">{playlist ? "REKORDBOX PLAYLIST" : crate ? "CRATE" : focus?.kind === "artists" ? "ARTIST" : "RELEASE"}</div>}<h1>{heading}</h1>{playlist ? <p>{playlist.entries === 0 ? "This playlist is empty in rekordbox." : playlist.inLibrary === playlist.entries ? `All ${playlist.entries} ${playlist.entries === 1 ? "track is" : "tracks are"} in your library.` : `${playlist.inLibrary} of ${playlist.entries} tracks are in your library. The rest are not in your folders.`}</p> : focus ? <p>{(() => { const count = focus.trackCount >= 0 ? focus.trackCount : listTotal ?? 0; return `${count} ${count === 1 ? "track" : "tracks"}`; })()}{focus.kind === "releases" ? ` by ${focus.artist}` : ""}</p> : crate ? <p>Kept in openCrate only. rekordbox is not changed.</p> : <p className="page-note">{PAGE_NOTES[screen === "releases" || screen === "artists" ? screen : "tracks"]}</p>}{api.admin && (playlist || crate || focus) && <button className="play-all" onClick={() => void playAll()}><Icon name="play" size={16} />Play all</button>}{api.admin && screen === "tracks" && listTotal !== 0 && <div className="cover-actions" role="group" aria-label="Export">
               <button className="link-button" onClick={() => void exportList("m3u8")}>Export M3U8 playlist...</button>
               <button className="link-button" onClick={() => void exportList("csv")}>Export CSV...</button>
               {exportNote && <small role="status">{exportNote}</small>}
             </div>}{api.admin && focus?.kind === "releases" && <div className="cover-actions" role="group" aria-label="Cover">
-              <button className="link-button" disabled={coverBusy} onClick={() => void changeCover(focus.id, "choose")}>Choose cover...</button>
+              <button className="link-button" disabled={coverBusy} onClick={() => void changeCover(focus.id, "choose")}>Choose image...</button>
               <button className="link-button" disabled={coverBusy} onClick={() => void changeCover(focus.id, "online")}>Find cover online</button>
               {coverAsk
                 ? <span className="crate-confirm" role="alertdialog" aria-label="Remove the cover?" onKeyDown={(event) => { if (event.key === "Escape") setCoverAsk(false); }}>
                   <span>{`The picture goes from every file of ${focus.title}. This cannot be undone.`}</span>
-                  <button className="link-button" disabled={coverBusy} onClick={() => { setCoverAsk(false); void changeCover(focus.id, "remove"); }}>Remove it</button>
-                  <button className="link-button" autoFocus onClick={() => setCoverAsk(false)}>Keep it</button>
+                  <button className="link-button" disabled={coverBusy} onClick={() => { setCoverAsk(false); void changeCover(focus.id, "remove"); }}>Remove cover</button>
+                  <button className="link-button" autoFocus onClick={() => setCoverAsk(false)}>Cancel</button>
                 </span>
                 : <button className="link-button" disabled={coverBusy} onClick={() => setCoverAsk(true)}>Remove cover...</button>}
-              {coverNote && <small role="status">{coverNote}</small>}
-            </div>}</div>
+              {(coverStep || coverNote) && <small role="status">{coverStep || coverNote}</small>}
+            </div>}
+            {listNote && <small role="status" className="list-note">{listNote}</small>}
+            {removeAsk && crate && <span className="crate-confirm" role="alertdialog" aria-label={`Remove ${removeAsk.length} tracks from ${crate.name}?`} onKeyDown={(event) => { if (event.key === "Escape") setRemoveAsk(null); }}>
+              <span>{`${removeAsk.length} tracks leave ${crate.name}. They stay in your library.`}</span>
+              <button className="link-button" onClick={() => void removeFromCrate(removeAsk)}>Remove tracks</button>
+              <button className="link-button" autoFocus onClick={() => setRemoveAsk(null)}>Cancel</button>
+            </span>}</div>
             <div className="hero-art" aria-hidden="true">{focus?.kind === "artists" ? <ArtistArtwork api={api} artistId={focus.id} color={focus.color} large /> : <Artwork color={focus?.color ?? 1} large src={focus ? api.artworkUrl?.(focus.releaseId) ?? null : null} />}<div className="hero-disc" /></div>
           </div>
           <div className="library-toolbar">
             <div className="format-filters" role="group" aria-label="Format filters">{screen === "tracks" ? (["all", "AIFF", "WAV", "MP3", "FLAC"] as const).map((value) => <button key={value} aria-pressed={format === value} onClick={() => setFormat(value)}>{value === "all" ? "All tracks" : value}</button>) : <span />}</div>
-            <div className="view-options"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button>{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setReversed(false); }}><option value="recent">Recently added</option><option value="title">Title</option><option value="artist">Artist</option>{screen === "tracks" && <option value="bpm">BPM</option>}{focus && <option value="track">Track order</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label>{sort !== "playlist" && sort !== "crate" && sort !== "custom" && <button aria-pressed={reversed} aria-label="Reverse the order" title={reversed ? "Back to the usual order" : sort === "recent" ? "Oldest first" : sort === "bpm" ? "BPM high to low" : "Z to A"} onClick={() => setReversed(!reversed)}><span aria-hidden="true" className="reverse-mark">{reversed ? "\u25B2" : "\u25BC"}</span>Reverse</button>}</div>
+            <div className="view-options"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button>{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setReversed(false); }}><option value="recent">Recently added</option><option value="title">Title</option>{screen !== "artists" && <option value="artist">Artist</option>}{screen === "tracks" && <option value="bpm">BPM</option>}{focus && <option value="track">Track order</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label>{sort !== "playlist" && sort !== "crate" && sort !== "custom" && <button aria-pressed={reversed} aria-label="Reverse the order" title={reversed ? "Back to the usual order" : sort === "recent" ? "Oldest first" : sort === "bpm" ? "BPM high to low" : "Z to A"} onClick={() => setReversed(!reversed)}><span aria-hidden="true" className="reverse-mark">{reversed ? "\u25B2" : "\u25BC"}</span>Reverse</button>}</div>
           </div>
-          <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} brief={preferences.headerFolded} keyNotation={preferences.keyNotation} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} selection={selectionSet} onSelectionChange={setSelection} onEdit={api.admin ? setEditing : undefined} onRemoveFromCrate={api.admin && crate ? (ids) => void api.admin?.removeFromCrate(crate.id, ids).then(crateChanged, () => undefined) : undefined} onGoTo={api.admin ? goTo : undefined} onSort={(next) => { if (next === sort) setReversed(!reversed); else { setSort(next); setReversed(false); } }} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restore?.query === queryKey ? restore.top : 0} version={crateVersion} onTotal={setListTotal} onOpenSettings={api.admin ? () => setSettingsOpen(true) : undefined} onOpenImport={api.admin ? () => navigate("import") : undefined} />
-        </> : screen === "playlists" && api.admin ? <PlaylistBrowser admin={api.admin} version={libraryVersion} folderId={browseFolder} onFolder={setBrowseFolder} onOpen={(next) => openPlaylist(next, true)} /> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "cleanup" && api.admin ? <CleanUp admin={api.admin} onChanged={() => { refreshLibrary(); crateChanged(); }} /> : screen === "import" && api.admin ? <Import admin={api.admin} auto={auto} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : screen === "cleanup" ? "clean" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : screen === "cleanup" ? "Clean up" : "rekordbox"}</h1><p>{screen === "import" ? "Watching download folders needs a library on disk. This demo has none." : screen === "cleanup" ? "Cleaning up needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}
+          <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} brief={preferences.headerFolded} keyNotation={preferences.keyNotation} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} selection={selectionSet} onSelectionChange={setSelection} onEdit={api.admin ? setEditing : undefined} onRemoveFromCrate={api.admin && crate ? (ids) => { if (ids.length > 1) setRemoveAsk(ids); else void removeFromCrate(ids); } : undefined} onGoTo={api.admin ? goTo : undefined} crates={crateList} onAddToCrate={api.admin ? (crateId, ids) => void addToCrate(crateId, ids) : undefined} within={crate?.name ?? playlist?.name ?? focus?.title} onSort={(next) => { if (next === sort) setReversed(!reversed); else { setSort(next); setReversed(false); } }} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restore?.query === queryKey ? restore.top : 0} version={crateVersion} onTotal={setListTotal} onOpenSettings={api.admin ? () => setSettingsOpen(true) : undefined} onOpenImport={api.admin ? () => navigate("import") : undefined} />
+        </> : <>{screen !== "playlists" && <div className="tool-fold"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button></div>}{screen === "playlists" && api.admin ? <PlaylistBrowser admin={api.admin} version={libraryVersion} folderId={browseFolder} onFolder={setBrowseFolder} onOpen={(next) => openPlaylist(next, true)} /> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "cleanup" && api.admin ? <CleanUp admin={api.admin} onChanged={() => { refreshLibrary(); crateChanged(); }} /> : screen === "import" && api.admin ? <Import admin={api.admin} auto={auto} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : screen === "cleanup" ? "clean" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : screen === "cleanup" ? "Clean up" : "rekordbox"}</h1><p>{screen === "import" ? "Watching download folders needs a library on disk. This demo has none." : screen === "cleanup" ? "Cleaning up needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}</>}
       </main>
     </div>
     {editing && api.admin && <EditTracks admin={api.admin} coverUrl={api.coverUrl?.bind(api)} trackIds={editing} onClose={() => setEditing(null)} onSaved={refreshLibrary} />}
@@ -411,7 +476,7 @@ export function App({ api }: { api: LibraryApi }) {
     <dialog ref={dialog} className="settings-dialog" {...closesOutside(() => setSettingsOpen(false))} aria-labelledby="settings-title" onCancel={() => setSettingsOpen(false)} onClose={(event) => { if (closedByBrowser(event.currentTarget)) setSettingsOpen(false); }}>
       <div className="dialog-heading"><div><h2 id="settings-title">Settings</h2></div><button autoFocus className="icon-button" aria-label="Close settings" onClick={() => setSettingsOpen(false)}><Icon name="close" /></button></div>
       <div className="dialog-body">
-      <h3>Appearance</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><fieldset className="theme-choice"><legend>Key notation</legend>{(["rekordbox", "camelot", "openKey", "musical"] as const).map((notation) => <label key={notation}><input type="radio" name="keyNotation" value={notation} checked={preferences.keyNotation === notation} onChange={() => updatePreferences({ ...preferences, keyNotation: notation })} />{notation === "rekordbox" ? "As rekordbox wrote it" : notation === "camelot" ? "Camelot (8A)" : notation === "openKey" ? "Open Key (1m)" : "Musical (Am)"}</label>)}</fieldset><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Fold the page header</strong><small>One line for the title, so more rows fit. Also from Hide header above any list.</small></span><input type="checkbox" checked={preferences.headerFolded} onChange={(event) => updatePreferences({ ...preferences, headerFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Fold the navigation</strong><small>Tracks, Import and the rest as a row of icons, so crates and playlists get the sidebar. Also from the arrow beside YOUR LIBRARY.</small></span><input type="checkbox" checked={preferences.navFolded} onChange={(event) => updatePreferences({ ...preferences, navFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label>
+      <h3>Appearance</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><fieldset className="theme-choice"><legend>Key notation</legend>{(["rekordbox", "camelot", "openKey", "musical"] as const).map((notation) => <label key={notation}><input type="radio" name="keyNotation" value={notation} checked={preferences.keyNotation === notation} onChange={() => updatePreferences({ ...preferences, keyNotation: notation })} />{notation === "rekordbox" ? "As rekordbox wrote it" : notation === "camelot" ? "Camelot (8A)" : notation === "openKey" ? "Open Key (1m)" : "Musical (Am)"}</label>)}</fieldset><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the page header</strong><small>One line for the title, so more rows fit. Also from Hide header above any list.</small></span><input type="checkbox" checked={preferences.headerFolded} onChange={(event) => updatePreferences({ ...preferences, headerFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the navigation</strong><small>Tracks, Import and the rest as a row of icons, so crates and playlists get the sidebar. Also from the arrow beside YOUR LIBRARY.</small></span><input type="checkbox" checked={preferences.navFolded} onChange={(event) => updatePreferences({ ...preferences, navFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label>
       {settingsError && <p role="alert" className="inline-error">{settingsError}</p>}
       {api.admin ? <><Folders admin={api.admin} open={settingsOpen} onChanged={refreshLibrary} /><Downloads admin={api.admin} open={settingsOpen} /><FolderLayout admin={api.admin} open={settingsOpen} /><LibraryCheck admin={api.admin} onChanged={refreshLibrary} /><LookupKeys admin={api.admin} open={settingsOpen} /><RekordboxDatabase admin={api.admin} open={settingsOpen} /></> : <><h3>Music folders</h3><p className="settings-copy">Download and library folders will be chosen with the system folder picker. Folder selection is not connected in this demo.</p><h3>rekordbox</h3><p className="settings-copy">XML export will be the default read-back. Reading rekordbox's own library will be off by default and read a backup copy only. Neither is enabled here.</p></>}
       <div className="settings-footnote">{api.admin ? "Nothing is uploaded. Files and rekordbox change only when you choose a change." : "100,000 synthetic tracks. No music, credentials or personal data."}</div>

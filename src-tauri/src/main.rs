@@ -463,7 +463,9 @@ async fn library_refile(
     file_ids: Vec<i64>,
 ) -> Result<refile::RefiledDto, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("filing by the folder layout")?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         refile::refile(&service, &rekordbox_db::Probe::installed(), &file_ids)
     })
     .await
@@ -486,7 +488,9 @@ async fn library_relink(
     pairs: Vec<(i64, i64)>,
 ) -> Result<moved::RelinkedDto, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("relinking moved files")?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         moved::relink(&service, &rekordbox_db::Probe::installed(), &pairs)
     })
     .await
@@ -501,7 +505,9 @@ async fn library_relink_chosen(
     missing: i64,
 ) -> Result<Option<moved::RelinkedDto>, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("relinking a moved file")?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         let Some(picked) = app
             .dialog()
             .file()
@@ -531,7 +537,9 @@ async fn library_tidy_folder(
     folder: String,
 ) -> Result<library_fix::TidiedDto, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("tidying a folder")?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         library_fix::tidy_folder(
             &service,
             &rekordbox_db::Probe::installed(),
@@ -565,7 +573,9 @@ async fn library_resolve_duplicate(
     drop: Vec<i64>,
 ) -> Result<library_fix::ResolvedDto, String> {
     let service = state.library()?;
+    let hold = state.scan.hold_files("archiving a duplicate")?;
     tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
         library_fix::resolve_duplicate(&service, &rekordbox_db::Probe::installed(), keep, &drop)
     })
     .await

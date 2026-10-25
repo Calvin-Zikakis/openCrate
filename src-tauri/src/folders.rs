@@ -279,6 +279,9 @@ enum ScanState {
 pub struct ScanControl {
     state: Mutex<ScanState>,
     cancel: AtomicBool,
+    /// Commands moving files right now (tidy, refile, relink, archive a duplicate); a scan
+    /// waits for them, and they wait for a scan, since both rewrite the same file rows.
+    files_held: Mutex<Vec<&'static str>>,
 }
 
 impl Default for ScanControl {
@@ -286,6 +289,26 @@ impl Default for ScanControl {
         Self {
             state: Mutex::new(ScanState::Idle),
             cancel: AtomicBool::new(false),
+            files_held: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+/// Files held by one command; dropping it lets scans run again.
+pub struct FilesHold {
+    control: Arc<ScanControl>,
+    what: &'static str,
+}
+
+impl Drop for FilesHold {
+    fn drop(&mut self) {
+        let mut held = self
+            .control
+            .files_held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(at) = held.iter().position(|name| *name == self.what) {
+            held.remove(at);
         }
     }
 }
@@ -293,6 +316,27 @@ impl Default for ScanControl {
 impl ScanControl {
     fn lock(&self) -> MutexGuard<'_, ScanState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Claim the files for a command that moves them, or say why not: a scan is reading the
+    /// same folders, and the two would each rename what the other is indexing.
+    pub fn hold_files(self: &Arc<Self>, what: &'static str) -> Result<FilesHold, String> {
+        let state = self.lock();
+        if matches!(*state, ScanState::Running { .. }) {
+            return Err(format!(
+                "A scan is running; {what} waits until it is done, so the two do not move the \
+                 same files."
+            ));
+        }
+        self.files_held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(what);
+        drop(state);
+        Ok(FilesHold {
+            control: Arc::clone(self),
+            what,
+        })
     }
 
     /// Start scanning a folder in the background. Fails if a scan is running or the folder
@@ -310,6 +354,16 @@ impl ScanControl {
             let mut state = self.lock();
             if matches!(*state, ScanState::Running { .. }) {
                 return Err("A scan is already running.".to_owned());
+            }
+            if let Some(what) = self
+                .files_held
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .first()
+            {
+                return Err(format!(
+                    "Files are being moved ({what}); scan again when it is done."
+                ));
             }
             self.cancel.store(false, Ordering::Relaxed);
             *state = ScanState::Running {

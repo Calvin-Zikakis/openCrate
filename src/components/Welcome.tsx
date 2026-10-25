@@ -116,6 +116,6 @@ export function Welcome({ admin, onOpenRekordbox, onLibraryChanged }: Props) {
       </li>
     </ol>
     {error && <p role="alert" className="inline-error">{error}</p>}
-    <button className="import-button" onClick={finish}>Done for now</button>
+    <button className="import-button" onClick={finish}>Done</button>
   </section>;
 }

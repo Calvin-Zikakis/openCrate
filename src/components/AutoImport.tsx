@@ -15,6 +15,8 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
   const [outcome, setOutcome] = useState<AutoOutcome>(NONE);
   /** Why the last look could not import anything, shown on the card; "" when it could. */
   const [problem, setProblem] = useState("");
+  /** When the download folders were last looked at, so the card shows it is alive. */
+  const [lastLookMs, setLastLookMs] = useState<number | null>(null);
   const refresh = useRef(onImported);
   refresh.current = onImported;
   const change = (next: AutoImportSettings) => {
@@ -40,6 +42,7 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
         }
         setProblem("");
         const snapshot = await admin.downloadReleases();
+        setLastLookMs(Date.now());
         const layout = await admin.folderLayout().catch(() => null);
         const chosen = loadOptions();
         const options = layout?.canConvert ? chosen : { ...chosen, convert: { lossless: null, lossy: null } };
@@ -63,7 +66,7 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
     return () => { live = false; clearInterval(timer); };
   }, [admin, settings]);
 
-  return { settings, change, outcome, problem, clear: () => setOutcome(NONE) };
+  return { settings, change, outcome, problem, lastLookMs, clear: () => setOutcome(NONE) };
 }
 
 export type AutoImport = ReturnType<typeof useAutoImport>;
@@ -73,6 +76,8 @@ interface Props {
   onChange: (next: AutoImportSettings) => void;
   outcome: AutoOutcome;
   problem?: string;
+  /** When the folders were last looked at; null before the first look. */
+  lastLookMs?: number | null;
   onClear?: () => void;
   roots: FolderInfo[];
   /** What the download folders hold now, so a release imported by hand stops waiting. */
@@ -80,7 +85,7 @@ interface Props {
 }
 
 /** The Import screen's switch for importing on its own, and what it has done this session. */
-export function AutoImportCard({ settings, onChange, outcome, problem = "", onClear, roots, releases }: Props) {
+export function AutoImportCard({ settings, onChange, outcome, problem = "", lastLookMs = null, onClear, roots, releases }: Props) {
   const recipes = loadRecipes(localStorage);
   const available = roots.filter((folder) => folder.availability === "available");
   const stillWaiting = outcome.waiting.filter((item) => releases.some((release) => release.name === item.name && !release.imported));
@@ -89,7 +94,7 @@ export function AutoImportCard({ settings, onChange, outcome, problem = "", onCl
     <label className="send-row"><input type="checkbox" checked={settings.on} onChange={(event) => onChange({ ...settings, on: event.target.checked })} />Import new releases on their own once they finish downloading</label>
     <p className="settings-copy">Only releases whose tags need no look go in on their own, with the choices above. The rest wait below for you. With writing to rekordbox on, they go on to rekordbox's Imported playlist too. This works while openCrate is open.</p>
     <div className="auto-choices">
-      {available.length > 1 && <label className="crate-pick">Into<select value={settings.rootId ?? available[0]?.id ?? ""} onChange={(event) => onChange({ ...settings, rootId: Number(event.target.value) })}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>}
+      {available.length > 1 && <label className="crate-pick">Music folder<select value={settings.rootId ?? available[0]?.id ?? ""} onChange={(event) => onChange({ ...settings, rootId: Number(event.target.value) })}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>}
       <label className="crate-pick">Recipe<select value={settings.recipe ?? ""} onChange={(event) => onChange({ ...settings, recipe: event.target.value || null })}>
         <option value="">None</option>
         {recipes.map((recipe) => <option key={recipe.name} value={recipe.name}>{recipe.name}</option>)}
@@ -97,6 +102,7 @@ export function AutoImportCard({ settings, onChange, outcome, problem = "", onCl
       {recipes.length === 0 && <small>Save a recipe in the track editor to use one here.</small>}
     </div>
     {settings.on && problem && <p className="inline-error" role="alert">{problem}</p>}
+    {settings.on && !problem && <p className="settings-copy">{`On. The download folders are looked at every ${AUTO_MS / 1000} seconds${lastLookMs ? `; last look ${new Date(lastLookMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}.`}</p>}
     {outcome.imported.length > 0 && <p className="settings-copy" role="status">{`Imported on their own: ${outcome.imported.join(", ")}.`} {onClear && <button className="link-button" onClick={onClear}>Clear</button>}</p>}
     {stillWaiting.length > 0 && <p className="settings-copy">{`Waiting for you: ${stillWaiting.map((item) => `${item.name} (${item.why})`).join("; ")}.`}</p>}
   </div>;

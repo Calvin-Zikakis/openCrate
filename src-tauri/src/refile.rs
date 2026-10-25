@@ -319,7 +319,7 @@ pub fn refile(
             if let Err(error) = write::relocate(
                 location,
                 &rekordbox_db::backups_dir(service),
-                probe.running(),
+                probe.running_now(),
                 now_ms(),
                 &relocations,
             ) {

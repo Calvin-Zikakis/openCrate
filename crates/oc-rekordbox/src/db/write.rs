@@ -270,6 +270,28 @@ pub struct FieldEdit {
     pub content: String,
     pub field: TrackText,
     pub value: String,
+    /// What rekordbox held when the owner decided; a different value now means rekordbox was
+    /// edited since, and the edit is refused rather than overwrite it. `None` skips the check.
+    pub expected: Option<String>,
+}
+
+/// What rekordbox holds for one text field of a track.
+fn stored_text(
+    connection: &rusqlite::Connection,
+    content: &str,
+    field: TrackText,
+) -> Result<Option<String>, DbError> {
+    Ok(connection.query_row(
+        "SELECT CASE ?2
+            WHEN 'title' THEN c.Title
+            WHEN 'artist' THEN (SELECT Name FROM djmdArtist WHERE ID = c.ArtistID)
+            WHEN 'album' THEN (SELECT Name FROM djmdAlbum WHERE ID = c.AlbumID)
+            WHEN 'label' THEN (SELECT Name FROM djmdLabel WHERE ID = c.LabelID)
+            ELSE NULLIF(CAST(c.ReleaseYear AS TEXT), '0') END
+         FROM djmdContent c WHERE c.ID = ?1",
+        params![content, format!("{field:?}").to_lowercase()],
+        |row| row.get(0),
+    )?)
 }
 
 /// Set track fields in rekordbox's library, then read every one back. Returns the backup taken
@@ -291,6 +313,27 @@ pub fn set_fields(
         .map(|edit| Member::Known(edit.content.clone()))
         .collect();
     check_before(location, None, &known)?;
+    {
+        // rekordbox may have been opened and edited since the owner decided: its newer value
+        // is kept, and the owner is told to review again.
+        let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
+        for edit in edits {
+            let Some(expected) = &edit.expected else {
+                continue;
+            };
+            let stored =
+                stored_text(library.connection(), &edit.content, edit.field)?.unwrap_or_default();
+            if stored.trim() != expected.trim() {
+                return Err(refused(&format!(
+                    "Track {}'s {:?} changed in rekordbox since the review (it is now \"{}\"), so \
+                     nothing was written. Review again.",
+                    edit.content,
+                    edit.field,
+                    stored.trim()
+                )));
+            }
+        }
+    }
     let backup = take_snapshot(location, backups, "before-write", false, now_ms)?;
     let mut writer = Writer::open(location.clone(), backups)?;
     writer.disable_automatic_backups();
@@ -301,17 +344,7 @@ pub fn set_fields(
 
     let library = Library::open(location.clone(), OpenMode::ReadOnly)?;
     for edit in edits {
-        let stored: Option<String> = library.connection().query_row(
-            "SELECT CASE ?2
-                WHEN 'title' THEN c.Title
-                WHEN 'artist' THEN (SELECT Name FROM djmdArtist WHERE ID = c.ArtistID)
-                WHEN 'album' THEN (SELECT Name FROM djmdAlbum WHERE ID = c.AlbumID)
-                WHEN 'label' THEN (SELECT Name FROM djmdLabel WHERE ID = c.LabelID)
-                ELSE NULLIF(CAST(c.ReleaseYear AS TEXT), '0') END
-             FROM djmdContent c WHERE c.ID = ?1",
-            params![edit.content, format!("{:?}", edit.field).to_lowercase()],
-            |row| row.get(0),
-        )?;
+        let stored = stored_text(library.connection(), &edit.content, edit.field)?;
         if stored.unwrap_or_default().trim() != edit.value.trim() {
             return Err(DbError::WriteRefused(format!(
                 "After writing, track {}'s {:?} is not what was meant. Restore the backup taken \
@@ -590,6 +623,33 @@ fn check_before(
     }
     if let Some(Playlist::New { parent, .. }) = playlist {
         check_parent(connection, parent)?;
+    }
+    if let Some(Playlist::TopLevel(name)) = playlist {
+        // The name is looked up at the top; a folder or an intelligent playlist of that name
+        // would take the rows and show nothing.
+        let taken: Option<i64> = connection
+            .query_row(
+                "SELECT COALESCE(Attribute, 0) FROM djmdPlaylist WHERE ParentID = ?1 AND Name = ?2 \
+                 AND rb_local_deleted = 0 AND COALESCE(Attribute, 0) <> 0 LIMIT 1",
+                params![ROOT, name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match taken {
+            None => {}
+            Some(ATTRIBUTE_FOLDER) => {
+                return Err(refused(&format!(
+                    "rekordbox has a folder named {name} at the top of its playlists, where the \
+                     {name} playlist would go. Rename the folder in rekordbox first."
+                )))
+            }
+            Some(_) => {
+                return Err(refused(&format!(
+                    "rekordbox has an intelligent playlist named {name} at the top of its \
+                     playlists. Rename it in rekordbox first."
+                )))
+            }
+        }
     }
     for member in members {
         if let Member::Known(id) = member {

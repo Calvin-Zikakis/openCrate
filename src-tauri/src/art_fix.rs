@@ -109,6 +109,10 @@ fn rewrite_all(
         }
     }
     cache.forget(release_id);
+    // The rows and the player show each track's own picture: those are read again too.
+    for track_id in service.release_track_ids(release_id).unwrap_or_default() {
+        cache.forget_track(track_id);
+    }
     Ok(ArtChangedDto { files, left })
 }
 

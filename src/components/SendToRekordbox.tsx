@@ -45,16 +45,20 @@ export function SendToRekordbox({ admin, refresh, onWritten, running = false }: 
     {written.leftOut.length > 0 && <ul className="skipped-list">{written.leftOut.map((why) => <li key={why}>{why}</li>)}</ul>}
     {written.readError && <p className="inline-error">{`rekordbox was written, but reading it again did not work: ${written.readError}`}</p>}
   </div>;
-  if (!listed || listed.tracks.length === 0) return error ? <p role="alert" className="inline-error">{error}</p> : outcome || null;
+  if (!listed || listed.tracks.length === 0) return <section className="sync-card" role="region" aria-label="New in your library">
+    <h2>New in your library</h2>
+    {error ? <p role="alert" className="inline-error">{error}</p> : outcome || <p className="settings-copy">{listed ? "rekordbox has every track openCrate filed. Tracks imported from now on are offered here." : "Reading..."}</p>}
+  </section>;
 
   const offered = listed.tracks.filter((track) => !track.hidden);
   const hidden = listed.tracks.filter((track) => track.hidden);
   const chosen = offered.filter((track) => !unticked.has(track.fileId)).map((track) => track.fileId);
-  const hide = async (fileId: number, keepOut: boolean) => {
+  const hide = async (fileIds: number[], keepOut: boolean) => {
+    if (fileIds.length === 0) return;
     setBusy(true);
     setError("");
     try {
-      setListed(await admin.hideFromRekordbox([fileId], keepOut));
+      setListed(await admin.hideFromRekordbox(fileIds, keepOut));
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -99,6 +103,7 @@ export function SendToRekordbox({ admin, refresh, onWritten, running = false }: 
     {offered.length > 1 && <div className="merge-actions">
       <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set())}>Tick all</button>
       <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(offered.map((track) => track.fileId)))}>Untick all</button>
+      {unticked.size > 0 && <button className="link-button" disabled={busy} title="Keep every unticked track out of rekordbox for good; Bring back undoes it" onClick={() => void hide(offered.filter((track) => unticked.has(track.fileId)).map((track) => track.fileId), true)}>{`Keep the unticked ${offered.filter((track) => unticked.has(track.fileId)).length} out`}</button>}
     </div>}
     <ul className="folder-list">{offered.map((track) => <li key={track.fileId} className="folder-row">
       <label className="send-row">
@@ -108,12 +113,12 @@ export function SendToRekordbox({ admin, refresh, onWritten, running = false }: 
           <small>{[track.artist, track.album, track.container].filter(Boolean).join(" - ")}{track.offeredMs !== null ? " - Sent, waiting for rekordbox" : ""}</small>
         </span>
       </label>
-      <button className="secondary-button" disabled={busy} aria-label={`Keep ${track.title} out of rekordbox`} onClick={() => void hide(track.fileId, true)}>Hide</button>
+      <button className="secondary-button" disabled={busy} aria-label={`Keep ${track.title} out of rekordbox`} title="Keep this track out of rekordbox for good; Bring back undoes it" onClick={() => void hide([track.fileId], true)}>Keep out</button>
     </li>)}</ul>
-    {hidden.length > 0 && <button className="link-button" aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>{showHidden ? "Hide the list of hidden tracks" : `Show ${plural(hidden.length, "hidden track", "hidden tracks")}`}</button>}
+    {hidden.length > 0 && <button className="link-button" aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>{showHidden ? "Hide the kept-out list" : `Show the ${plural(hidden.length, "track", "tracks")} kept out`}</button>}
     {showHidden && <ul className="folder-list" aria-label="Kept out of rekordbox">{hidden.map((track) => <li key={track.fileId} className="folder-row">
       <span className="folder-text"><strong>{track.title}</strong><small>{[track.artist, track.album].filter(Boolean).join(" - ")}</small></span>
-      <button className="secondary-button" disabled={busy} aria-label={`Bring ${track.title} back`} onClick={() => void hide(track.fileId, false)}>Bring back</button>
+      <button className="secondary-button" disabled={busy} aria-label={`Bring ${track.title} back`} onClick={() => void hide([track.fileId], false)}>Bring back</button>
     </li>)}</ul>}
     {error && <p role="alert" className="inline-error">{error}</p>}
     {direct && running && <p className="inline-error" role="status">rekordbox is running. Quit it (and wait for its agent to stop) to add these.</p>}

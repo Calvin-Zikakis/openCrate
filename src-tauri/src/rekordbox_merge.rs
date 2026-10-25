@@ -174,6 +174,7 @@ pub fn apply(
                     content: change.rb_key.to_string(),
                     field: text(field),
                     value: change.ours.clone(),
+                    expected: Some(change.theirs.clone()),
                 });
                 agreed.push((change.rb_key, field, change.ours.clone()));
             }
@@ -194,7 +195,7 @@ pub fn apply(
         write::set_fields(
             location,
             &rekordbox_db::backups_dir(service),
-            probe.running(),
+            probe.running_now(),
             now_ms(),
             &to_rekordbox,
         )

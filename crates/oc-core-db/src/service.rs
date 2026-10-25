@@ -482,6 +482,18 @@ impl LibraryService {
 
     /// Where a release's audio files are on disk, album order first, for reading cover art.
     /// Only files the index lists as present; at most `limit` of them.
+    /// Every track of a release.
+    pub fn release_track_ids(&self, release_id: i64) -> Result<Vec<i64>> {
+        let lease = self.pool.lease();
+        let mut statement = lease
+            .connection()
+            .prepare("SELECT id FROM track WHERE release_id = ?1 ORDER BY id")?;
+        let ids = statement
+            .query_map([release_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<i64>>>()?;
+        Ok(ids)
+    }
+
     pub fn release_files(&self, release_id: i64, limit: usize) -> Result<Vec<PathBuf>> {
         let lease = self.pool.lease();
         let mut statement = lease.connection().prepare(

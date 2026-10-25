@@ -10,6 +10,21 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Move `from` to `to` without ever replacing a file at `to`: a rename alone would, if one
+/// appeared between the check and the move (a sync client, another command). The place is
+/// claimed first with a file that only we can have made; the rename then replaces that one.
+pub(crate) fn move_without_replacing(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)?;
+    if let Err(error) = fs::rename(from, to) {
+        let _ = fs::remove_file(to);
+        return Err(error);
+    }
+    Ok(())
+}
+
 use oc_core_db::now_ms;
 use oc_core_db::service::{LibraryService, ScanOptions};
 use oc_rekordbox::db::write::{self, Duplicate};
@@ -95,7 +110,7 @@ pub(crate) fn move_tidied(
             .to
             .parent()
             .map_or(Ok(()), fs::create_dir_all)
-            .and_then(|()| fs::rename(&planned.from, &planned.to));
+            .and_then(|()| move_without_replacing(&planned.from, &planned.to));
         if let Err(error) = outcome {
             return Err(format!(
                 "{} could not be moved ({error}); {}.",
@@ -200,7 +215,7 @@ pub fn tidy_folder(
         if let Err(error) = write::relocate(
             location,
             &rekordbox_db::backups_dir(service),
-            probe.running(),
+            probe.running_now(),
             now_ms(),
             &relocations,
         ) {
@@ -457,7 +472,7 @@ pub fn resolve_duplicate(
             .to
             .parent()
             .map_or(Ok(()), fs::create_dir_all)
-            .and_then(|()| fs::rename(&planned.from, &planned.to));
+            .and_then(|()| move_without_replacing(&planned.from, &planned.to));
         if let Err(error) = outcome {
             return Err(format!(
                 "{} could not be archived ({error}); {}.",
@@ -484,7 +499,7 @@ pub fn resolve_duplicate(
         if let Err(error) = write::merge_duplicates(
             location,
             &rekordbox_db::backups_dir(service),
-            probe.running(),
+            probe.running_now(),
             now_ms(),
             &merges,
         ) {

@@ -134,7 +134,17 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 [role="listitem"]:hover .row-play, .row-play:focus-visible { opacity: 1; transform: none; pointer-events: auto; }
 [role="listitem"]:hover .track-number { opacity: 0; }
 .track-number { transition: opacity .12s ease; }
-.row-menu { min-width: 150px; }
+.row-menu { min-width: 170px; }
+.row-menu .menu-hint { margin-left: auto; padding-left: 16px; font-size: 10px; color: var(--faint); }
+.row-menu .menu-back { color: var(--secondary); border-bottom: 1px solid var(--line); border-radius: 0; margin-bottom: 4px; }
+.menu-note { margin: 4px 8px 2px; font-size: 11px; }
+.heading-pair { display: inline-flex; gap: 2px; align-items: baseline; }
+.list-note { display: block; margin-top: 6px; color: var(--secondary); }
+.mute-button { width: 24px; height: 24px; color: var(--faint); }
+.mute-button.is-muted { color: var(--danger); }
+.track-identity .missing-tag { margin-left: 8px; vertical-align: 1px; }
+.tool-fold { display: flex; justify-content: flex-end; }
+.tool-fold button { padding: 4px 8px; border-radius: 6px; color: var(--secondary); font-size: 11px; }
 .track-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .track-identity strong, .track-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .track-identity strong { font-weight: 500; font-size: 12px; color: var(--text); }
@@ -241,14 +251,17 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
   .player-meta > span { display: none; }
   .player-bar { grid-template-columns: minmax(0,1fr) minmax(170px,280px) 80px; gap: 16px; }
 }
+/* A narrow window: the navigation folds to icons by itself, so the crates and playlists stay. */
 @media (max-width: 850px) {
-  .app-shell { grid-template-columns: 68px minmax(0,1fr); }
+  .app-shell { grid-template-columns: 164px minmax(0,1fr); }
   .sidebar-resizer { display: none; }
-  .sidebar { padding: 27px 2px 20px; }
-  .brand { margin: 0 auto 32px; width: 32px; }
-  .brand > span:last-child, .nav-caption, nav button > span, .playlist-note, .sidebar-bottom, .sidebar-lists { display: none; }
-  nav button { padding: 13px; justify-content: center; }
-  nav .nav-divider { margin-top: 20px; }
+  .sidebar { padding: 20px 8px 16px; }
+  .brand { font-size: 18px; margin: 0 6px 20px; }
+  .nav-fold, .sidebar-bottom { display: none; }
+  .main-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+  .main-nav button { padding: 9px; justify-content: center; }
+  .main-nav button > span, .main-nav .nav-dot { display: none; }
+  .main-nav .nav-divider { margin-top: 0; }
   .demo-badge { display: none; }
   .search-box { width: 100%; }
   .hero-art { display: none; }
@@ -393,7 +406,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .plan-group-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .plan-group-name strong { font-size: 13px; font-weight: 500; }
 .plan-group-name small { font-size: 11px; color: var(--secondary); }
-.plan-group-head .secondary-button { padding: 7px 12px; }
+.plan-group-head .secondary-button, .plan-group-head .import-button { padding: 7px 12px; font-size: 12px; }
 .plan-fold { width: 22px; height: 22px; display: inline-grid; place-content: center; border-radius: 5px; color: var(--secondary); font-size: 12px; }
 .plan-fold:hover, .plan-fold:focus-visible { color: var(--text); background: var(--hover); }
 .plan-scroll-hint { margin: 0 0 8px; font-size: 11px; color: var(--secondary); }

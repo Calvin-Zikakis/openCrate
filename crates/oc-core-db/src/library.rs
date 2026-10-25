@@ -99,7 +99,13 @@ impl LibraryQuery {
     /// Whether this query reads the other way round: see [`Self::reversed`].
     #[must_use]
     pub const fn reads_reversed(&self) -> bool {
-        self.reversed && !matches!(self.sort, Sort::Playlist | Sort::Crate | Sort::Custom)
+        let arranged = match self.sort {
+            Sort::Custom => true,
+            Sort::Playlist => self.playlist_id.is_some(),
+            Sort::Crate => self.crate_id.is_some(),
+            _ => false,
+        };
+        self.reversed && !arranged
     }
 }
 

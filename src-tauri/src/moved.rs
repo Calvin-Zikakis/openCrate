@@ -169,7 +169,7 @@ pub fn relink(
                 write::relocate(
                     location,
                     &rekordbox_db::backups_dir(service),
-                    probe.running(),
+                    probe.running_now(),
                     now_ms(),
                     &relocations,
                 )

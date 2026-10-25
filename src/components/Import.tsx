@@ -231,7 +231,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
   const noFolder = <p role="alert" className="inline-error">{roots.length > 0
     ? `${roots.map((folder) => folder.label).join(", ")} cannot be reached right now, so there is nowhere to put it. Connect the drive; this screen notices when it is back.`
     : "Add a music folder in Settings first, so there is somewhere to put it."} <button className="link-button" onClick={onOpenSettings}>Settings...</button></p>;
-  const rootChoice = available.length > 1 && <label className="plan-root">Put it in <select value={rootId ?? ""} onChange={(event) => setRootId(Number(event.target.value))}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>;
+  const rootChoice = available.length > 1 && <label className="plan-root">Music folder <select value={rootId ?? ""} onChange={(event) => setRootId(Number(event.target.value))}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>;
 
   /** Every release in a list as one table: a header row each, with its own Import button. */
   const table = (list: DownloadRelease[]) => {
@@ -251,7 +251,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
           <span className="plan-group-name"><strong>{release.name}</strong><small>{contents(release)} - in {release.folderLabel}</small></span>
           <span className={`folder-badge ${tone}`}>{text}</span>
           {result && !step && <small role="status">{result.filed === 0 ? "Nothing was imported." : `${result.filed} ${result.filed === 1 ? "file is" : "files are"} now in ${result.rootLabel}.`}{result.skipped.length > 0 ? ` Left where they are: ${result.skipped.map((item) => `${item.source} (${item.problem})`).join("; ")}.` : ""}</small>}
-          {plan && plan.ready > 0 && (!result || result.filed === 0) && <button className="secondary-button" disabled={importing !== null || release.state !== "ready"} aria-label={`Import ${release.name}`} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
+          {plan && plan.ready > 0 && (!result || result.filed === 0) && <button className="import-button" disabled={importing !== null || release.state !== "ready"} aria-label={`Import ${release.name}`} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
           {waiting && <small role="status">Reading the tags...</small>}
           {step && <small role="status">{step === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</small>}
           {entry?.error && <small role="alert" className="inline-error">{entry.error}</small>}
@@ -285,7 +285,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
       </div>
       <span className={`folder-badge ${tone}`}>{text}</span>
       {/* An earlier import has nothing left to preview; one from this session shows what it did. */}
-      {(!release.imported || result) && <button className="secondary-button" aria-expanded={open} aria-label={`Preview ${release.name}`} onClick={() => choose(key, !open)}>{open ? "Hide preview" : release.imported ? "What happened" : "Preview..."}</button>}
+      {(!release.imported || result) && <button className="secondary-button" aria-expanded={open} aria-label={`Preview ${release.name}`} onClick={() => choose(key, !open)}>{open ? "Hide preview" : release.imported ? "What happened" : "Preview"}</button>}
       {open && <div className="plan-panel">
         {rootId === null && noFolder}
         {waiting && <p className="settings-copy" role="status">Reading the tags...</p>}

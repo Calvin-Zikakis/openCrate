@@ -2,11 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { carriesTracks, draggedTracks, setDraggedTracks } from "../library/drag";
 import { showKey, type KeyNotation } from "../library/keys";
-import type { LibraryApi, LibraryItem, LibraryPage, LibraryQuery, Sort } from "../library/types";
+import type { CrateInfo, LibraryApi, LibraryItem, LibraryPage, LibraryQuery, Sort } from "../library/types";
 import { ArtistArtwork, Artwork } from "./Artwork";
 import { Icon } from "./Icon";
 
 const EMPTY_PAGE: LibraryPage = { total: 0, start: 0, items: [] };
+const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
 interface Props {
@@ -31,6 +32,11 @@ interface Props {
   onRemoveFromCrate?: (trackIds: number[]) => void;
   /** Open a track's release or artist. */
   onGoTo?: (item: LibraryItem, kind: "releases" | "artists") => void;
+  /** The owner's crates, for "Add to a crate" in the track menu. */
+  crates?: CrateInfo[];
+  onAddToCrate?: (crateId: number, trackIds: number[]) => void;
+  /** A heading the list is shown under (a crate, playlist, release or artist), for the summary. */
+  within?: string;
   /** A column heading was clicked: sort by it. The heading already sorting the list reverses it. */
   onSort?: (sort: Sort) => void;
   /** The loaded track, marked in place of its number. */
@@ -83,7 +89,7 @@ function keyNote(item: LibraryItem): string | undefined {
   return item.rekordboxKey ? "From rekordbox" : "From the file's tags. rekordbox has no key for this track yet.";
 }
 
-export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, onRemoveFromCrate, onGoTo, onSort, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
+export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, onRemoveFromCrate, onGoTo, crates = [], onAddToCrate, within, onSort, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -226,7 +232,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     // A target outside the loaded rows would read as "the end"; do nothing rather than guess.
     if (insertAt < page.total && beforeId === null) return;
     showMoved(trackIds, beforeId);
-    void reorder.move(trackIds, beforeId);
+    reorder.move(trackIds, beforeId).catch(moveFailed);
   };
   const restored = useRef(restoreScroll === 0);
   /** A column heading: a button when it can sort (and is not a playlist or crate in its own order). */
@@ -243,16 +249,31 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     if (!onSelectionChange || isGrid) return;
     try {
       onSelectionChange(await api.ids(query));
-    } catch {
-      // The rows loaded are better than nothing.
-      onSelectionChange(page.items.map((item) => item.id));
+    } catch (reason) {
+      setError(`Could not select every track: ${message(reason)}`);
     }
+  };
+  /** Rows `low` to `high` chosen (Shift); rows past the window drawn are asked for by id. */
+  const selectRange = async (low: number, high: number) => {
+    if (!onSelectionChange) return;
+    const loaded = page.items.filter((_, at) => at + page.start >= low && at + page.start <= high).map((loaded) => loaded.id);
+    if (loaded.length === high - low + 1) { onSelectionChange(loaded); return; }
+    try {
+      onSelectionChange((await api.ids(query)).slice(low, high + 1));
+    } catch (reason) {
+      setError(`Could not select those rows: ${message(reason)}`);
+    }
+  };
+  /** A move that the library refused: the real order comes back, with the reason. */
+  const moveFailed = (reason: unknown) => {
+    setError(`The move did not happen: ${message(reason)}`);
+    setRetry((value) => value + 1);
   };
 
   return <section className="library-results" aria-label={`${query.view} results`} aria-busy={pending}>
     <div className="result-summary" role="status">
       {pending ? "Loading..." : `${page.total.toLocaleString()} ${page.total === 1 ? query.view.replace(/s$/, "") : query.view}`}
-      <span> {query.search ? `matching "${query.search}"` : api.admin ? (api.admin.persistent ? "Your library" : "Demo database") : "Synthetic collection"}</span>
+      <span> {query.search ? `matching "${query.search}"` : within ? `in ${within}` : api.admin ? (api.admin.persistent ? "Your library" : "Demo database") : "Synthetic collection"}</span>
       {selection && selection.size > 1 && <span className="crate-hint">{` ${selection.size.toLocaleString()} chosen`}</span>}
       {reorderable && page.total > 1 && !brief && <span className="crate-hint">{reorder?.remove
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
@@ -261,7 +282,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column">
       {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels. */}
       {heading("#", "recent", "Sort by recently added")}
-      {heading(query.sort === "artist" ? "Title / Artist (by artist)" : "Title / Artist", query.sort === "title" ? "artist" : "title", query.sort === "title" ? "Sort by artist" : "Sort by title", query.sort === "title" || query.sort === "artist")}
+      <span className="heading-pair">{heading("Title", "title", "Sort by title")}<span aria-hidden="true"> / </span>{heading("Artist", "artist", "Sort by artist")}</span>
       <span>Release</span>
       {heading("BPM", "bpm", "Sort by BPM")}
       <span>Key</span><span>Time</span><span>Format</span>
@@ -325,8 +346,9 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                 className={isGrid ? "release-card" : `track-row track-columns${isChosen(item) ? " is-selected" : ""}${item.missing ? " is-missing" : ""}${isSource ? (drag?.insertAt === null ? " is-drag-source" : " is-drag-gap") : ""}`}
                 draggable={!isGrid && (dragTracks || reorderable)}
                 onDragStart={(event) => {
+                  // Every chosen track goes, loaded or not (Select all reaches past the rows drawn).
                   const many = selection?.has(item.id) && selection.size > 1 ? page.items.filter((loaded) => selection.has(loaded.id)) : [];
-                  if (many.length > 1) setDraggedTracks(event.dataTransfer, many.map((loaded) => loaded.id), `${many.length} tracks`, many);
+                  if (many.length > 1) setDraggedTracks(event.dataTransfer, [...selection!], `${selection!.size.toLocaleString()} tracks`, many);
                   else setDraggedTracks(event.dataTransfer, [item.id], `${item.title} - ${item.artist}`, [item]);
                   dragPreview(event.dataTransfer, item.title, item.artist);
                   if (reorderable) setDrag({ source: index, insertAt: null });
@@ -353,7 +375,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                   }
                   if (event.shiftKey && onSelectionChange && anchor.current !== null) {
                     const [from, to] = anchor.current < index ? [anchor.current, index] : [index, anchor.current];
-                    onSelectionChange(page.items.filter((_, at) => at + page.start >= from && at + page.start <= to).map((loaded) => loaded.id));
+                    void selectRange(from, to);
                     return;
                   }
                   anchor.current = index;
@@ -392,7 +414,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                         const from = anchor.current ?? index;
                         anchor.current = from;
                         const [low, high] = from < target ? [from, target] : [target, from];
-                        onSelectionChange(page.items.filter((_, at) => at + page.start >= low && at + page.start <= high).map((loaded) => loaded.id));
+                        void selectRange(low, high);
                       } else {
                         anchor.current = target;
                         onSelectionChange?.([next.id]);
@@ -419,7 +441,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                     event.preventDefault();
                     const up = event.key === "ArrowUp";
                     if (up ? index === 0 : index === page.total - 1) return;
-                    void reorder.move([item.id], up ? idAt(index - 1) : idAt(index + 2)).then(() => focusRow(index + (up ? -1 : 1)));
+                    reorder.move([item.id], up ? idAt(index - 1) : idAt(index + 2)).then(() => focusRow(index + (up ? -1 : 1)), moveFailed);
                     return;
                   }
                   if (onRemoveFromCrate && (event.key === "Delete" || event.key === "Backspace")) {
@@ -435,10 +457,10 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                   }
                 }}
               >
-                {isGrid ? <>{item.kind === "artists" ? <ArtistArtwork api={api} artistId={item.id} color={item.color} large /> : <Artwork color={item.color} large src={api.artworkUrl?.(item.releaseId) ?? null} />}<strong>{item.title}</strong><span>{item.kind === "artists" ? `${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}` : item.artist}</span>{item.kind === "releases" && <small>{`${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}`}</small>}</> :
+                {isGrid ? <>{item.kind === "artists" ? <ArtistArtwork api={api} artistId={item.id} color={item.color} large /> : <Artwork color={item.color} large src={api.artworkUrl?.(item.releaseId) ?? null} />}<strong title={item.title}>{item.title}</strong><span>{item.kind === "artists" ? `${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}` : item.artist}</span>{item.kind === "releases" && <small>{`${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}`}</small>}</> :
                   <><span className="track-number">{nowPlaying?.id === item.id
                     ? <span className={`now-bars${nowPlaying.playing ? " is-playing" : ""}`} role="img" aria-label={nowPlaying.playing ? "Now playing" : "Paused"}><i /><i /><i /></span>
-                    : index + 1}</span><span className="track-identity"><Artwork color={item.color} src={(item.kind === "tracks" ? api.coverUrl?.(item.id) : null) ?? api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate"><strong>{item.title}</strong><small>{item.artist}</small></span></span><span className="track-release">{item.release}</span><span className={`track-bpm${item.bpm === null ? "" : item.analysed ? " is-analysed" : " from-tags"}`} title={tempoNote(item)}>{item.bpm ?? "--"}</span><span className={`track-key${!item.rekordboxKey && item.musicalKey ? " from-tags" : ""}`} title={keyNote(item)}>{showKey(item.musicalKey, keyNotation)}</span><span className="track-time">{time(item.duration)}</span><span className="track-format">{item.missing ? <span className="missing-tag" title="The file is not on disk right now">Missing</span> : item.format}</span></>}
+                    : index + 1}</span><span className="track-identity"><Artwork color={item.color} src={(item.kind === "tracks" ? api.coverUrl?.(item.id) : null) ?? api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate" title={`${item.title} - ${item.artist}`}><strong>{item.title}</strong>{item.missing && <span className="missing-tag" title="The file is not on disk right now">Missing</span>}<small>{item.artist}</small></span></span><span className="track-release" title={item.release}>{item.release}</span><span className={`track-bpm${item.bpm === null ? "" : item.analysed ? " is-analysed" : " from-tags"}`} title={tempoNote(item)}>{item.bpm ?? "--"}</span><span className={`track-key${!item.rekordboxKey && item.musicalKey ? " from-tags" : ""}`} title={keyNote(item)}>{showKey(item.musicalKey, keyNotation)}</span><span className="track-time">{time(item.duration)}</span><span className="track-format">{item.format}</span></>}
               </button>
               {!isGrid && onPlay && !item.missing && <button className="row-play" tabIndex={-1} aria-label={`Play ${item.title}`}
                 style={{ height: rowHeight }} onClick={() => { onSelect(item, index); onPlay(item, index); }}><Icon name="play" size={14} /></button>}
@@ -452,16 +474,23 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       ...(onQueue && !menu.item.missing ? (() => {
         // With several chosen, all of them, in list order (those with a file to play).
         const many = selection?.has(menu.item.id) && selection.size > 1 ? page.items.filter((loaded) => selection.has(loaded.id) && !loaded.missing) : [menu.item];
-        const count = many.length > 1 ? ` (${many.length} tracks)` : "";
+        // The queue takes loaded rows: a choice reaching past them says how many it covers.
+        const count = many.length > 1 ? ` (${many.length}${selection && selection.size > many.length ? ` of ${selection.size.toLocaleString()} chosen` : ""} tracks)` : "";
         return [
           // Play next puts them at the front in their own order.
           { label: `Play next${count}`, run: () => { for (const item of [...many].reverse()) onQueue(item, true); } },
           { label: `Add to queue${count}`, run: () => { for (const item of many) onQueue(item, false); } },
         ];
       })() : []),
-      ...(onEdit ? [{ label: chosen(menu.item).length > 1 ? `Edit details (${chosen(menu.item).length} tracks)...` : "Edit details...", run: () => onEdit(chosen(menu.item)) }] : []),
-      ...(onSelectionChange && page.total > 1 && (selection?.size ?? 0) < page.total ? [{ label: `Select all ${page.total.toLocaleString()} tracks`, run: () => void selectAll() }] : []),
-      ...(onRemoveFromCrate ? [{ label: chosen(menu.item).length > 1 ? `Remove ${chosen(menu.item).length} tracks from the crate` : "Remove from the crate", run: () => { const at = menu.index; onRemoveFromCrate(chosen(menu.item)); requestAnimationFrame(() => focusRow(Math.min(at, page.total - 2))); } }] : []),
+      ...(onEdit ? [{ label: chosen(menu.item).length > 1 ? `Edit details (${chosen(menu.item).length} tracks)...` : "Edit details...", hint: "Cmd+I", run: () => onEdit(chosen(menu.item)) }] : []),
+      ...(onAddToCrate && crates.length > 0 ? [{
+        label: chosen(menu.item).length > 1 ? `Add ${chosen(menu.item).length} tracks to a crate` : "Add to a crate",
+        children: crates.filter((found) => found.id !== query.crateId).map((found) => ({ label: found.name, run: () => onAddToCrate(found.id, chosen(menu.item)) })),
+        run: () => undefined,
+      }] : []),
+      ...(onSelectionChange && page.total > 1 && (selection?.size ?? 0) < page.total ? [{ label: `Select all ${page.total.toLocaleString()} tracks`, hint: "Cmd+A", run: () => void selectAll() }] : []),
+      ...(onSelectionChange && selection && selection.size > 1 ? [{ label: "Clear the selection", hint: "Esc", run: () => onSelectionChange([menu.item.id]) }] : []),
+      ...(onRemoveFromCrate ? [{ label: chosen(menu.item).length > 1 ? `Remove ${chosen(menu.item).length} tracks from the crate...` : "Remove from the crate", run: () => { const at = menu.index; onRemoveFromCrate(chosen(menu.item)); requestAnimationFrame(() => focusRow(Math.min(at, page.total - 2))); } }] : []),
       ...(onGoTo ? [
         ...(query.releaseId === null ? [{ label: `Go to the release (${menu.item.release})`, run: () => onGoTo(menu.item, "releases") }] : []),
         ...(query.artistId === null ? [{ label: `Go to the artist (${menu.item.artist})`, run: () => onGoTo(menu.item, "artists") }] : []),
@@ -472,8 +501,13 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
 
 /** A track's right-click menu. It closes on a choice, a click elsewhere, Escape or a scroll, and
  * stays inside the window. */
-function RowMenu({ item, x, y, actions, onClose }: { item: LibraryItem; x: number; y: number; actions: { label: string; run: () => void }[]; onClose: () => void }) {
+/** One line of the track menu; `children` open a second list in its place (crates to add to). */
+interface MenuAction { label: string; run: () => void; hint?: string; children?: MenuAction[] }
+
+function RowMenu({ item, x, y, actions, onClose }: { item: LibraryItem; x: number; y: number; actions: MenuAction[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  /** The second list shown instead of the first, and its heading. */
+  const [inner, setInner] = useState<{ title: string; actions: MenuAction[] } | null>(null);
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -502,14 +536,21 @@ function RowMenu({ item, x, y, actions, onClose }: { item: LibraryItem; x: numbe
       window.removeEventListener("keydown", key);
     };
   }, [onClose]);
-  return <div ref={ref} className="column-menu row-menu" role="menu" aria-label={item.title} style={{ left: x, top: y }}
+  useEffect(() => { ref.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus({ preventScroll: true }); }, [inner]);
+  const shown = inner?.actions ?? actions;
+  return <div ref={ref} className="column-menu row-menu" role="menu" aria-label={inner ? inner.title : item.title} style={{ left: x, top: y }}
     onKeyDown={(event) => {
+      if (event.key === "ArrowLeft" && inner) { event.preventDefault(); setInner(null); return; }
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       event.preventDefault();
       const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[role=menuitem]"));
       const at = items.indexOf(document.activeElement as HTMLElement);
       items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
     }}>
-    {actions.map((action) => <button key={action.label} type="button" role="menuitem" onClick={() => { action.run(); onClose(); }}>{action.label}</button>)}
+    {inner && <button type="button" role="menuitem" className="menu-back" onClick={() => setInner(null)}><Icon name="back" size={12} />{inner.title}</button>}
+    {shown.map((action) => action.children
+      ? <button key={action.label} type="button" role="menuitem" aria-haspopup="menu" onClick={() => setInner({ title: action.label, actions: action.children ?? [] })}>{action.label}<span className="menu-hint" aria-hidden="true">{"\u203A"}</span></button>
+      : <button key={action.label} type="button" role="menuitem" onClick={() => { action.run(); onClose(); }}>{action.label}{action.hint && <span className="menu-hint" aria-hidden="true">{action.hint}</span>}</button>)}
+    {inner && shown.length === 0 && <p className="settings-copy">Every crate already has these tracks.</p>}
   </div>;
 }
