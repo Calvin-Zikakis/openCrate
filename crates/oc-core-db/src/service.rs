@@ -144,6 +144,11 @@ impl LibraryService {
         self.pool.lease().read_page(query, start, count)
     }
 
+    /// Every id the query lists, in its order.
+    pub fn ids(&self, query: &LibraryQuery) -> Result<Vec<i64>> {
+        self.pool.lease().ids(query)
+    }
+
     /// Fill an empty library with synthetic tracks for a demo. Does nothing, and says so,
     /// if the library already holds any track.
     pub fn seed_demo(&self, tracks: u32) -> Result<bool> {

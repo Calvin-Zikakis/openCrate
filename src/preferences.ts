@@ -10,8 +10,10 @@ export interface Preferences {
   keyNotation: KeyNotation;
   /** The page header (title, notes, cover) folded down to one line, for more rows. */
   headerFolded: boolean;
+  /** The sidebar's navigation folded to a row of icons, so crates and playlists get the height. */
+  navFolded: boolean;
 }
-export const DEFAULT_PREFERENCES: Preferences = { compact: false, reducedMotion: false, theme: "dark", keyNotation: "rekordbox", headerFolded: false };
+export const DEFAULT_PREFERENCES: Preferences = { compact: false, reducedMotion: false, theme: "dark", keyNotation: "rekordbox", headerFolded: false, navFolded: false };
 const NOTATIONS: readonly KeyNotation[] = ["rekordbox", "camelot", "openKey", "musical"];
 const KEY = "opencrate.appearance.v1";
 const THEMES: readonly Theme[] = ["system", "dark", "light"];
@@ -32,7 +34,8 @@ export function loadPreferences(storage: Pick<Storage, "getItem">): Preferences 
   const keyNotation = "keyNotation" in value ? value.keyNotation : "rekordbox";
   if (!NOTATIONS.includes(keyNotation as KeyNotation)) throw new Error("Saved appearance settings are invalid. Choose your preferences again.");
   const headerFolded = "headerFolded" in value && value.headerFolded === true;
-  return { compact: value.compact, reducedMotion: value.reducedMotion, theme: theme as Theme, keyNotation: keyNotation as KeyNotation, headerFolded };
+  const navFolded = "navFolded" in value && value.navFolded === true;
+  return { compact: value.compact, reducedMotion: value.reducedMotion, theme: theme as Theme, keyNotation: keyNotation as KeyNotation, headerFolded, navFolded };
 }
 
 export function savePreferences(storage: Pick<Storage, "setItem">, value: Preferences) {

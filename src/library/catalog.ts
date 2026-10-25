@@ -43,10 +43,18 @@ export function createCatalog(count = 100_000) {
   let lastQuery = "";
   let lastRows: LibraryItem[] = [];
 
-  function ordered(view: View, sort: Sort): LibraryItem[] {
-    const key = `${view}:${sort}`;
+  function ordered(view: View, sort: Sort, reversed = false): LibraryItem[] {
+    const key = `${view}:${sort}:${reversed}`;
     const cached = indexes.get(key);
     if (cached) return cached;
+    if (reversed) {
+      // The other way round, except that rows without a BPM stay last.
+      const forward = ordered(view, sort);
+      const valued = sort === "bpm" ? forward.filter((item) => item.bpm !== null) : forward;
+      const rows = [...valued].reverse().concat(sort === "bpm" ? forward.filter((item) => item.bpm === null) : []);
+      indexes.set(key, rows);
+      return rows;
+    }
     const rows = [...sources[view]].sort((a, b) => {
       if (sort === "recent") return b.id - a.id;
       if (sort === "track") return a.releaseId - b.releaseId || a.id - b.id;
@@ -59,11 +67,8 @@ export function createCatalog(count = 100_000) {
     return rows;
   }
 
-  return {
-    read(query: LibraryQuery, start: number, window: number): LibraryPage {
-      if (!Number.isInteger(start) || start < 0 || !Number.isInteger(window) || window < 1 || window > MAX_WINDOW) {
-        throw new Error(`Request a non-negative start and 1-${MAX_WINDOW} rows.`);
-      }
+  /** The filtered, ordered rows of a query; the last query's are kept for the next window. */
+  function rowsOf(query: LibraryQuery): LibraryItem[] {
       const key = JSON.stringify(query);
       if (key !== lastQuery) {
         const terms = query.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -75,7 +80,7 @@ export function createCatalog(count = 100_000) {
         const byTrack = query.view !== "tracks" && terms.length > 0
           ? new Set(ordered("tracks", "recent").filter(matches).map((track) => (query.view === "releases" ? track.releaseId : track.artistId)))
           : null;
-        lastRows = ordered(query.view, query.sort).filter((item) => {
+        lastRows = ordered(query.view, query.sort, query.reversed && !["playlist", "crate", "custom"].includes(query.sort)).filter((item) => {
           if (query.artistId !== null && item.artistId !== query.artistId) return false;
           if (query.releaseId !== null && item.releaseId !== query.releaseId) return false;
           if (query.format !== "all" && item.format !== query.format) return false;
@@ -84,7 +89,19 @@ export function createCatalog(count = 100_000) {
         });
         lastQuery = key;
       }
-      return { items: lastRows.slice(start, start + window), total: lastRows.length, start };
+      return lastRows;
+  }
+
+  return {
+    read(query: LibraryQuery, start: number, window: number): LibraryPage {
+      if (!Number.isInteger(start) || start < 0 || !Number.isInteger(window) || window < 1 || window > MAX_WINDOW) {
+        throw new Error(`Request a non-negative start and 1-${MAX_WINDOW} rows.`);
+      }
+      const rows = rowsOf(query);
+      return { items: rows.slice(start, start + window), total: rows.length, start };
+    },
+    ids(query: LibraryQuery): number[] {
+      return rowsOf(query).map((item) => item.id);
     },
   };
 }

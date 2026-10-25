@@ -14,6 +14,15 @@ pub struct EditItem {
     pub after: String,
 }
 
+/// One value a save gave some tracks: "genre: deep-house became Deep House, 2 tracks".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditChange {
+    pub field: String,
+    pub before: String,
+    pub after: String,
+    pub tracks: usize,
+}
+
 /// One save, as listed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EditBatch {
@@ -22,12 +31,15 @@ pub struct EditBatch {
     pub tracks: usize,
     /// The fields changed, each once, in the order first met.
     pub fields: Vec<String>,
+    /// What changed to what, each distinct change once with how many tracks took it, so an
+    /// undo can say which values it puts back.
+    pub changes: Vec<EditChange>,
 }
 
 /// Every save, newest first.
 pub fn history(connection: &Connection) -> Result<Vec<EditBatch>> {
     let mut statement = connection.prepare(
-        "SELECT h.id, h.saved_ms, i.track_id, i.field FROM edit_history h \
+        "SELECT h.id, h.saved_ms, i.track_id, i.field, i.before, i.after FROM edit_history h \
          JOIN edit_history_item i ON i.history_id = h.id ORDER BY h.id DESC, i.track_id, i.field",
     )?;
     let rows = statement.query_map([], |row| {
@@ -36,18 +48,21 @@ pub fn history(connection: &Connection) -> Result<Vec<EditBatch>> {
             row.get::<_, i64>(1)?,
             row.get::<_, i64>(2)?,
             row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
         ))
     })?;
     let mut batches: Vec<EditBatch> = Vec::new();
     let mut tracks: Vec<i64> = Vec::new();
     for row in rows {
-        let (id, saved_ms, track_id, field) = row?;
+        let (id, saved_ms, track_id, field, before, after) = row?;
         if batches.last().is_none_or(|batch| batch.id != id) {
             batches.push(EditBatch {
                 id,
                 saved_ms,
                 tracks: 0,
                 fields: Vec::new(),
+                changes: Vec::new(),
             });
             tracks.clear();
         }
@@ -60,7 +75,18 @@ pub fn history(connection: &Connection) -> Result<Vec<EditBatch>> {
             batch.tracks += 1;
         }
         if !batch.fields.contains(&field) {
-            batch.fields.push(field);
+            batch.fields.push(field.clone());
+        }
+        match batch.changes.iter_mut().find(|change| {
+            change.field == field && change.before == before && change.after == after
+        }) {
+            Some(change) => change.tracks += 1,
+            None => batch.changes.push(EditChange {
+                field,
+                before,
+                after,
+                tracks: 1,
+            }),
         }
     }
     Ok(batches)

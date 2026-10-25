@@ -245,6 +245,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
       const waiting = !entry && wanted.includes(release) && rootId !== null;
       return {
         key,
+        name: release.name,
         files: plan?.files ?? [],
         header: <>
           <span className="plan-group-name"><strong>{release.name}</strong><small>{contents(release)} - in {release.folderLabel}</small></span>

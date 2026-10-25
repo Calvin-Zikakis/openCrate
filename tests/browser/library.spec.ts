@@ -197,3 +197,47 @@ test("appearance: dark by default, light when chosen and remembered, or followin
   await page.emulateMedia({ colorScheme: "dark" });
   await expect.poll(background).toBe("rgb(10, 10, 12)");
 });
+
+test("the navigation folds to a row of icons so the lists below get the height, and stays folded", async ({ page }) => {
+  await page.goto("/");
+  const sidebar = page.locator(".sidebar");
+  const navigation = page.getByRole("navigation", { name: "Main navigation" });
+  const tall = (await navigation.boundingBox())!.height;
+  await expect(navigation.getByRole("button", { name: "Releases" })).toContainText("Releases");
+  await page.getByRole("button", { name: "Fold the navigation" }).click();
+  await expect(sidebar).toHaveClass(/nav-folded/);
+  expect((await navigation.boundingBox())!.height).toBeLessThan(tall / 3);
+  // Every screen is still a click away.
+  await navigation.getByRole("button", { name: "Releases" }).click();
+  await expect(page.getByRole("status")).toContainText("10,000 releases");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Show the navigation" })).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Fold the navigation" }).uncheck();
+  await expect(sidebar).not.toHaveClass(/nav-folded/);
+});
+
+test("a sort can be reversed from its heading or the Reverse button, and Select all chooses every track", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("status")).toContainText("100,000 tracks");
+  const rows = page.getByTestId("track-row");
+  await expect(rows.first()).toContainText("Parallel Lines 100000");
+  const headings = page.getByRole("group", { name: "Sort by column" });
+  // The heading that already sorts the list turns it round: oldest first.
+  await headings.getByRole("button", { name: "#" }).click();
+  await expect(rows.first()).toContainText("After Hours 000001");
+  await expect(page.getByRole("button", { name: "Reverse the order" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Reverse the order" }).click();
+  await expect(rows.first()).toContainText("Parallel Lines 100000");
+  // BPM high to low keeps tracks without a tempo last.
+  await page.getByLabel("Sort library").selectOption("bpm");
+  await page.getByRole("button", { name: "Reverse the order" }).click();
+  await expect(rows.first().locator(".track-bpm")).toHaveText("140");
+  await page.getByTestId("library-scroll").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(rows.last().locator(".track-bpm")).toHaveText("--");
+  // Cmd+A chooses the whole list, loaded or not.
+  await rows.first().click();
+  await page.keyboard.press("ControlOrMeta+KeyA");
+  await expect(page.getByRole("status")).toContainText("100,000 chosen");
+  await expect(rows.last()).toHaveAttribute("aria-pressed", "true");
+});

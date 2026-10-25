@@ -56,6 +56,22 @@ nav button { border-radius: 8px; text-align: left; display: flex; align-items: c
 nav button[aria-current] { background: #ff7a3d12; color: var(--accent-text); }
 .nav-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); margin-left: auto; }
 nav .nav-divider { margin-top: 22px; }
+/* The navigation folded to one row of icons: the crates and playlists below get the height. */
+.nav-head { display: flex; align-items: center; justify-content: space-between; padding-right: 6px; }
+.nav-head .nav-caption { margin-bottom: 0; }
+.nav-head { margin-bottom: 14px; }
+.nav-fold { width: 24px; height: 24px; color: var(--faint); }
+.nav-fold svg { transform: rotate(90deg); transition: transform .15s; }
+.nav-folded .nav-fold svg { transform: rotate(-90deg); }
+.nav-fold:hover, .nav-fold:focus-visible { color: var(--text); }
+.nav-folded .main-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.nav-folded .main-nav button { padding: 9px; justify-content: center; }
+.nav-folded .main-nav button > span, .nav-folded .main-nav .nav-dot { display: none; }
+.nav-folded .main-nav .nav-divider { margin-top: 0; }
+.nav-folded .sidebar-lists { margin-top: 8px; }
+/* The frame of the app is not text to select: Cmd+A chooses tracks, not the page. */
+.sidebar, .topbar, .player-bar, .library-hero, .track-header, .track-row { -webkit-user-select: none; user-select: none; }
+.topbar input { -webkit-user-select: text; user-select: text; }
 .playlist-note { margin-top: 40px; }
 .playlist-note p { margin: 0 14px 7px; color: var(--secondary); font-size: 11px; }
 .playlist-note > span { margin: 0 14px; display: block; font-size: 10px; color: var(--faint); line-height: 1.7; }
@@ -378,6 +394,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .plan-group-name strong { font-size: 13px; font-weight: 500; }
 .plan-group-name small { font-size: 11px; color: var(--secondary); }
 .plan-group-head .secondary-button { padding: 7px 12px; }
+.plan-fold { width: 22px; height: 22px; display: inline-grid; place-content: center; border-radius: 5px; color: var(--secondary); font-size: 12px; }
+.plan-fold:hover, .plan-fold:focus-visible { color: var(--text); background: var(--hover); }
 .plan-scroll-hint { margin: 0 0 8px; font-size: 11px; color: var(--secondary); }
 .plan-table-wrap { overflow-x: auto; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
 .plan-table { table-layout: fixed; border-collapse: collapse; }
@@ -525,6 +543,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .cover-actions small { color: var(--secondary); }
 
 .history-list { margin: 6px 0 12px; padding-left: 18px; font-size: 11px; color: var(--secondary); line-height: 1.8; }
+.history-values { margin: 0 0 4px; padding-left: 14px; list-style: none; color: var(--faint); }
 
 /* Crate tools on Clean up: three small panels side by side. */
 .crate-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 8px 0 12px; }
@@ -597,6 +616,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .track-header .column-sort { padding: 0; font-size: 10px; color: var(--faint); text-align: left; background: none; }
 .track-header .column-sort:hover { color: var(--text); }
 .track-header .column-sort.is-active { color: var(--accent-text); }
+.sort-arrow { font-size: 7px; margin-left: 4px; vertical-align: 1px; }
+.reverse-mark { font-size: 8px; }
 /* Fold the page header also shortens the tool screens' headings to their title. */
 .header-folded .sync-hero p { display: none; }
 .header-folded .sync-hero .empty-icon { width: 32px; height: 32px; border-radius: 9px; grid-row: auto; }

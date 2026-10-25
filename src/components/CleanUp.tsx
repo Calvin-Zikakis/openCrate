@@ -283,6 +283,36 @@ function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
       setBusy(false);
     }
   };
+  /** Merge every group into the spelling its box shows, one group after another. Each merge is
+   * its own entry in Recent changes, so any one can be undone. */
+  const mergeAll = async () => {
+    if (!genres) return;
+    setBusy(true);
+    setError("");
+    setNote("");
+    let files = 0;
+    let merged = 0;
+    const left: string[] = [];
+    try {
+      for (const group of genres.groups) {
+        const to = (names[group.members.join("|")] ?? group.suggested).trim();
+        if (!to) continue;
+        const done = await admin.renameGenres(group.members.filter((member) => member !== to), to);
+        files += done.files;
+        merged += 1;
+        left.push(...done.left);
+      }
+      setNote(`${plural(merged, "group", "groups")} merged; ${plural(files, "file has", "files have")} a new genre.${leftOut(left)}`);
+      setNames({});
+      await load();
+      onChanged();
+    } catch (reason) {
+      setError(`${merged > 0 ? `${plural(merged, "group was", "groups were")} merged before this. ` : ""}${message(reason)}`);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return <section className="sync-card" role="region" aria-label="Genres">
     <h2>Genres</h2>
@@ -291,6 +321,7 @@ function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
     {note && <p role="status" className="settings-copy">{note}</p>}
     {busy && <p role="status" className="settings-copy">Writing the new genre into the files...</p>}
     {genres && genres.groups.length === 0 && <p className="settings-copy">{genres.genres.length === 0 ? "No track has a genre yet." : "No genres are spelled two ways."}</p>}
+    {genres && genres.groups.length > 1 && <button className="import-button" disabled={busy} onClick={() => void mergeAll()}>{busy ? "Merging..." : `Merge all ${genres.groups.length} groups`}</button>}
     {genres && genres.groups.length > 0 && <ul className="folder-list" aria-label="Genres spelled alike">{genres.groups.map((group) => {
       const key = group.members.join("|");
       const to = names[key] ?? group.suggested;
@@ -450,18 +481,33 @@ function ArtCard({ admin, onChanged }: Props) {
       if (alone) setBusy(null);
     }
   };
-  const fillAllFromFolders = async () => {
+  /** Set while a run over every release should end after the release in hand. */
+  const stopAsked = useRef(false);
+  /** Give every listed release a cover, one after another. "folder" takes only releases with an
+   * image beside their files; "any" takes the folder image where there is one and looks online
+   * for the rest, which is one request a second, so it can be stopped. */
+  const fillAll = async (how: "folder" | "any") => {
     if (!missing) return;
-    const todo = missing.filter((found) => found.folderImage);
+    const todo = how === "folder" ? missing.filter((found) => found.folderImage) : missing;
     setNote("");
+    setNotes({});
+    stopAsked.current = false;
     let given = 0;
+    let tried = 0;
     for (const [index, release] of todo.entries()) {
-      setProgress(`Using the folder images: ${index + 1} of ${todo.length}...`);
-      if (await fill(release, "folder", false)) given += 1;
+      if (stopAsked.current) break;
+      tried += 1;
+      setProgress(`${how === "folder" ? "Using the folder images" : "Finding covers"}: ${index + 1} of ${todo.length}, ${release.title}...`);
+      if (await fill(release, release.folderImage ? "folder" : "online", false)) given += 1;
     }
     setProgress("");
     setBusy(null);
-    setNote(`${plural(given, "release now has", "releases now have")} a cover from its folder.${given < todo.length ? ` ${todo.length - given} could not; each says why.` : ""}`);
+    const failed = tried - given;
+    setNote([
+      `${plural(given, "release now has", "releases now have")} a cover${how === "folder" ? " from its folder" : ""}.`,
+      failed > 0 ? `${failed} could not; each says why.` : "",
+      tried < todo.length ? `Stopped with ${todo.length - tried} not tried.` : "",
+    ].filter(Boolean).join(" "));
   };
   const withFolder = missing?.filter((found) => found.folderImage).length ?? 0;
 
@@ -473,11 +519,15 @@ function ArtCard({ admin, onChanged }: Props) {
       {missing && missing.length > 0 && <button className="link-button" aria-expanded={!folded} onClick={() => setFolded(!folded)}>{folded ? `Show the list (${missing.length})` : "Hide the list"}</button>}
     </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
-    {(progress || note) && <p role="status" className="settings-copy">{progress || note}</p>}
+    {(progress || note) && <p role="status" className="settings-copy">{progress || note}{progress && <> <button className="link-button" disabled={stopAsked.current} onClick={() => { stopAsked.current = true; setProgress((current) => current && `${current.replace(/\.\.\.$/, "")}; stopping after this one...`); }}>Stop</button></>}</p>}
     {missing && missing.length === 0 && <p className="settings-copy">Every release has a cover.</p>}
     {missing && missing.length > 0 && !folded && <>
       <p className="settings-copy">{`${plural(missing.length, "release has", "releases have")} no cover${withFolder > 0 ? `; ${withFolder} ${withFolder === 1 ? "has" : "have"} an image beside the files` : ""}.`}</p>
-      {withFolder > 1 && <button className="import-button" disabled={busy !== null} onClick={() => void fillAllFromFolders()}>{`Use the folder image for all ${withFolder}`}</button>}
+      {missing.length > 1 && <div className="merge-actions">
+        <button className="import-button" disabled={busy !== null} onClick={() => void fillAll("any")}>{`Find a cover for all ${missing.length}`}</button>
+        {withFolder > 1 && withFolder < missing.length && <button className="secondary-button" disabled={busy !== null} onClick={() => void fillAll("folder")}>{`Use the folder image for the ${withFolder} that have one`}</button>}
+      </div>}
+      {missing.length > 1 && <p className="settings-copy">Find a cover for all takes the image beside the files where there is one and asks the Cover Art Archive for the rest, one release a second. You can stop it; what was given stays.</p>}
       <ul className="folder-list" aria-label="Releases without art">{missing.slice(0, DRAWN).map((release) => <li key={release.releaseId} className="folder-row">
         <div className="folder-text">
           <strong>{release.title}</strong>
@@ -551,6 +601,9 @@ function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
     }
   };
   const describe = (batch: EditBatch) => `${batch.fields.map((field) => FIELD_NAMES[field] ?? field).join(", ")} of ${plural(batch.tracks, "track", "tracks")}, ${when(batch.savedMs)}`;
+  /** Each value a save gave, with what it replaced: what Undo puts back. */
+  const values = (batch: EditBatch) => batch.changes.map((change) => `${FIELD_NAMES[change.field] ?? change.field}: ${change.before === "" ? "empty" : `"${change.before}"`} became ${change.after === "" ? "empty" : `"${change.after}"`}${change.tracks > 1 ? ` on ${change.tracks} tracks` : ""}`);
+  const SHOWN_VALUES = 4;
 
   return <section className="sync-card" role="region" aria-label="Recent changes">
     <h2>Recent changes</h2>
@@ -559,9 +612,12 @@ function HistoryCard({ admin, onChanged, saves }: Props & { saves: number }) {
     {note && <p role="status" className="settings-copy">{note}</p>}
     {history && history.length === 0 && <p className="settings-copy">No changes yet.</p>}
     {history && history.length > 0 && <>
-      <ol className="history-list" aria-label="Saves">{history.slice(0, 10).map((batch) => <li key={batch.id}>{describe(batch)}</li>)}</ol>
+      <ol className="history-list" aria-label="Saves">{history.slice(0, 10).map((batch) => {
+        const shown = values(batch);
+        return <li key={batch.id}>{describe(batch)}{shown.length > 0 && <ul className="history-values">{shown.slice(0, SHOWN_VALUES).map((line) => <li key={line}>{line}</li>)}{shown.length > SHOWN_VALUES && <li>{`and ${shown.length - SHOWN_VALUES} more`}</li>}</ul>}</li>;
+      })}</ol>
       <div className="warning-actions">
-        <button className="secondary-button" disabled={busy} onClick={() => void undo(history[0]!.id)}>{`Undo: ${describe(history[0]!)}`}</button>
+        <button className="secondary-button" disabled={busy} title={values(history[0]!).length > 0 ? `Puts back: ${values(history[0]!).join("; ")}` : undefined} onClick={() => void undo(history[0]!.id)}>{`Undo: ${describe(history[0]!)}`}</button>
         {stuck === history[0]!.id && <button className="link-button" disabled={busy} onClick={() => void forget(history[0]!.id)}>Forget this change</button>}
       </div>
       {stuck === history[0]!.id && <p className="settings-copy">Part of this change could not be put back. Undo tries that part again; Forget this change drops it from the list so earlier changes can be undone.</p>}

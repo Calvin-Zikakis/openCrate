@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FolderInfo, LibraryAdmin, ScanStatus, ScanSummary } from "../library/types";
 
 const POLL_MS = 400;
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const PHASES: Record<string, string> = {
   checking: "Checking the folder",
   walking: "Looking through the folder",
@@ -70,6 +71,10 @@ export function Folders({ admin, open, onChanged }: Props) {
     return () => { cancelled = true; };
   }, [admin, open, refresh]);
 
+  /** Folders still to scan after the one running: Scan all goes through them one at a time. */
+  const queued = useRef<number[]>([]);
+  const [queuedCount, setQueuedCount] = useState(0);
+
   useEffect(() => {
     if (!open || !watching) return;
     let stopped = false;
@@ -78,9 +83,23 @@ export function Folders({ admin, open, onChanged }: Props) {
         if (stopped) return;
         setStatus(next);
         if (next.state !== "running") {
-          setWatching(false);
           void refresh();
           onChanged();
+          const following = next.state === "finished" && !next.summary?.cancelled ? queued.current.shift() : undefined;
+          if (following === undefined) {
+            queued.current = [];
+            setQueuedCount(0);
+            setWatching(false);
+            return;
+          }
+          setQueuedCount(queued.current.length);
+          admin.scan(following, false).then(() => admin.scanStatus()).then((started) => { if (!stopped) setStatus(started); }, (reason: unknown) => {
+            if (stopped) return;
+            queued.current = [];
+            setQueuedCount(0);
+            setWatching(false);
+            setError(message(reason));
+          });
         }
       }, (reason: unknown) => {
         if (stopped) return;
@@ -127,7 +146,18 @@ export function Folders({ admin, open, onChanged }: Props) {
       setError(message(reason));
     }
   };
+  /** Scan every folder that is there, one after another; an offline folder is skipped. */
+  const scanAll = async () => {
+    const [head, ...rest] = folders.filter((folder) => folder.availability !== "unavailable").map((folder) => folder.id);
+    if (head === undefined) return;
+    queued.current = rest;
+    setQueuedCount(rest.length);
+    await start(head);
+  };
   const cancel = async () => {
+    // Cancel ends the run: the folders waiting are not scanned either.
+    queued.current = [];
+    setQueuedCount(0);
     try { await admin.cancelScan(); } catch (reason) { setError(message(reason)); }
   };
 
@@ -156,10 +186,13 @@ export function Folders({ admin, open, onChanged }: Props) {
           <button className="link-button" onClick={() => setConfirming(null)}>Keep it</button>
         </div>}
       </li>)}</ul>}
-    <button className="secondary-button" disabled={adding || scanning} onClick={() => void add()}>Add folder...</button>
+    <div className="merge-actions">
+      <button className="secondary-button" disabled={adding || scanning} onClick={() => void add()}>Add folder...</button>
+      {folders.length > 1 && <button className="secondary-button" disabled={adding || scanning} onClick={() => void scanAll()}>Scan all folders</button>}
+    </div>
     {running && <div className="scan-status" role="status">
       <progress aria-label="Scan progress" max={percent === undefined ? undefined : 100} value={percent} />
-      <span>{PHASES[running.phase ?? ""] ?? "Working"}{running.tagsTotal > 0 ? `: ${running.tagsRead} of ${running.tagsTotal}` : ""}</span>
+      <span>{folders.length > 1 && (queuedCount > 0 || queued.current.length > 0) ? `${folders.find((folder) => folder.id === running.rootId)?.label ?? "Folder"}, ${plural(queuedCount, "more folder", "more folders")} to go. ` : ""}{PHASES[running.phase ?? ""] ?? "Working"}{running.tagsTotal > 0 ? `: ${running.tagsRead} of ${running.tagsTotal}` : ""}</span>
       <button className="link-button" onClick={() => void cancel()}>Cancel</button>
     </div>}
     {status?.state === "finished" && status.summary && <p role="status" className="settings-copy">{summaryText(status.summary)}</p>}

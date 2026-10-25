@@ -268,6 +268,17 @@ pub struct EditBatchDto {
     pub saved_ms: i64,
     pub tracks: usize,
     pub fields: Vec<String>,
+    pub changes: Vec<EditChangeDto>,
+}
+
+/// One value a save gave some tracks, so the page can say what an undo puts back.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EditChangeDto {
+    pub field: String,
+    pub before: String,
+    pub after: String,
+    pub tracks: usize,
 }
 
 /// Every save, newest first.
@@ -281,6 +292,16 @@ pub fn edit_history(service: &LibraryService) -> Result<Vec<EditBatchDto>, Strin
             saved_ms: batch.saved_ms,
             tracks: batch.tracks,
             fields: batch.fields,
+            changes: batch
+                .changes
+                .into_iter()
+                .map(|change| EditChangeDto {
+                    field: change.field,
+                    before: change.before,
+                    after: change.after,
+                    tracks: change.tracks,
+                })
+                .collect(),
         })
         .collect())
 }

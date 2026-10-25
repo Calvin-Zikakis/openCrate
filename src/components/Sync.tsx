@@ -73,8 +73,9 @@ export function Sync({ admin, onChanged }: Props) {
   const readButton = direct && <button className="secondary-button" disabled={busy || blocked !== ""} onClick={readLibrary}>{busy ? "Reading..." : "Read from rekordbox"}</button>;
   const fromLibrary = mirror?.kind === "master_db";
   const again = () => mirror && void run(() => admin.rereadMirror(mirror.sourceId));
-  const accept = (suggestion: AliasSuggestion) => mirror && void run(async () => {
-    await admin.addAlias(suggestion.rootId, suggestion.prefix);
+  /** Take one suggestion, or all of them, then read once so the new matches show. */
+  const accept = (taken: AliasSuggestion[]) => mirror && void run(async () => {
+    for (const suggestion of taken) await admin.addAlias(suggestion.rootId, suggestion.prefix);
     return mirror.kind === "master_db" ? admin.readRekordboxDatabase() : admin.rereadMirror(mirror.sourceId);
   });
 
@@ -134,8 +135,9 @@ export function Sync({ admin, onChanged }: Props) {
           <strong>{number(suggestion.entries)} entries start with {suggestion.prefix}</strong>
           <small>They match files in {suggestion.rootLabel}</small>
         </div>
-        <button className="secondary-button" disabled={busy} aria-label={`Use ${suggestion.prefix} for ${suggestion.rootLabel}`} onClick={() => accept(suggestion)}>Use this</button>
+        <button className="secondary-button" disabled={busy} aria-label={`Use ${suggestion.prefix} for ${suggestion.rootLabel}`} onClick={() => accept([suggestion])}>Use this</button>
       </li>)}</ul>
+      {suggestions.length > 1 && <button className="import-button" disabled={busy} onClick={() => accept(suggestions)}>{busy ? "Reading..." : `Use all ${suggestions.length}`}</button>}
     </div>}
   </div>;
 }

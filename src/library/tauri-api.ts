@@ -135,6 +135,7 @@ function toWire(query: LibraryQuery) {
     releaseId: query.releaseId,
     playlistId: query.playlistId,
     crateId: query.crateId,
+    reversed: query.reversed,
   };
 }
 
@@ -863,8 +864,12 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       const what = "edit history";
       if (!Array.isArray(value)) throw new Error(`The library returned unreadable ${what}.`);
       return value.map((item: unknown) => {
-        if (!isRecord(item) || !Array.isArray(item.fields)) throw new Error(`The library returned unreadable ${what}.`);
-        return { id: whole(item.id, what), savedMs: whole(item.savedMs, what), tracks: whole(item.tracks, what), fields: item.fields.map((field: unknown) => text(field, what)) };
+        if (!isRecord(item) || !Array.isArray(item.fields) || !Array.isArray(item.changes)) throw new Error(`The library returned unreadable ${what}.`);
+        const changes = item.changes.map((change: unknown) => {
+          if (!isRecord(change)) throw new Error(`The library returned unreadable ${what}.`);
+          return { field: text(change.field, what), before: text(change.before, what), after: text(change.after, what), tracks: whole(change.tracks, what) };
+        });
+        return { id: whole(item.id, what), savedMs: whole(item.savedMs, what), tracks: whole(item.tracks, what), fields: item.fields.map((field: unknown) => text(field, what)), changes };
       });
     },
     undoLastEdit: async (id) => toEdited(await invoke("library_undo_last_edit", { id }).catch((error: unknown) => { throw failure(error); })),
@@ -1070,6 +1075,13 @@ export class TauriLibraryApi implements LibraryApi {
     if (!this.artwork) return null;
     if (of === "picked") return this.artwork("picked");
     return Number.isInteger(of) && of > 0 ? this.artwork(`track-${of}`) : null;
+  }
+
+  async ids(query: LibraryQuery): Promise<number[]> {
+    if (this.closed) throw new Error("The library was closed.");
+    const value: unknown = await this.invoke("library_ids", { query: toWire(query) }).catch((error: unknown) => { throw failure(error); });
+    if (!Array.isArray(value) || !value.every((id) => Number.isInteger(id))) throw new Error("The library returned unreadable track ids.");
+    return value as number[];
   }
 
   read(query: LibraryQuery, start: number, count: number, signal: AbortSignal): Promise<LibraryPage> {

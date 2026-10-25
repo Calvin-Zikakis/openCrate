@@ -95,6 +95,8 @@ function cell(id: PlanColumn, file: PlanFile) {
 /** Several releases in one table: each starts with a row of its own (`header`) above its files. */
 export interface PlanGroup {
   key: string;
+  /** The release's name, for the fold button's label. */
+  name: string;
   header: ReactNode;
   files: PlanFile[];
 }
@@ -111,6 +113,13 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
   const wrap = useRef<HTMLDivElement>(null);
   /** Columns lie past the right edge: a fade and a hint say so, since a thin scrollbar hides itself. */
   const [moreRight, setMoreRight] = useState(false);
+  /** Releases whose rows are folded away, leaving their heading row. */
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  const fold = (key: string) => setFolded((before) => {
+    const next = new Set(before);
+    if (!next.delete(key)) next.add(key);
+    return next;
+  });
 
   // "Becomes" only matters when something in this release would be converted.
   const converting = allFiles.some((file) => file.becomes !== null);
@@ -258,8 +267,11 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
       </thead>
       {groups
         ? groups.map((group) => <tbody key={group.key} className="plan-group">
-          <tr className="plan-group-row"><td colSpan={visible.length}><div className="plan-group-head">{group.header}</div></td></tr>
-          {group.files.map(fileRows)}
+          <tr className="plan-group-row"><td colSpan={visible.length}><div className="plan-group-head">
+            <button type="button" className="plan-fold" aria-expanded={!folded.has(group.key)} aria-label={`${folded.has(group.key) ? "Show" : "Hide"} the files of ${group.name}`} title={folded.has(group.key) ? `Show the ${group.files.length} files` : "Hide the files"} onClick={() => fold(group.key)}><span aria-hidden="true">{folded.has(group.key) ? "\u25B8" : "\u25BE"}</span></button>
+            {group.header}
+          </div></td></tr>
+          {!folded.has(group.key) && group.files.map(fileRows)}
         </tbody>)
         : <tbody>{files.map(fileRows)}</tbody>}
     </table>

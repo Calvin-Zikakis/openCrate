@@ -79,10 +79,10 @@ const PAGE_NOTES = {
 } as const;
 
 /** The library query a screen shows; Back uses it to name the list it returns to. */
-function queryOf(screen: Screen, search: string, sort: Sort, format: Format | "all", focus: LibraryItem | null, playlist: PlaylistInfo | null, crate: CrateInfo | null) {
+function queryOf(screen: Screen, search: string, sort: Sort, format: Format | "all", focus: LibraryItem | null, playlist: PlaylistInfo | null, crate: CrateInfo | null, reversed = false) {
   return {
     ...DEFAULT_QUERY, view: screen === "import" || screen === "sync" || screen === "cleanup" || screen === "playlists" ? "tracks" as const : screen,
-    search, sort, format: screen === "tracks" ? format : "all" as const,
+    search, sort, reversed, format: screen === "tracks" ? format : "all" as const,
     artistId: focus?.kind === "artists" ? focus.id : null,
     releaseId: focus?.kind === "releases" ? focus.id : null,
     playlistId: playlist?.id ?? null,
@@ -97,6 +97,8 @@ export function App({ api }: { api: LibraryApi }) {
   const [fromBrowser, setFromBrowser] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
+  /** The sort the other way round (oldest first, Z to A, BPM high to low). */
+  const [reversed, setReversed] = useState(false);
   const [format, setFormat] = useState<Format | "all">("all");
   const [focus, setFocus] = useState<LibraryItem | null>(null);
   const [playlist, setPlaylist] = useState<PlaylistInfo | null>(null);
@@ -213,19 +215,19 @@ export function App({ api }: { api: LibraryApi }) {
     // Moving between Tracks, Releases and Artists keeps the search: it looks in all three.
     const views: Screen[] = ["tracks", "releases", "artists"];
     if (!(views.includes(next) && views.includes(screen) && !focus && !playlist && !crate)) setSearch("");
-    setScreen(next); setFocus(null); setPlaylist(null); setCrate(null); setFormat("all"); setSort("recent"); setFromBrowser(false);
+    setScreen(next); setFocus(null); setPlaylist(null); setCrate(null); setFormat("all"); setSort("recent"); setReversed(false); setFromBrowser(false);
   };
   // Keyed on what the query uses, so a refreshed focus (a new name) is not a new list.
-  const query = useMemo(() => queryOf(screen, search, sort, format, focus, playlist, crate), [screen, search, sort, format, focus?.kind, focus?.id, playlist, crate]);
+  const query = useMemo(() => queryOf(screen, search, sort, format, focus, playlist, crate, reversed), [screen, search, sort, format, focus?.kind, focus?.id, playlist, crate, reversed]);
   /** The grid a release or artist was opened from, so Back returns to it as it was. */
-  const [backTo, setBackTo] = useState<{ screen: View; sort: Sort; top: number } | null>(null);
+  const [backTo, setBackTo] = useState<{ screen: View; sort: Sort; reversed: boolean; top: number } | null>(null);
   // A new list says how long it is once read; until then the last count does not apply.
   useEffect(() => { setListTotal(null); }, [query, libraryVersion]);
   const openPlaylist = (next: PlaylistInfo, browsed = false) => {
-    setScreen("tracks"); setFocus(null); setPlaylist(next); setCrate(null); setSearch(""); setFormat("all"); setSort("playlist"); setFromBrowser(browsed);
+    setScreen("tracks"); setFocus(null); setPlaylist(next); setCrate(null); setSearch(""); setFormat("all"); setSort("playlist"); setReversed(false); setFromBrowser(browsed);
   };
   const openCrate = (next: CrateInfo) => {
-    setScreen("tracks"); setFocus(null); setPlaylist(null); setCrate(next); setSearch(""); setFormat("all"); setSort("crate");
+    setScreen("tracks"); setFocus(null); setPlaylist(null); setCrate(next); setSearch(""); setFormat("all"); setSort("crate"); setReversed(false);
   };
   const crateChanged = useCallback(() => setCrateVersion((value) => value + 1), []);
   const admin = api.admin;
@@ -237,7 +239,7 @@ export function App({ api }: { api: LibraryApi }) {
   shownQuery.current = queryKey;
   const scrollTop = () => document.querySelector<HTMLElement>("[data-testid=library-scroll]")?.scrollTop ?? 0;
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  const arrangeable = Boolean(admin) && screen === "tracks" && !crate && !playlist && !focus && sort !== "playlist" && sort !== "crate";
+  const arrangeable = Boolean(admin) && screen === "tracks" && !crate && !playlist && !focus && sort !== "playlist" && sort !== "crate" && !reversed;
   const libraryOrder = useMemo(() => (admin && arrangeable ? {
     move: async (trackIds: number[], beforeId: number | null) => {
       await admin.moveTracks(trackIds, beforeId, sort);
@@ -270,9 +272,9 @@ export function App({ api }: { api: LibraryApi }) {
   const auto = useAutoImport(api.admin, refreshLibrary);
   // A search stays: an artist or release found by a track's title opens on that track.
   const openItem = (item: LibraryItem) => {
-    if (screen === "releases" || screen === "artists") setBackTo({ screen, sort, top: scrollTop() });
+    if (screen === "releases" || screen === "artists") setBackTo({ screen, sort, reversed, top: scrollTop() });
     // A release or an artist reads in track order, as on the record.
-    setFocus(item); setScreen("tracks"); setFormat("all"); setSort("track");
+    setFocus(item); setScreen("tracks"); setFormat("all"); setSort("track"); setReversed(false);
   };
   // A release or artist renamed by an edit shows its new name: read it again with the library.
   const focusKey = focus ? `${focus.kind}:${focus.id}` : "";
@@ -298,15 +300,28 @@ export function App({ api }: { api: LibraryApi }) {
   };
   /** Back from a release or artist: the grid in the order and at the place it was left. */
   const backFromFocus = (kind: View) => {
-    const back = backTo?.screen === kind ? backTo : { screen: kind, sort: "recent" as Sort, top: 0 };
-    setRestore({ query: JSON.stringify(queryOf(back.screen, search, back.sort, "all", null, null, null)), top: back.top });
-    setScreen(back.screen); setFocus(null); setSort(back.sort); setBackTo(null);
+    const back = backTo?.screen === kind ? backTo : { screen: kind, sort: "recent" as Sort, reversed: false, top: 0 };
+    setRestore({ query: JSON.stringify(queryOf(back.screen, search, back.sort, "all", null, null, null, back.reversed)), top: back.top });
+    setScreen(back.screen); setFocus(null); setSort(back.sort); setReversed(back.reversed); setBackTo(null);
   };
   const isLibrary = screen !== "import" && screen !== "sync" && screen !== "cleanup" && screen !== "playlists";
   useEffect(() => { setCoverNote(""); setExportNote(""); setCoverAsk(false); }, [focus, crate, playlist, screen]);
   const selectionSet = useMemo(() => new Set(selection), [selection]);
   // A new list starts with nothing chosen.
   useEffect(() => { setSelection([]); }, [query]);
+  // Cmd+A (Ctrl+A) outside a text box chooses every track of the list shown, as it does in it.
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "a" || event.defaultPrevented) return;
+      if (!isLibrary || query.view !== "tracks" || document.querySelector("dialog[open]")) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.closest("input, textarea, select, [contenteditable=true]"))) return;
+      event.preventDefault();
+      api.ids(query).then(setSelection, () => undefined);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [api, isLibrary, query]);
   // Cmd+I (Ctrl+I) edits the chosen tracks, or the selected one.
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -331,10 +346,13 @@ export function App({ api }: { api: LibraryApi }) {
 
   return <div className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
     <a className="skip-link" href="#main">Skip to library</a>
-    <aside className="sidebar">
+    <aside className={`sidebar${preferences.navFolded ? " nav-folded" : ""}`}>
       <a className="brand" href="#main" onClick={() => navigate("tracks")} aria-label="openCrate home"><span className="brand-mark">oc</span><span>openCrate<span className="brand-period">.</span></span></a>
-      <div className="nav-caption">YOUR LIBRARY</div>
-      <nav aria-label="Main navigation">{NAV.map(({ screen: target, name, icon }) => <button key={target} aria-label={name} onClick={() => navigate(target)} aria-current={(focus && !crate && !playlist ? focus.kind : screen) === target ? "page" : undefined} className={target === "import" ? "nav-divider" : ""}><Icon name={icon} /><span>{name}</span>{screen === target && <span className="nav-dot" />}</button>)}</nav>
+      <div className="nav-head">
+        <div className="nav-caption">YOUR LIBRARY</div>
+        <button className="icon-button nav-fold" aria-expanded={!preferences.navFolded} aria-label={preferences.navFolded ? "Show the navigation" : "Fold the navigation"} title={preferences.navFolded ? "Show the navigation with its names" : "Fold the navigation to icons, so crates and playlists get the room"} onClick={() => updatePreferences({ ...preferences, navFolded: !preferences.navFolded })}><Icon name="back" size={14} /></button>
+      </div>
+      <nav className="main-nav" aria-label="Main navigation">{NAV.map(({ screen: target, name, icon }) => <button key={target} aria-label={name} title={preferences.navFolded ? name : undefined} onClick={() => navigate(target)} aria-current={(focus && !crate && !playlist ? focus.kind : screen) === target ? "page" : undefined} className={target === "import" ? "nav-divider" : ""}><Icon name={icon} /><span>{name}</span>{screen === target && <span className="nav-dot" />}</button>)}</nav>
       <div className="sidebar-lists">
       {api.admin && <Crates admin={api.admin} version={crateVersion} activeId={crate?.id ?? null} onOpen={openCrate} onChanged={crateChanged} onRenamed={(next) => setCrate((current) => (current?.id === next.id ? next : current))} onDeleted={(id) => { if (crate?.id === id) navigate("tracks"); }} />}
       {api.admin ? <Playlists admin={api.admin} version={libraryVersion} activeId={playlist?.id ?? null} onOpen={(next) => openPlaylist(next)} onChanged={refreshLibrary} browsing={screen === "playlists"} onBrowse={() => { navigate("playlists"); setBrowseFolder(null); }} /> : <div className="playlist-note"><div className="nav-caption">PLAYLISTS</div><p>From your rekordbox export.</p><span>Needs a library on disk.</span></div>}
@@ -375,9 +393,9 @@ export function App({ api }: { api: LibraryApi }) {
           </div>
           <div className="library-toolbar">
             <div className="format-filters" role="group" aria-label="Format filters">{screen === "tracks" ? (["all", "AIFF", "WAV", "MP3", "FLAC"] as const).map((value) => <button key={value} aria-pressed={format === value} onClick={() => setFormat(value)}>{value === "all" ? "All tracks" : value}</button>) : <span />}</div>
-            <div className="view-options"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button>{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="recent">Recently added</option><option value="title">Title</option><option value="artist">Artist</option>{screen === "tracks" && <option value="bpm">BPM</option>}{focus && <option value="track">Track order</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label></div>
+            <div className="view-options"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button>{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setReversed(false); }}><option value="recent">Recently added</option><option value="title">Title</option><option value="artist">Artist</option>{screen === "tracks" && <option value="bpm">BPM</option>}{focus && <option value="track">Track order</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label>{sort !== "playlist" && sort !== "crate" && sort !== "custom" && <button aria-pressed={reversed} aria-label="Reverse the order" title={reversed ? "Back to the usual order" : sort === "recent" ? "Oldest first" : sort === "bpm" ? "BPM high to low" : "Z to A"} onClick={() => setReversed(!reversed)}><span aria-hidden="true" className="reverse-mark">{reversed ? "\u25B2" : "\u25BC"}</span>Reverse</button>}</div>
           </div>
-          <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} brief={preferences.headerFolded} keyNotation={preferences.keyNotation} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} selection={selectionSet} onSelectionChange={setSelection} onEdit={api.admin ? setEditing : undefined} onRemoveFromCrate={api.admin && crate ? (ids) => void api.admin?.removeFromCrate(crate.id, ids).then(crateChanged, () => undefined) : undefined} onGoTo={api.admin ? goTo : undefined} onSort={setSort} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restore?.query === queryKey ? restore.top : 0} version={crateVersion} onTotal={setListTotal} onOpenSettings={api.admin ? () => setSettingsOpen(true) : undefined} onOpenImport={api.admin ? () => navigate("import") : undefined} />
+          <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} brief={preferences.headerFolded} keyNotation={preferences.keyNotation} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} selection={selectionSet} onSelectionChange={setSelection} onEdit={api.admin ? setEditing : undefined} onRemoveFromCrate={api.admin && crate ? (ids) => void api.admin?.removeFromCrate(crate.id, ids).then(crateChanged, () => undefined) : undefined} onGoTo={api.admin ? goTo : undefined} onSort={(next) => { if (next === sort) setReversed(!reversed); else { setSort(next); setReversed(false); } }} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restore?.query === queryKey ? restore.top : 0} version={crateVersion} onTotal={setListTotal} onOpenSettings={api.admin ? () => setSettingsOpen(true) : undefined} onOpenImport={api.admin ? () => navigate("import") : undefined} />
         </> : screen === "playlists" && api.admin ? <PlaylistBrowser admin={api.admin} version={libraryVersion} folderId={browseFolder} onFolder={setBrowseFolder} onOpen={(next) => openPlaylist(next, true)} /> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "cleanup" && api.admin ? <CleanUp admin={api.admin} onChanged={() => { refreshLibrary(); crateChanged(); }} /> : screen === "import" && api.admin ? <Import admin={api.admin} auto={auto} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : screen === "cleanup" ? "clean" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : screen === "cleanup" ? "Clean up" : "rekordbox"}</h1><p>{screen === "import" ? "Watching download folders needs a library on disk. This demo has none." : screen === "cleanup" ? "Cleaning up needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}
       </main>
     </div>
@@ -393,7 +411,7 @@ export function App({ api }: { api: LibraryApi }) {
     <dialog ref={dialog} className="settings-dialog" {...closesOutside(() => setSettingsOpen(false))} aria-labelledby="settings-title" onCancel={() => setSettingsOpen(false)} onClose={(event) => { if (closedByBrowser(event.currentTarget)) setSettingsOpen(false); }}>
       <div className="dialog-heading"><div><h2 id="settings-title">Settings</h2></div><button autoFocus className="icon-button" aria-label="Close settings" onClick={() => setSettingsOpen(false)}><Icon name="close" /></button></div>
       <div className="dialog-body">
-      <h3>Appearance</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><fieldset className="theme-choice"><legend>Key notation</legend>{(["rekordbox", "camelot", "openKey", "musical"] as const).map((notation) => <label key={notation}><input type="radio" name="keyNotation" value={notation} checked={preferences.keyNotation === notation} onChange={() => updatePreferences({ ...preferences, keyNotation: notation })} />{notation === "rekordbox" ? "As rekordbox wrote it" : notation === "camelot" ? "Camelot (8A)" : notation === "openKey" ? "Open Key (1m)" : "Musical (Am)"}</label>)}</fieldset><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Fold the page header</strong><small>One line for the title, so more rows fit. Also from Hide header above any list.</small></span><input type="checkbox" checked={preferences.headerFolded} onChange={(event) => updatePreferences({ ...preferences, headerFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label>
+      <h3>Appearance</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><fieldset className="theme-choice"><legend>Key notation</legend>{(["rekordbox", "camelot", "openKey", "musical"] as const).map((notation) => <label key={notation}><input type="radio" name="keyNotation" value={notation} checked={preferences.keyNotation === notation} onChange={() => updatePreferences({ ...preferences, keyNotation: notation })} />{notation === "rekordbox" ? "As rekordbox wrote it" : notation === "camelot" ? "Camelot (8A)" : notation === "openKey" ? "Open Key (1m)" : "Musical (Am)"}</label>)}</fieldset><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Fold the page header</strong><small>One line for the title, so more rows fit. Also from Hide header above any list.</small></span><input type="checkbox" checked={preferences.headerFolded} onChange={(event) => updatePreferences({ ...preferences, headerFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Fold the navigation</strong><small>Tracks, Import and the rest as a row of icons, so crates and playlists get the sidebar. Also from the arrow beside YOUR LIBRARY.</small></span><input type="checkbox" checked={preferences.navFolded} onChange={(event) => updatePreferences({ ...preferences, navFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label>
       {settingsError && <p role="alert" className="inline-error">{settingsError}</p>}
       {api.admin ? <><Folders admin={api.admin} open={settingsOpen} onChanged={refreshLibrary} /><Downloads admin={api.admin} open={settingsOpen} /><FolderLayout admin={api.admin} open={settingsOpen} /><LibraryCheck admin={api.admin} onChanged={refreshLibrary} /><LookupKeys admin={api.admin} open={settingsOpen} /><RekordboxDatabase admin={api.admin} open={settingsOpen} /></> : <><h3>Music folders</h3><p className="settings-copy">Download and library folders will be chosen with the system folder picker. Folder selection is not connected in this demo.</p><h3>rekordbox</h3><p className="settings-copy">XML export will be the default read-back. Reading rekordbox's own library will be off by default and read a backup copy only. Neither is enabled here.</p></>}
       <div className="settings-footnote">{api.admin ? "Nothing is uploaded. Files and rekordbox change only when you choose a change." : "100,000 synthetic tracks. No music, credentials or personal data."}</div>

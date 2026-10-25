@@ -313,6 +313,23 @@ fn every_edit_is_remembered_and_the_last_one_can_be_undone() {
         (history[1].tracks, history[1].fields.as_slice()),
         (2, &["genre".to_owned()][..])
     );
+    // Both tracks held the same genre, so the save is one change of two tracks.
+    assert_eq!(history[1].changes.len(), 1);
+    assert_eq!(
+        (
+            history[1].changes[0].field.as_str(),
+            history[1].changes[0].after.as_str(),
+            history[1].changes[0].tracks
+        ),
+        ("genre", "Deep House", 2)
+    );
+    assert_eq!(
+        (
+            history[0].changes[0].before.as_str(),
+            history[0].changes[0].after.as_str()
+        ),
+        ("Night Drive", "Night Drive (Extended)")
+    );
 
     let undone = undo_last(&setup.service, newest(&setup.service)).unwrap();
     assert_eq!(undone.files, 1);

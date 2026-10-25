@@ -258,6 +258,10 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return { archived: 1, merged: 1, archive: "/Users/dj/Music/openCrate archive/Music" };
             case "library_genres": {
               const renamed = (window as any).__genresMerged;
+              if ((window as any).__moreGenreGroups && !renamed) return {
+                genres: [{ name: "Deep House", tracks: 3 }, { name: "deep-house", tracks: 2 }, { name: "Techno", tracks: 2 }, { name: "TECHNO", tracks: 1 }],
+                groups: [{ suggested: "Deep House", members: ["Deep House", "deep-house"], tracks: 5 }, { suggested: "Techno", members: ["Techno", "TECHNO"], tracks: 3 }],
+              };
               return renamed
                 ? { genres: [{ name: "Deep House", tracks: 5 }, { name: "Techno", tracks: 2 }], groups: [] }
                 : {
@@ -369,10 +373,10 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_edit_history": {
               const undone = (window as any).__undone ?? 0;
               const all = [
-                { id: 2, savedMs: Date.UTC(2026, 9, 24, 3, 5), tracks: 1, fields: ["title"] },
-                { id: 1, savedMs: Date.UTC(2026, 9, 24, 3, 0), tracks: 2, fields: ["genre", "label"] },
+                { id: 2, savedMs: Date.UTC(2026, 9, 24, 3, 5), tracks: 1, fields: ["title"], changes: [{ field: "title", before: "Night Drive", after: "Night Drive (Extended)", tracks: 1 }] },
+                { id: 1, savedMs: Date.UTC(2026, 9, 24, 3, 0), tracks: 2, fields: ["genre", "label"], changes: [{ field: "genre", before: "deep-house", after: "Deep House", tracks: 2 }, { field: "label", before: "", after: "Night Records", tracks: 2 }] },
               ];
-              const renamed = (window as any).__renamedGenres ? [{ id: 3, savedMs: Date.UTC(2026, 9, 24, 3, 10), tracks: 2, fields: ["genre"] }] : [];
+              const renamed = (window as any).__renamedGenres ? [{ id: 3, savedMs: Date.UTC(2026, 9, 24, 3, 10), tracks: 2, fields: ["genre"], changes: [{ field: "genre", before: "deep-house", after: "Deep House", tracks: 2 }] }] : [];
               return [...renamed, ...all].slice(undone);
             }
             case "library_undo_last_edit":
@@ -625,6 +629,12 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_reread_mirror":
               mirror = makeMirror(2, 8977, 31);
               return { sourceId: 3, generation: 2, unchanged: false, entries: 9008, matched: 8977, derivedSet: 8977 };
+            case "library_ids": {
+              const total = (window as any).__emptyLibrary ? 0 : 1234;
+              const query = args?.query as { reversed?: boolean } | undefined;
+              const ids = Array.from({ length: total }, (_, i) => i + 1);
+              return query?.reversed ? ids.reverse() : ids;
+            }
             case "library_read": {
               if (failReads) throw "The backend could not read the library.";
               const { start, count, query } = args as { start: number; count: number; query: { view: string; crateId?: number | null } };
@@ -674,7 +684,7 @@ test("a desktop app with a database shows rows read through the Rust commands", 
   expect(seen[0]?.command).toBe("library_mode");
   const firstRead = seen.find((call) => call.command === "library_read");
   expect(firstRead?.args).toEqual({
-    query: { view: "tracks", search: "", sort: "recent", format: null, artistId: null, releaseId: null, playlistId: null, crateId: null },
+    query: { view: "tracks", search: "", sort: "recent", format: null, artistId: null, releaseId: null, playlistId: null, crateId: null, reversed: false },
     start: 0,
     count: expect.any(Number),
   });
@@ -685,7 +695,7 @@ test("a desktop app with a database shows rows read through the Rust commands", 
   await page.getByLabel("Sort library").selectOption("bpm");
   await expect
     .poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query)
-    .toEqual({ view: "tracks", search: "night", sort: "bpm", format: "MP3", artistId: null, releaseId: null, playlistId: null, crateId: null });
+    .toEqual({ view: "tracks", search: "night", sort: "bpm", format: "MP3", artistId: null, releaseId: null, playlistId: null, crateId: null, reversed: false });
 });
 
 test("a desktop app without a database keeps the in-memory demo", async ({ page }) => {
@@ -2089,7 +2099,8 @@ test("clean up: the newest save is undone and the list moves on", async ({ page 
   await page.goto("/");
   await page.getByRole("button", { name: "Clean up" }).click();
   const recent = page.getByRole("region", { name: "Recent changes" });
-  await expect(recent.getByRole("list", { name: "Saves" }).getByRole("listitem")).toHaveCount(2);
+  // Each save is one item; the values it changed are a list of their own inside it.
+  await expect(recent.getByRole("list", { name: "Saves" }).locator("> li")).toHaveCount(2);
   await recent.getByRole("button", { name: /^Undo: title of 1 track/ }).click();
   await expect(recent.getByRole("status")).toContainText("1 file is back as before.");
   await expect(recent.getByRole("button", { name: /^Undo: genre, label of 2 tracks/ })).toBeVisible();
@@ -2744,7 +2755,7 @@ test("playlists from the export appear in the sidebar and open as an ordered tra
   await expect(tree.getByRole("button", { name: "Friday warm-up" })).toHaveAttribute("aria-current", "true");
   await expect(page.getByLabel("Sort library")).toHaveValue("playlist");
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query)
-    .toEqual({ view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null });
+    .toEqual({ view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null, reversed: false });
   await page.screenshot({ path: "test-results/playlists-open.png" });
 
   await page.getByRole("button", { name: "Back to tracks" }).click();
@@ -3049,4 +3060,61 @@ test("accessibility: the main screens, in both themes, have no WCAG A or AA viol
     await page.keyboard.press("Escape");
   }
   expect(found).toEqual([]);
+});
+
+test("clean up: one button finds a cover for every release, folder images first, and can be stopped", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const art = page.getByRole("region", { name: "Album art" });
+  await art.getByRole("button", { name: "Check album art" }).click();
+  await art.getByRole("button", { name: "Find a cover for all 2" }).click();
+  await expect(art.getByRole("status")).toContainText("1 release now has a cover. 1 could not; each says why.");
+  await expect(art.getByRole("list", { name: "Releases without art" })).toContainText("The Cover Art Archive has no cover");
+  const sent = (await calls(page)).filter((call) => call.command === "library_set_release_art").map((call) => call.args);
+  expect(sent).toEqual([{ releaseId: 2, source: "folder" }, { releaseId: 3, source: "online" }]);
+});
+
+test("clean up: every genre group is merged at once, and Recent changes names the values an undo puts back", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__moreGenreGroups = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const recent = page.getByRole("region", { name: "Recent changes" });
+  await expect(recent.getByRole("list", { name: "Saves" })).toContainText('genre: "deep-house" became "Deep House" on 2 tracks');
+  await expect(recent.getByRole("list", { name: "Saves" })).toContainText('label: empty became "Night Records" on 2 tracks');
+  await expect(recent.getByRole("button", { name: /^Undo: title of 1 track/ })).toHaveAttribute("title", 'Puts back: title: "Night Drive" became "Night Drive (Extended)"');
+  const genres = page.getByRole("region", { name: "Genres" });
+  await genres.getByRole("button", { name: "Merge all 2 groups" }).click();
+  await expect(genres.getByRole("status")).toContainText("2 groups merged; 4 files have a new genre.");
+  const merges = (await calls(page)).filter((call) => call.command === "library_rename_genres").map((call) => call.args);
+  expect(merges).toEqual([{ from: ["deep-house"], to: "Deep House" }, { from: ["TECHNO"], to: "Techno" }]);
+});
+
+test("import, one table: a release's rows fold away under its heading", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await openImportWithFolders(page, "One table");
+  const table = page.getByRole("table");
+  const before = await table.locator(".plan-row").count();
+  expect(before).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Hide the files of Between Spaces" }).click();
+  expect(await table.locator(".plan-row").count()).toBeLessThan(before);
+  await expect(page.getByRole("button", { name: "Show the files of Between Spaces" })).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("button", { name: "Show the files of Between Spaces" }).click();
+  expect(await table.locator(".plan-row").count()).toBe(before);
+});
+
+test("select all from the track menu asks the library for every id, and a reversed sort is sent", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await expect(page.getByRole("status")).toContainText("1,234 tracks");
+  await page.getByRole("button", { name: /Rust Track 0002,/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Select all 1,234 tracks" }).click();
+  await expect(page.getByRole("status")).toContainText("1,234 chosen");
+  expect((await calls(page)).filter((call) => call.command === "library_ids")).toHaveLength(1);
+  await page.getByRole("group", { name: "Sort by column" }).getByRole("button", { name: "#" }).click();
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query.reversed).toBe(true);
+  // The usual order comes back with the next sort.
+  await page.getByLabel("Sort library").selectOption("title");
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query).toEqual({ view: "tracks", search: "", sort: "title", format: null, artistId: null, releaseId: null, playlistId: null, crateId: null, reversed: false });
 });

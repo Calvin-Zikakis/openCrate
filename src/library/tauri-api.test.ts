@@ -18,7 +18,7 @@ describe("reading through the Rust backend", () => {
     const api = new TauriLibraryApi(invoke);
     const result = await api.read({ ...DEFAULT_QUERY, search: "night", format: "all", artistId: 4 }, 5, 100, live());
     expect(invoke).toHaveBeenCalledWith("library_read", {
-      query: { view: "tracks", search: "night", sort: "recent", format: null, artistId: 4, releaseId: null, playlistId: null, crateId: null },
+      query: { view: "tracks", search: "night", sort: "recent", format: null, artistId: 4, releaseId: null, playlistId: null, crateId: null, reversed: false },
       start: 5,
       count: 100,
     });
@@ -437,7 +437,7 @@ describe("playlists", () => {
     const api = new TauriLibraryApi(invoke);
     await api.read({ ...DEFAULT_QUERY, sort: "playlist", playlistId: 3 }, 0, 10, live());
     expect(invoke).toHaveBeenLastCalledWith("library_read", {
-      query: { view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null },
+      query: { view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null, reversed: false },
       start: 0,
       count: 10,
     });

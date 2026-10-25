@@ -246,6 +246,15 @@ async fn library_read(
         .map_err(|error| error.to_string())?
 }
 
+/// Every id a query lists, in its order: what Select all takes.
+#[tauri::command]
+async fn library_ids(state: State<'_, AppState>, query: ipc::QueryDto) -> Result<Vec<i64>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || ipc::ids(&service, &query))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 async fn library_roots(state: State<'_, AppState>) -> Result<Vec<folders::RootDto>, String> {
     let service = state.library()?;
@@ -1604,6 +1613,7 @@ fn main() -> Result<(), tauri::Error> {
         .invoke_handler(tauri::generate_handler![
             library_mode,
             library_read,
+            library_ids,
             library_roots,
             library_check_roots,
             library_confirm_root,
@@ -1733,6 +1743,7 @@ mod tests {
             .invoke_handler(tauri::generate_handler![
                 library_mode,
                 library_read,
+                library_ids,
                 library_roots,
                 library_check_roots,
                 library_confirm_root,

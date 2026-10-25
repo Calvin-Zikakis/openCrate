@@ -74,6 +74,10 @@ pub struct LibraryQuery {
     pub playlist_id: Option<i64>,
     /// Tracks in one of the owner's crates. Tracks only.
     pub crate_id: Option<i64>,
+    /// The sort the other way round: oldest first, Z to A, BPM high to low. Rows without a
+    /// value (no BPM) stay last either way. Playlist, crate and custom orders are never
+    /// reversed: they are the owner's own arrangement, and moving a row relies on it.
+    pub reversed: bool,
 }
 
 impl LibraryQuery {
@@ -88,7 +92,14 @@ impl LibraryQuery {
             release_id: None,
             playlist_id: None,
             crate_id: None,
+            reversed: false,
         }
+    }
+
+    /// Whether this query reads the other way round: see [`Self::reversed`].
+    #[must_use]
+    pub const fn reads_reversed(&self) -> bool {
+        self.reversed && !matches!(self.sort, Sort::Playlist | Sort::Crate | Sort::Custom)
     }
 }
 
@@ -223,7 +234,9 @@ pub fn read_page(
     )?;
     let sql = format!(
         "SELECT {} FROM {}{where_sql} ORDER BY {} LIMIT ? OFFSET ?",
-        view.columns, view.joined, view.order
+        view.columns,
+        view.joined,
+        order_sql(&view, query)
     );
     let mut params = filter.params;
     params.extend(view.order_playlist.map(Value::Integer));
@@ -445,6 +458,50 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
     }
 }
 
+/// The ORDER BY terms of a view, turned round when the query asks for it.
+fn order_sql(view: &ViewSql, query: &LibraryQuery) -> std::borrow::Cow<'static, str> {
+    if query.reads_reversed() {
+        std::borrow::Cow::Owned(reversed_order(view.order))
+    } else {
+        std::borrow::Cow::Borrowed(view.order)
+    }
+}
+
+/// `order` with each term's direction flipped. Terms are split at the commas outside
+/// parentheses, since some are subqueries. A term that only puts rows without a value last
+/// ("... IS NULL") keeps its direction, so those rows stay last either way round.
+fn reversed_order(order: &str) -> String {
+    let mut terms = Vec::new();
+    let mut depth = 0_u32;
+    let mut start = 0;
+    for (at, character) in order.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                terms.push(&order[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    terms.push(&order[start..]);
+    terms
+        .into_iter()
+        .map(|term| {
+            let term = term.split_whitespace().collect::<Vec<_>>().join(" ");
+            if term.ends_with(" IS NULL") {
+                term
+            } else if let Some(ascending) = term.strip_suffix(" DESC") {
+                ascending.to_owned()
+            } else {
+                format!("{term} DESC")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn build_filter(query: &LibraryQuery, search: &Search) -> Filter {
     let mut filter = Filter::new();
     match query.view {
@@ -483,7 +540,7 @@ fn ordered_ids(connection: &Connection, query: &LibraryQuery, search: &Search) -
         "SELECT {alias}.id FROM {}{} ORDER BY {}",
         view.table,
         filter.where_sql(),
-        view.order,
+        order_sql(&view, query),
         alias = view.alias
     );
     let mut params = filter.params;
@@ -594,6 +651,26 @@ impl LibraryReader {
             total: u64::try_from(total).unwrap_or(0),
             start,
         })
+    }
+
+    /// Every id of the filtered list, in the order it reads: what "select all" selects.
+    pub fn ids(&mut self, query: &LibraryQuery) -> Result<Vec<i64>> {
+        let search = parse_search(&query.search);
+        if matches!(search, Search::Nothing) {
+            return Ok(Vec::new());
+        }
+        let version = Self::version(&self.connection)?;
+        if version != self.data_version {
+            self.lists.clear();
+            self.data_version = version;
+        }
+        if let Some((_, ids)) = self.lists.iter().find(|(cached, _)| cached == query) {
+            return Ok(ids.clone());
+        }
+        let ids = ordered_ids(&self.connection, query, &search)?;
+        self.lists.push_front((query.clone(), ids.clone()));
+        self.lists.truncate(CACHED_LISTS);
+        Ok(ids)
     }
 }
 

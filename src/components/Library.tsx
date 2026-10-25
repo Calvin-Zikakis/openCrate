@@ -31,7 +31,7 @@ interface Props {
   onRemoveFromCrate?: (trackIds: number[]) => void;
   /** Open a track's release or artist. */
   onGoTo?: (item: LibraryItem, kind: "releases" | "artists") => void;
-  /** A column heading was clicked: sort by it. */
+  /** A column heading was clicked: sort by it. The heading already sorting the list reverses it. */
   onSort?: (sort: Sort) => void;
   /** The loaded track, marked in place of its number. */
   nowPlaying?: { id: number; playing: boolean } | null;
@@ -233,13 +233,27 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   const heading = (text: string, sort: Sort, label: string, active = query.sort === sort) => {
     const fixed = query.sort === "playlist" || query.sort === "crate";
     if (!onSort || fixed) return <span>{text}</span>;
-    return <button type="button" className={`column-sort${active ? " is-active" : ""}`} aria-pressed={active} title={label} onClick={() => onSort(sort)}>{text}</button>;
+    const again = active && sort === query.sort;
+    return <button type="button" className={`column-sort${active ? " is-active" : ""}`} aria-pressed={active} title={again ? (query.reversed ? "Back to the usual order" : "Reverse the order") : label} onClick={() => onSort(sort)}>
+      {text}{active && <span aria-hidden="true" className="sort-arrow">{query.reversed ? "\u25B2" : "\u25BC"}</span>}
+    </button>;
+  };
+  /** Every track the list holds, chosen at once: Cmd+A (Ctrl+A) or the menu. */
+  const selectAll = async () => {
+    if (!onSelectionChange || isGrid) return;
+    try {
+      onSelectionChange(await api.ids(query));
+    } catch {
+      // The rows loaded are better than nothing.
+      onSelectionChange(page.items.map((item) => item.id));
+    }
   };
 
   return <section className="library-results" aria-label={`${query.view} results`} aria-busy={pending}>
     <div className="result-summary" role="status">
       {pending ? "Loading..." : `${page.total.toLocaleString()} ${page.total === 1 ? query.view.replace(/s$/, "") : query.view}`}
       <span> {query.search ? `matching "${query.search}"` : api.admin ? (api.admin.persistent ? "Your library" : "Demo database") : "Synthetic collection"}</span>
+      {selection && selection.size > 1 && <span className="crate-hint">{` ${selection.size.toLocaleString()} chosen`}</span>}
       {reorderable && page.total > 1 && !brief && <span className="crate-hint">{reorder?.remove
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
         : " Drag a track onto a crate, a rekordbox playlist or the player, or within the list to arrange it (Custom order). Right-click for Play next and Add to queue."}</span>}
@@ -264,6 +278,12 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     <div ref={scroll} className="library-scroll" data-testid="library-scroll" role="region" tabIndex={0} aria-label="Scrollable library" onPointerDown={() => {
       focusCleanup.current?.();
       focusCleanup.current = null;
+    }}
+    onKeyDown={(event) => {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "a" && onSelectionChange && !isGrid && page.total > 0) {
+        event.preventDefault();
+        void selectAll();
+      }
     }}
     onDragOver={(event) => {
       // Scroll while a drag is held near the top or bottom edge.
@@ -440,6 +460,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
         ];
       })() : []),
       ...(onEdit ? [{ label: chosen(menu.item).length > 1 ? `Edit details (${chosen(menu.item).length} tracks)...` : "Edit details...", run: () => onEdit(chosen(menu.item)) }] : []),
+      ...(onSelectionChange && page.total > 1 && (selection?.size ?? 0) < page.total ? [{ label: `Select all ${page.total.toLocaleString()} tracks`, run: () => void selectAll() }] : []),
       ...(onRemoveFromCrate ? [{ label: chosen(menu.item).length > 1 ? `Remove ${chosen(menu.item).length} tracks from the crate` : "Remove from the crate", run: () => { const at = menu.index; onRemoveFromCrate(chosen(menu.item)); requestAnimationFrame(() => focusRow(Math.min(at, page.total - 2))); } }] : []),
       ...(onGoTo ? [
         ...(query.releaseId === null ? [{ label: `Go to the release (${menu.item.release})`, run: () => onGoTo(menu.item, "releases") }] : []),

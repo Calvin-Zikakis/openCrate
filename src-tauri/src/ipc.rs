@@ -50,6 +50,8 @@ pub struct QueryDto {
     pub playlist_id: Option<i64>,
     #[serde(default)]
     pub crate_id: Option<i64>,
+    #[serde(default)]
+    pub reversed: bool,
 }
 
 impl SortDto {
@@ -86,6 +88,7 @@ impl QueryDto {
         query.release_id = self.release_id;
         query.playlist_id = self.playlist_id;
         query.crate_id = self.crate_id;
+        query.reversed = self.reversed;
         query
     }
 }
@@ -174,6 +177,18 @@ pub fn read(
     service
         .read_page(&query.to_query(), start, count)
         .map(PageDto::from)
+        .map_err(|error| error.to_string())
+}
+
+/// Every id a query lists, in its order.
+pub fn ids(service: &LibraryService, query: &QueryDto) -> Result<Vec<i64>, String> {
+    if query.search.chars().count() > MAX_SEARCH_CHARS {
+        return Err(format!(
+            "Search text is limited to {MAX_SEARCH_CHARS} characters."
+        ));
+    }
+    service
+        .ids(&query.to_query())
         .map_err(|error| error.to_string())
 }
 

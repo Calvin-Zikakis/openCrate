@@ -183,6 +183,90 @@ fn every_sort_matches_an_independent_ordering_and_windows_tile_it() {
 }
 
 #[test]
+fn a_reversed_query_reads_the_other_way_round_with_no_tempo_still_last() {
+    let (_directory, database) = seeded(TRACKS);
+    let reader = database.reader().unwrap();
+    let mut cached = LibraryReader::new(database.reader().unwrap()).unwrap();
+    for sort in [Sort::Recent, Sort::Title, Sort::Artist, Sort::Track] {
+        let mut query = LibraryQuery::new(View::Tracks);
+        query.sort = sort;
+        let forward: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
+        query.reversed = true;
+        let backward: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
+        let mut want = forward.clone();
+        want.reverse();
+        assert_eq!(
+            backward, want,
+            "{sort:?} reversed is the forward list turned round"
+        );
+        assert_eq!(
+            cached.ids(&query).unwrap(),
+            want,
+            "{sort:?} ids read the same way"
+        );
+        // A second ask is answered from the cached list.
+        assert_eq!(cached.ids(&query).unwrap(), want);
+    }
+    let mut query = LibraryQuery::new(View::Tracks);
+    query.sort = Sort::Bpm;
+    query.reversed = true;
+    let items = all_items(&reader, &query);
+    let missing = items.iter().filter(|item| item.bpm.is_none()).count();
+    assert_eq!(missing, 59);
+    assert!(items[items.len() - missing..]
+        .iter()
+        .all(|item| item.bpm.is_none()));
+    let tempos: Vec<f64> = items[..items.len() - missing]
+        .iter()
+        .map(|item| item.bpm.unwrap())
+        .collect();
+    assert!(
+        tempos.windows(2).all(|pair| pair[0] >= pair[1]),
+        "BPM runs high to low"
+    );
+    // The owner's own arrangements are never turned round.
+    for sort in [Sort::Custom, Sort::Crate, Sort::Playlist] {
+        let mut query = LibraryQuery::new(View::Tracks);
+        query.sort = sort;
+        let forward: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
+        query.reversed = true;
+        let same: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
+        assert_eq!(same, forward, "{sort:?} ignores reversed");
+    }
+    for view in [View::Releases, View::Artists] {
+        let mut query = LibraryQuery::new(view);
+        query.sort = Sort::Title;
+        let forward: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
+        query.reversed = true;
+        let mut want = forward;
+        want.reverse();
+        let backward: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
+        assert_eq!(backward, want, "{view:?} reversed");
+    }
+}
+
+#[test]
+fn reversing_an_order_flips_each_term_outside_parentheses() {
+    use super::reversed_order;
+    assert_eq!(
+        reversed_order("t.added_ms DESC, t.id DESC"),
+        "t.added_ms, t.id"
+    );
+    assert_eq!(
+        reversed_order("t.title_key, t.id"),
+        "t.title_key DESC, t.id DESC"
+    );
+    assert_eq!(
+        reversed_order("(SELECT o.sort_key FROM release o WHERE o.id = t.release_id), t.disc_no"),
+        "(SELECT o.sort_key FROM release o WHERE o.id = t.release_id) DESC, t.disc_no DESC"
+    );
+    assert_eq!(
+        reversed_order("COALESCE(t.bpm, t.tag_bpm) IS NULL, COALESCE(t.bpm, t.tag_bpm), t.id"),
+        "COALESCE(t.bpm, t.tag_bpm) IS NULL, COALESCE(t.bpm, t.tag_bpm) DESC, t.id DESC"
+    );
+}
+
+#[test]
 fn tracks_without_a_tempo_sort_last() {
     let (_directory, database) = seeded(TRACKS);
     let reader = database.reader().unwrap();

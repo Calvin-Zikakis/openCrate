@@ -37,6 +37,9 @@ export interface LibraryQuery {
   playlistId: number | null;
   /** Tracks in one of the owner's crates (openCrate only, never rekordbox). */
   crateId: number | null;
+  /** The sort the other way round: oldest first, Z to A, BPM high to low. Rows without a value
+   * stay last. Playlist, crate and custom orders are never reversed. */
+  reversed: boolean;
 }
 
 export interface LibraryPage {
@@ -440,7 +443,9 @@ export interface TrackTags {
 export type EditField = "title" | "artist" | "album" | "albumArtist" | "genre" | "label" | "year" | "track";
 
 /** One save of the track editor. */
-export interface EditBatch { id: number; savedMs: number; tracks: number; fields: string[] }
+/** One value a save gave some tracks: what an undo of it puts back. */
+export interface EditChange { field: string; before: string; after: string; tracks: number }
+export interface EditBatch { id: number; savedMs: number; tracks: number; fields: string[]; changes: EditChange[] }
 
 /** The owner's custom fields on the chosen tracks, and every name in use. */
 export interface CustomFields { fields: { trackId: number; name: string; value: string }[]; names: string[] }
@@ -779,23 +784,23 @@ export interface LibraryApi {
   /** Why the library the owner asked for could not be opened, if it could not. */
   startupError?: string;
   read(query: LibraryQuery, start: number, count: number, signal: AbortSignal): Promise<LibraryPage>;
+  /** Every id the query lists, in its order: what Select all selects. */
+  ids(query: LibraryQuery): Promise<number[]>;
   dispose(): void;
   admin?: LibraryAdmin;
 }
 
-export interface WorkerRequest {
-  id: number;
-  query: LibraryQuery;
-  start: number;
-  count: number;
-}
+export type WorkerRequest =
+  | { id: number; query: LibraryQuery; start: number; count: number }
+  | { id: number; query: LibraryQuery; ids: true };
 
 export type WorkerReply =
   | { id: number; page: LibraryPage }
+  | { id: number; ids: number[] }
   | { id: number; error: string };
 
 export const DEFAULT_QUERY: LibraryQuery = {
-  view: "tracks", search: "", sort: "recent", format: "all", artistId: null, releaseId: null, playlistId: null, crateId: null,
+  view: "tracks", search: "", sort: "recent", format: "all", artistId: null, releaseId: null, playlistId: null, crateId: null, reversed: false,
 };
 
 export const MAX_WINDOW = 200;
