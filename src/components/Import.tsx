@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { bringIn, needsLook, oneAtATime } from "../library/autoImport";
 import { startPolling } from "../library/poller";
 import { PlanTable, type PlanGroup } from "./PlanTable";
 import { Icon } from "./Icon";
+import { AutoImportCard, type AutoImport } from "./AutoImport";
 import { ImportAll } from "./ImportAll";
 import { ImportChoices, loadOptions } from "./ImportChoices";
 import type { DownloadFolderState, DownloadRelease, DownloadsSnapshot, FolderInfo, ImportOptions, ImportPlan, LibraryAdmin, ReleaseImport } from "../library/types";
@@ -9,8 +11,6 @@ import type { DownloadFolderState, DownloadRelease, DownloadsSnapshot, FolderInf
 const POLL_MS = 3000;
 /** Imported releases listed before "Show all". */
 const IMPORTED_SHOWN = 5;
-/** How long to wait for the scan that brings imported files into the lists. */
-const SCAN_WAIT_MS = 10 * 60_000;
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 
 function badge(release: DownloadRelease): { text: string; tone: string } {
@@ -33,11 +33,6 @@ const keyOf = (release: DownloadRelease) => `${release.folderId}:${release.loose
 
 /** A plan read for one release, with what it was read against so a stale one is never shown. */
 interface Planned { stamp: string; plan: ImportPlan | null; error: string }
-
-/** Something a person should see before importing: a file that cannot go, a guessed value, or a warning. */
-function needsLook(plan: ImportPlan): boolean {
-  return plan.blocked > 0 || plan.files.some((file) => (file.tags?.warnings.length ?? 0) > 0 || (file.tags?.fields.some((field) => field.guessed) ?? false));
-}
 
 /** One line for a closed row: where a single file goes, or how many are ready. */
 function summary(plan: ImportPlan): string {
@@ -67,6 +62,8 @@ function saveView(view: View) {
 
 interface Props {
   admin: LibraryAdmin;
+  /** Importing on its own: its settings and what it did, from the app. */
+  auto?: AutoImport;
   onOpenSettings: () => void;
   /** Files went into the library, so the lists should be read again. */
   onImported?: () => void;
@@ -76,7 +73,7 @@ interface Props {
 let remembered: DownloadsSnapshot | null = null;
 
 /** What is in the download folders now, and importing a release from there into a music folder. */
-export function Import({ admin, onOpenSettings, onImported }: Props) {
+export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
   const [snapshot, setSnapshot] = useState<DownloadsSnapshot | null>(remembered);
   const [error, setError] = useState("");
   const [roots, setRoots] = useState<FolderInfo[]>([]);
@@ -117,23 +114,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
   const readAgain = () => setGeneration((current) => current + 1);
   const rescan = async (root: number) => {
     readAgain();
-    await admin.scan(root).catch(() => undefined);
-    for (let waited = 0; waited < SCAN_WAIT_MS; waited += 500) {
-      if ((await admin.scanStatus().catch(() => null))?.state !== "running") break;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    onImported?.();
-    const rekordbox = await admin.rekordboxDatabase().catch(() => null);
-    if (!rekordbox?.writeEnabled || rekordbox.writeNeedsConfirmation || !rekordbox.writeTested) return;
-    try {
-      const done = await admin.sendNewToRekordbox();
-      setRekordboxNote(done.added > 0
-        ? `Added ${done.added} ${done.added === 1 ? "track" : "tracks"} to rekordbox's Imported playlist.`
-        : "");
-      onImported?.();
-    } catch (reason) {
-      setRekordboxNote(`Not added to rekordbox yet: ${message(reason)} They wait on the rekordbox screen until then.`);
-    }
+    setRekordboxNote(await bringIn(admin, root, onImported));
   };
 
   // Plans are read against these; changing either reads every plan again.
@@ -154,13 +135,15 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     setImporting({ key, step: "copying" });
     setImportErrors((current) => { const next = new Map(current); next.delete(key); return next; });
     try {
-      const done = await admin.importRelease(release.folderId, release.name, rootId, sent);
-      setResults((current) => new Map(current).set(key, done));
-      if (done.filed === 0) readAgain();
-      if (done.filed > 0) {
-        setImporting({ key, step: "scanning" });
-        await rescan(done.rootId);
-      }
+      await oneAtATime(async () => {
+        const done = await admin.importRelease(release.folderId, release.name, rootId, sent);
+        setResults((current) => new Map(current).set(key, done));
+        if (done.filed === 0) readAgain();
+        if (done.filed > 0) {
+          setImporting({ key, step: "scanning" });
+          await rescan(done.rootId);
+        }
+      });
     } catch (reason) {
       setImportErrors((current) => new Map(current).set(key, message(reason)));
       readAgain();
@@ -328,6 +311,7 @@ export function Import({ admin, onOpenSettings, onImported }: Props) {
     {notes.map((note) => <p key={note} className="settings-copy" role="status">{note}</p>)}
     {rekordboxNote && <p className="settings-copy rekordbox-note" role="status">{rekordboxNote}</p>}
     {snapshot && snapshot.folders.length > 0 && <ImportChoices options={options} canConvert={canConvert} onChange={setOptions} />}
+    {snapshot && snapshot.folders.length > 0 && auto && <AutoImportCard settings={auto.settings} onChange={auto.change} outcome={auto.outcome} roots={roots} releases={releases} />}
     {snapshot && snapshot.folders.length > 0 && <div className="format-filters import-view" role="group" aria-label="Show releases as">
       <button aria-pressed={view === "table"} onClick={() => changeView("table")}>One table</button>
       <button aria-pressed={view === "releases"} onClick={() => changeView("releases")}>By release</button>

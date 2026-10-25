@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fixCasing, removeJunk, removeNumberPrefix, tidySeparators } from "../library/cleanup";
-import { loadRecipes, saveRecipes, type Recipe } from "../library/recipes";
+import { loadRecipes, RULES, saveRecipes, type Recipe } from "../library/recipes";
 import type { CustomFields, EditField, LibraryAdmin, TrackArt, TrackCovers, TrackTags } from "../library/types";
 import { Artwork } from "./Artwork";
 import { Icon } from "./Icon";
@@ -18,14 +17,6 @@ const FIELDS: { id: EditField; label: string; single?: boolean; numeric?: boolea
   { id: "label", label: "Label" },
   { id: "year", label: "Year", numeric: true },
   { id: "track", label: "Track number", single: true, numeric: true },
-];
-
-/** Cleanup rules, each for the fields it suits. */
-const RULES: { id: string; label: string; fields: EditField[]; apply: (value: string) => string }[] = [
-  { id: "numbers", label: "Remove number prefixes", fields: ["title"], apply: removeNumberPrefix },
-  { id: "casing", label: "Fix casing", fields: ["title", "artist", "album"], apply: fixCasing },
-  { id: "junk", label: "Remove links and junk", fields: ["title", "artist", "album"], apply: removeJunk },
-  { id: "separators", label: "Tidy separators", fields: ["artist", "albumArtist"], apply: tidySeparators },
 ];
 
 /** What a recipe keeps and applies: never a track number, which belongs to one track alone. */

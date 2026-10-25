@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { oneAtATime } from "../library/autoImport";
 import type { Accepted, DownloadRelease, ImportOptions, ImportPlan, LibraryAdmin, PlanFile, ReleaseLookup } from "../library/types";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -117,7 +118,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
       try {
         const lookup = lookups[keyOf(release)];
         const accepted = lookup?.state === "done" ? acceptedFrom(lookup.result, unticked) : [];
-        const done = await admin.importRelease(release.folderId, release.name, rootId, accepted.length > 0 ? { ...options, accepted } : options);
+        const done = await oneAtATime(() => admin.importRelease(release.folderId, release.name, rootId, accepted.length > 0 ? { ...options, accepted } : options));
         filed += done.filed;
         skipped += done.skipped.length;
       } catch (reason) {

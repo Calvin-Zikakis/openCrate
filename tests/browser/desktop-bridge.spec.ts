@@ -1080,6 +1080,30 @@ async function openImportWithFolders(page: Page, view: "One table" | "By release
   await page.getByRole("group", { name: "Show releases as" }).getByRole("button", { name: view }).click();
 }
 
+test("import on its own: a finished release with clean tags goes in with the recipe; one needing a look waits", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => {
+    (window as any).__cleanReady = true;
+    localStorage.setItem("opencrate.editRecipes", JSON.stringify([{ name: "Techno", values: { genre: "Techno" }, rules: ["casing"] }]));
+  });
+  await openImportWithFolders(page);
+  const card = page.getByRole("region", { name: "Import on its own" });
+  const importsOf = async () => (await calls(page)).filter((call) => call.command === "library_import_release").map((call) => call.args);
+  expect(await importsOf()).toEqual([]);
+  // The recipe is chosen first; nothing goes in before the switch.
+  await card.getByLabel("Recipe").selectOption("Techno");
+  await page.waitForTimeout(500);
+  expect(await importsOf()).toEqual([]);
+  await card.getByRole("checkbox").check();
+  await expect(card.getByRole("status")).toHaveText("Imported on their own: Clean Single.");
+  await expect(card).toContainText("Waiting for you: Between Spaces (its tags need a look).");
+  const imports = await importsOf();
+  expect(imports.map((args) => args.name)).toEqual(["Clean Single"]);
+  expect(imports[0].options.accepted).toEqual([{ source: "Clean Single/01.aif", genre: "Techno" }]);
+  // Never the release that was already there, and remembered across a restart.
+  expect(JSON.parse(await page.evaluate(() => localStorage.getItem("opencrate.autoImport") ?? "null"))).toEqual({ on: true, rootId: null, recipe: "Techno" });
+});
+
 test("import choices: conversion and tidying are sent with the preview and shown in it", async ({ page }) => {
   await stubBridge(page, "managed");
   await openImportWithFolders(page);

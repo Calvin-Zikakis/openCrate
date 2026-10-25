@@ -576,3 +576,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .browser-card small { color: var(--faint); font-size: 10px; }
 .browser-icon { width: 100%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 7px; background: var(--raised); color: var(--secondary); }
 .browser-icon.is-folder { color: var(--accent); }
+
+/* Import on its own: where new releases go, and the recipe applied on the way. */
+.auto-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin: 4px 0 8px; }
+.auto-choices small { color: var(--faint); font-size: 11px; }
