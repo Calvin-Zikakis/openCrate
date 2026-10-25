@@ -70,7 +70,7 @@ export function Sync({ admin, onChanged }: Props) {
   const direct = database?.enabled ? database : null;
   const blocked = direct?.running ? "rekordbox is running. Quit it to read its library."
     : direct?.needsConfirmation ? `rekordbox is now ${direct.appVersion ?? "a new version"}. Confirm the warning in Settings before reading it.` : "";
-  const readButton = direct && <button className="secondary-button" disabled={busy || blocked !== ""} onClick={readLibrary}>Read from rekordbox</button>;
+  const readButton = direct && <button className="secondary-button" disabled={busy || blocked !== ""} onClick={readLibrary}>{busy ? "Reading..." : "Read from rekordbox"}</button>;
   const fromLibrary = mirror?.kind === "master_db";
   const again = () => mirror && void run(() => admin.rereadMirror(mirror.sourceId));
   const accept = (suggestion: AliasSuggestion) => mirror && void run(async () => {
@@ -93,7 +93,7 @@ export function Sync({ admin, onChanged }: Props) {
       <p className="settings-copy">In rekordbox, choose File, then Export Collection in xml format. Then pick that file here. Add your music folder in Settings first so entries can be matched.</p>
       {direct && <p className="settings-copy">Or read rekordbox's own library directly. openCrate backs it up first and reads the copy.</p>}
       <div className="sync-actions">
-        <button className="secondary-button" disabled={busy} onClick={choose}>Choose export...</button>
+        <button className="secondary-button" disabled={busy} onClick={choose}>{busy ? "Reading..." : "Choose export..."}</button>
         {readButton}
       </div>
     </div>}
@@ -105,7 +105,7 @@ export function Sync({ admin, onChanged }: Props) {
           <small>{mirror.lastReadMs ? `Read ${new Date(mirror.lastReadMs).toLocaleString()}` : "Not read yet"}{mirror.generation > 0 ? ` - version ${mirror.generation}` : ""}</small>
         </div>
         <div className="sync-actions">
-          {fromLibrary ? readButton : <button className="secondary-button" disabled={busy} onClick={again}>Read again</button>}
+          {fromLibrary ? readButton : <button className="secondary-button" disabled={busy} onClick={again}>{busy ? "Reading..." : "Read again"}</button>}
           {!fromLibrary && readButton}
           <button className="secondary-button" disabled={busy} onClick={choose}>{fromLibrary ? "Choose export..." : "Choose another..."}</button>
         </div>
@@ -124,7 +124,7 @@ export function Sync({ admin, onChanged }: Props) {
       {note && <p role="status" className="settings-copy">{note}</p>}
     </div>}
     {loaded && direct && <RekordboxMerge admin={admin} onChanged={onChanged} />}
-    {loaded && <SendToRekordbox admin={admin} refresh={reads} onWritten={onChanged} />}
+    {loaded && <SendToRekordbox admin={admin} refresh={reads} onWritten={onChanged} running={Boolean(direct?.running)} />}
     {loaded && <CratesForRekordbox admin={admin} refresh={reads} />}
     {suggestions.length > 0 && <div className="sync-card">
       <h2>These entries look like they belong to a folder</h2>

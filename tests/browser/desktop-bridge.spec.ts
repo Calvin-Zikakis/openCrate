@@ -2681,6 +2681,11 @@ test("rekordbox sync: changes on either side are reviewed and only ticked ones a
   // Both changed: nothing is chosen until the owner picks a side.
   await expect(both.getByRole("checkbox", { name: /Late Train, year/ })).not.toBeChecked();
   await expect(both).toContainText("was 2018");
+  // One choice for every conflict at once, and a way to leave them for later.
+  await both.getByRole("button", { name: "Keep rekordbox's for all" }).click();
+  await expect(both.getByRole("checkbox", { name: /Late Train, year/ })).toBeChecked();
+  await both.getByRole("button", { name: "Decide later" }).click();
+  await expect(both.getByRole("checkbox", { name: /Late Train, year/ })).not.toBeChecked();
   await both.getByRole("radio", { name: "Keep rekordbox's: 2020" }).check();
   await expect(both.getByRole("checkbox", { name: /Late Train, year/ })).toBeChecked();
 
@@ -2883,6 +2888,9 @@ test("send to rekordbox: new tracks are listed, ticked and sent", async ({ page 
   const card = page.getByRole("region", { name: "New in your library" });
   await expect(card.getByRole("checkbox")).toHaveCount(3);
   await expect(card.getByRole("checkbox", { name: /Late Train/ })).toBeChecked();
+  await card.getByRole("button", { name: "Untick all" }).click();
+  await expect(card.getByRole("button", { name: "Send 0 to rekordbox" })).toBeDisabled();
+  await card.getByRole("button", { name: "Tick all", exact: true }).click();
   await card.getByRole("checkbox", { name: /Late Train/ }).uncheck();
   await card.getByRole("button", { name: "Send 2 to rekordbox" }).click();
   await expect(card.getByRole("status")).toContainText("2 tracks are in openCrate's rekordbox file");

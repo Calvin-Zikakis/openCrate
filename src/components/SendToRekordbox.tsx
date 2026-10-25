@@ -10,10 +10,12 @@ interface Props {
   refresh: number;
   /** rekordbox's library was written and read again: the sidebar's playlists changed. */
   onWritten?: () => void;
+  /** rekordbox was running at the last look, so nothing can be added to it now. */
+  running?: boolean;
 }
 
 /** The rekordbox screen: tracks openCrate filed that rekordbox does not have yet. */
-export function SendToRekordbox({ admin, refresh, onWritten }: Props) {
+export function SendToRekordbox({ admin, refresh, onWritten, running = false }: Props) {
   const [listed, setListed] = useState<RekordboxNewTracks | null>(null);
   const [unticked, setUnticked] = useState<Set<number>>(new Set());
   const [sent, setSent] = useState<RekordboxSent | null>(null);
@@ -94,6 +96,10 @@ export function SendToRekordbox({ admin, refresh, onWritten }: Props) {
       ? `${plural(offered.length, "track", "tracks")} openCrate filed that rekordbox does not have yet. Adding puts them straight into rekordbox, in its Imported playlist. rekordbox must be closed.`
       : `${plural(offered.length, "track", "tracks")} openCrate filed that rekordbox does not have yet. Sending writes them into openCrate's own rekordbox file; rekordbox itself is not changed.`}</p>
     {stale && <p className="inline-error">{stale}</p>}
+    {offered.length > 1 && <div className="merge-actions">
+      <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set())}>Tick all</button>
+      <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(offered.map((track) => track.fileId)))}>Untick all</button>
+    </div>}
     <ul className="folder-list">{offered.map((track) => <li key={track.fileId} className="folder-row">
       <label className="send-row">
         <input type="checkbox" checked={!unticked.has(track.fileId)} onChange={() => toggle(track.fileId)} aria-label={`${track.title}, ${track.artist}`} />
@@ -110,7 +116,8 @@ export function SendToRekordbox({ admin, refresh, onWritten }: Props) {
       <button className="secondary-button" disabled={busy} aria-label={`Bring ${track.title} back`} onClick={() => void hide(track.fileId, false)}>Bring back</button>
     </li>)}</ul>}
     {error && <p role="alert" className="inline-error">{error}</p>}
-    <button className="import-button" disabled={busy || chosen.length === 0} onClick={() => void send()}>{direct ? `Add ${chosen.length} to rekordbox` : `Send ${chosen.length} to rekordbox`}</button>
+    {direct && running && <p className="inline-error" role="status">rekordbox is running. Quit it (and wait for its agent to stop) to add these.</p>}
+    <button className="import-button" disabled={busy || chosen.length === 0 || (direct && running)} onClick={() => void send()}>{busy ? (direct ? "Adding..." : "Sending...") : direct ? `Add ${chosen.length} to rekordbox` : `Send ${chosen.length} to rekordbox`}</button>
     {outcome}
     {sent && <div role="status" className="send-steps">
       <p className="settings-copy">{`${plural(sent.tracks, "track is", "tracks are")} in openCrate's rekordbox file:`} <code>{sent.xmlPath}</code></p>

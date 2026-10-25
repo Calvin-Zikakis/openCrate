@@ -21,13 +21,18 @@ export function CratesForRekordbox({ admin, refresh }: { admin: LibraryAdmin; re
   const load = useCallback(async () => {
     try {
       setListed(await admin.rekordboxCrates());
+      setError("");
     } catch (reason) {
       setError(message(reason));
     }
   }, [admin]);
   useEffect(() => { void load(); }, [load, refresh]);
 
-  if (!listed || listed.crates.length === 0) return error ? <p role="alert" className="inline-error">{error}</p> : null;
+  if (!listed) return error ? <p role="alert" className="inline-error">{error}</p> : null;
+  if (listed.crates.length === 0) return <section className="sync-card" role="region" aria-label="Crates for rekordbox">
+    <h2>Crates for rekordbox</h2>
+    <p className="settings-copy">Crates you make in openCrate can go to rekordbox as playlists from here. Make a crate with the + beside CRATES in the sidebar first.</p>
+  </section>;
 
   const act = async (work: () => Promise<RekordboxCrates>, done: string) => {
     setBusy(true);
