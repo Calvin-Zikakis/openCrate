@@ -1321,13 +1321,17 @@ test("import all: a lookup on request suggests values, and only ticked files sen
   await expect(found).toContainText('Found on MusicBrainz: "Between Spaces" by Studio 001 (2019, Test Label), 2 tracks.');
   await expect(found.getByText("Night Drive", { exact: true })).toBeVisible();
   await expect(review.getByRole("group", { name: "Lookup: Second Light" })).toContainText("MusicBrainz is busy right now");
+  // A failed lookup can be asked again.
+  const before = (await calls(page)).filter((call) => call.command === "library_lookup_release").length;
+  await review.getByRole("group", { name: "Lookup: Second Light" }).getByRole("button", { name: "Try again" }).click();
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_lookup_release").length).toBe(before + 1);
   await found.getByRole("checkbox", { name: /03\.flac/ }).uncheck();
   await review.getByRole("button", { name: "Import 3 files" }).click();
   await expect(page.getByText("3 files are now in your music folder.")).toBeVisible();
   const sent = (await calls(page)).filter((call) => call.command === "library_import_release");
   expect(sent[0]!.args.options.accepted).toEqual([{ source: "Between Spaces/01.flac", title: "Night Drive", year: 2019 }]);
   expect(sent[1]!.args.options.accepted).toBeUndefined();
-  expect((await calls(page)).filter((call) => call.command === "library_lookup_release").map((call) => call.args.name)).toEqual(["Between Spaces", "Second Light"]);
+  expect((await calls(page)).filter((call) => call.command === "library_lookup_release").map((call) => call.args.name)).toEqual(["Between Spaces", "Second Light", "Second Light"]);
 });
 
 test("settings: lookup keys are saved, shown only by their ending, refused when bad, and removed", async ({ page }) => {
@@ -1875,6 +1879,20 @@ test("tracks are taken out of a crate from the menu in any order, and a track op
   await stubBridge(page, "managed");
   await page.goto("/");
   const crates = page.getByRole("navigation", { name: "Crates" });
+  // The column headings sort; a second click on Title / Artist sorts by artist.
+  const headings = page.getByRole("group", { name: "Sort by column" });
+  await headings.getByRole("button", { name: "Title / Artist" }).click();
+  await expect(page.getByLabel("Sort library")).toHaveValue("title");
+  await headings.getByRole("button", { name: "Title / Artist" }).click();
+  await expect(page.getByLabel("Sort library")).toHaveValue("artist");
+  await headings.getByRole("button", { name: "BPM" }).click();
+  await expect(page.getByLabel("Sort library")).toHaveValue("bpm");
+  await headings.getByRole("button", { name: "#" }).click();
+  await expect(page.getByLabel("Sort library")).toHaveValue("recent");
+  // A right-click among the crates offers a new one.
+  await crates.click({ button: "right", position: { x: 20, y: 6 } });
+  await expect(page.getByRole("menu", { name: "New crate" })).toBeVisible();
+  await page.keyboard.press("Escape");
   await crates.getByRole("button", { name: "New crate" }).click();
   await crates.getByRole("textbox", { name: "New crate name" }).fill("Warm-up");
   await page.keyboard.press("Enter");

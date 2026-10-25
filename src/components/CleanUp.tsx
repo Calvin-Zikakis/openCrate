@@ -289,6 +289,7 @@ function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
     <p className="settings-copy">Genres that differ only in case, spaces or punctuation are grouped, with the commonest spelling suggested. Merge a group into one spelling, or rename any genre.</p>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {note && <p role="status" className="settings-copy">{note}</p>}
+    {busy && <p role="status" className="settings-copy">Writing the new genre into the files...</p>}
     {genres && genres.groups.length === 0 && <p className="settings-copy">{genres.genres.length === 0 ? "No track has a genre yet." : "No genres are spelled two ways."}</p>}
     {genres && genres.groups.length > 0 && <ul className="folder-list" aria-label="Genres spelled alike">{genres.groups.map((group) => {
       const key = group.members.join("|");

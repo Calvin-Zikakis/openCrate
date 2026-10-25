@@ -593,3 +593,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .cleanup-changes .keep-button { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; }
 .recipes .recipe-list, .recipes .recipe-replace { flex-basis: 100%; }
 .recipes .recipe-replace { color: var(--warn); }
+/* Column headings that sort: plain text until hovered, the accent while they are the order. */
+.track-header .column-sort { padding: 0; font-size: 10px; color: var(--faint); text-align: left; background: none; }
+.track-header .column-sort:hover { color: var(--text); }
+.track-header .column-sort.is-active { color: var(--accent-text); }
+/* Fold the page header also shortens the tool screens' headings to their title. */
+.header-folded .sync-hero p { display: none; }
+.header-folded .sync-hero .empty-icon { width: 32px; height: 32px; border-radius: 9px; grid-row: auto; }
+.header-folded .sync-hero { padding-bottom: 10px; }
+.header-folded .sync-hero h1 { font-size: 22px; }

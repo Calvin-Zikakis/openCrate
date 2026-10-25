@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { carriesCrate, carriesTracks, draggedCrate, draggedTracks } from "../library/drag";
 import type { LibraryAdmin, PlaylistInfo } from "../library/types";
 import { Icon } from "./Icon";
+import { inWindow } from "./menuPlace";
 import { PLAIN_TEXT } from "./plainText";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -45,7 +46,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
   /** A new rekordbox folder or playlist being named, inside `parent` (null: the top of the tree). */
   const [naming, setNaming] = useState<{ parent: PlaylistInfo | null; name: string; kind: Kind } | null>(null);
   /** What can be made, and where: in `parent` (null: the top of the tree). */
-  const [menu, setMenu] = useState<{ parent: PlaylistInfo | null; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ parent: PlaylistInfo | null; x: number; y: number; playlist?: PlaylistInfo } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -102,17 +103,17 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
     }
   };
   /** The menu of what can be made in `parent`, at the pointer or below the focused button. */
-  const openMenu = (event: React.MouseEvent | React.KeyboardEvent, parent: PlaylistInfo | null) => {
+  const openMenu = (event: React.MouseEvent | React.KeyboardEvent, parent: PlaylistInfo | null, playlist?: PlaylistInfo) => {
     event.preventDefault();
     event.stopPropagation();
-    if ("clientX" in event && event.clientX > 0) setMenu({ parent, x: event.clientX, y: event.clientY });
+    if ("clientX" in event && event.clientX > 0) setMenu({ parent, x: event.clientX, y: event.clientY, playlist });
     else {
       const box = event.currentTarget.getBoundingClientRect();
-      setMenu({ parent, x: box.left + 12, y: box.bottom });
+      setMenu({ parent, x: box.left + 12, y: box.bottom, playlist });
     }
   };
-  const menuKeys = (parent: PlaylistInfo | null) => (event: React.KeyboardEvent) => {
-    if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) openMenu(event, parent);
+  const menuKeys = (parent: PlaylistInfo | null, playlist?: PlaylistInfo) => (event: React.KeyboardEvent) => {
+    if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) openMenu(event, parent, playlist);
   };
   /** The folder a row sits in, or null at the top of the tree. */
   const parentOf = (row: PlaylistInfo) => rows.find((found) => found.id === row.parentId && found.id !== startOf(rows)) ?? null;
@@ -209,7 +210,8 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
       <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
     </div>}
     {note && <p className={note.failed ? "crate-error" : "crate-note"} role={note.failed ? "alert" : "status"}>{note.text}</p>}
-    {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={menu.parent ? `${menu.parent.name} actions` : "New in playlists"} style={{ left: menu.x, top: menu.y }}>
+    {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={menu.parent ? `${menu.parent.name} actions` : "New in playlists"} style={inWindow(menu.x, menu.y)}>
+      {menu.playlist && <button type="button" role="menuitem" onClick={() => { onOpen(menu.playlist!); setMenu(null); }}>{`Open ${menu.playlist.name}`}</button>}
       <button type="button" role="menuitem" disabled={busy} onClick={() => startNaming(menu.parent, "playlist")}><Icon name="queue" size={14} />{menu.parent ? `New playlist in ${menu.parent.name}` : "New playlist"}</button>
       <button type="button" role="menuitem" disabled={busy} onClick={() => startNaming(menu.parent, "folder")}><Icon name="folder" size={14} />{menu.parent ? `New folder in ${menu.parent.name}` : "New folder"}</button>
     </div>}
@@ -235,7 +237,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
     : <li key={row.id}>
       <button className={`tree-playlist${over === row.id ? " is-drop-target" : ""}`} aria-current={activeId === row.id ? "true" : undefined} style={{ paddingLeft: 12 + depth * 12 }}
         title={`${row.inLibrary} of ${row.entries} entries are in your library`} onClick={(event) => { if (!macRightClick(event)) onOpen(row); }}
-        onContextMenu={(event) => openMenu(event, parentOf(row))} onKeyDown={menuKeys(parentOf(row))}
+        onContextMenu={(event) => openMenu(event, parentOf(row), row)} onKeyDown={menuKeys(parentOf(row), row)}
         onDragOver={(event) => {
           if (!carriesTracks(event.dataTransfer) || busy) return;
           event.preventDefault();

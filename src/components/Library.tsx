@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { carriesTracks, draggedTracks, setDraggedTracks } from "../library/drag";
 import { showKey, type KeyNotation } from "../library/keys";
-import type { LibraryApi, LibraryItem, LibraryPage, LibraryQuery } from "../library/types";
+import type { LibraryApi, LibraryItem, LibraryPage, LibraryQuery, Sort } from "../library/types";
 import { ArtistArtwork, Artwork } from "./Artwork";
 import { Icon } from "./Icon";
 
@@ -31,6 +31,8 @@ interface Props {
   onRemoveFromCrate?: (trackIds: number[]) => void;
   /** Open a track's release or artist. */
   onGoTo?: (item: LibraryItem, kind: "releases" | "artists") => void;
+  /** A column heading was clicked: sort by it. */
+  onSort?: (sort: Sort) => void;
   /** The loaded track, marked in place of its number. */
   nowPlaying?: { id: number; playing: boolean } | null;
   /** Right-click, then "Play next" (`next`) or "Add to queue". */
@@ -81,7 +83,7 @@ function keyNote(item: LibraryItem): string | undefined {
   return item.rekordboxKey ? "From rekordbox" : "From the file's tags. rekordbox has no key for this track yet.";
 }
 
-export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, onRemoveFromCrate, onGoTo, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
+export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, onRemoveFromCrate, onGoTo, onSort, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -227,6 +229,12 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     void reorder.move(trackIds, beforeId);
   };
   const restored = useRef(restoreScroll === 0);
+  /** A column heading: a button when it can sort (and is not a playlist or crate in its own order). */
+  const heading = (text: string, sort: Sort, label: string, active = query.sort === sort) => {
+    const fixed = query.sort === "playlist" || query.sort === "crate";
+    if (!onSort || fixed) return <span>{text}</span>;
+    return <button type="button" className={`column-sort${active ? " is-active" : ""}`} aria-pressed={active} title={label} onClick={() => onSort(sort)}>{text}</button>;
+  };
 
   return <section className="library-results" aria-label={`${query.view} results`} aria-busy={pending}>
     <div className="result-summary" role="status">
@@ -236,7 +244,14 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
         : " Drag a track onto a crate, a rekordbox playlist or the player, or within the list to arrange it (Custom order). Right-click for Play next and Add to queue."}</span>}
     </div>
-    {!isGrid && <div className="track-header track-columns" aria-hidden="true"><span>#</span><span>Title / Artist</span><span>Release</span><span>BPM</span><span>Key</span><span>Time</span><span>Format</span></div>}
+    {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column">
+      {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels. */}
+      {heading("#", "recent", "Sort by recently added")}
+      {heading(query.sort === "artist" ? "Title / Artist (by artist)" : "Title / Artist", query.sort === "title" ? "artist" : "title", query.sort === "title" ? "Sort by artist" : "Sort by title", query.sort === "title" || query.sort === "artist")}
+      <span>Release</span>
+      {heading("BPM", "bpm", "Sort by BPM")}
+      <span>Key</span><span>Time</span><span>Format</span>
+    </div>}
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"
       ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>This crate is empty</h2><p>Drag tracks from your library onto the crate's name in the sidebar.</p></div>

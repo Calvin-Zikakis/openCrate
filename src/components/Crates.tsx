@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { carriesTracks, draggedTracks, setDraggedCrate } from "../library/drag";
 import type { CrateInfo, LibraryAdmin } from "../library/types";
 import { PLAIN_TEXT } from "./plainText";
+import { inWindow } from "./menuPlace";
 
 /** How long "Added 1 to ..." stays up. */
 const NOTE_MS = 3000;
@@ -24,7 +25,8 @@ const message = (error: unknown) => (error instanceof Error ? error.message : "S
 export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed, onDeleted }: Props) {
   const [crates, setCrates] = useState<CrateInfo[]>([]);
   const [naming, setNaming] = useState<{ id: number | null; name: string } | null>(null);
-  const [menu, setMenu] = useState<{ crate: CrateInfo; x: number; y: number } | null>(null);
+  /** The menu for a crate, or (crate null) for making one. */
+  const [menu, setMenu] = useState<{ crate: CrateInfo | null; x: number; y: number } | null>(null);
   const [confirming, setConfirming] = useState<CrateInfo | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const [note, setNote] = useState("");
@@ -113,7 +115,13 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
     onBlur={() => { if (naming?.name.trim()) void submitName(); else setNaming(null); }}
   />;
 
-  return <nav className="crate-list" aria-label="Crates">
+  /** A right-click on the caption or between crates: what can be made there. */
+  const newMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    setMenu({ crate: null, x: event.clientX, y: event.clientY });
+  };
+
+  return <nav className="crate-list" aria-label="Crates" onContextMenu={newMenu}>
     <div className="crate-head">
       <div className="nav-caption">CRATES</div>
       <button className="icon-button crate-add" aria-label="New crate" title="New crate" onClick={() => { setNaming({ id: null, name: "" }); setError(""); }}>+</button>
@@ -128,7 +136,7 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
           draggable
           onDragStart={(event) => setDraggedCrate(event.dataTransfer, crate)}
           title="Drag onto a rekordbox folder to make a playlist from it"
-          onContextMenu={(event) => { event.preventDefault(); setMenu({ crate, x: event.clientX, y: event.clientY }); }}
+          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMenu({ crate, x: event.clientX, y: event.clientY }); }}
           onKeyDown={(event) => {
             if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
               event.preventDefault();
@@ -153,19 +161,26 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
         >
           <span className="truncate">{crate.name}</span><small>{crate.tracks}</small>
         </button>}
-        {confirming?.id === crate.id && <div className="crate-confirm" role="alertdialog" aria-label={`Delete ${crate.name}?`}>
+        {confirming?.id === crate.id && <div className="crate-confirm" role="alertdialog" aria-label={`Delete ${crate.name}?`} onKeyDown={(event) => { if (event.key === "Escape") setConfirming(null); }}>
           <span>Delete {crate.name}? The tracks stay in your library.</span>
           <button className="link-button" onClick={() => void remove(crate)}>Delete</button>
-          <button className="link-button" onClick={() => setConfirming(null)}>Keep it</button>
+          {/* Focus starts on Keep it: Enter alone should not delete. */}
+          <button className="link-button" autoFocus onClick={() => setConfirming(null)}>Keep it</button>
         </div>}
       </li>)}
       {naming?.id === null && <li>{nameInput("New crate name")}</li>}
     </ul>
     {note && <p className="crate-note" role="status">{note}</p>}
     {error && <p className="crate-error" role="alert">{error}</p>}
-    {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={`${menu.crate.name} actions`} style={{ left: menu.x, top: menu.y }}>
-      <button type="button" role="menuitem" onClick={() => { setNaming({ id: menu.crate.id, name: menu.crate.name }); setMenu(null); }}>Rename</button>
-      <button type="button" role="menuitem" onClick={() => { setConfirming(menu.crate); setMenu(null); }}>Delete</button>
+    {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={menu.crate ? `${menu.crate.name} actions` : "New crate"} style={inWindow(menu.x, menu.y)}>
+      {menu.crate ? (() => {
+        const crate = menu.crate;
+        return <>
+          <button type="button" role="menuitem" onClick={() => { onOpen(crate); setMenu(null); }}>Open</button>
+          <button type="button" role="menuitem" onClick={() => { setNaming({ id: crate.id, name: crate.name }); setMenu(null); }}>Rename</button>
+          <button type="button" role="menuitem" onClick={() => { setConfirming(crate); setMenu(null); }}>Delete...</button>
+        </>;
+      })() : <button type="button" role="menuitem" onClick={() => { setNaming({ id: null, name: "" }); setError(""); setMenu(null); }}>New crate</button>}
     </div>}
   </nav>;
 }

@@ -189,12 +189,12 @@ function Review({ stage, lookups, unticked, onToggle, onLookUp, onCancel, onImpo
       return <div key={keyOf(release)} className="lookup-result" role="group" aria-label={`Lookup: ${release.name}`}>
         <h3>{release.name}</h3>
         {lookup.state === "asking" && <p className="settings-copy" role="status">Looking it up...</p>}
-        {lookup.state === "failed" && <p className="inline-error">{lookup.error}</p>}
+        {lookup.state === "failed" && <p className="inline-error">{lookup.error} <button className="link-button" disabled={asking} onClick={() => onLookUp([{ release, plan: stage.plans.find((item) => keyOf(item.release) === keyOf(release))!.plan }])}>Try again</button></p>}
         {lookup.state === "done" && <LookupResult lookup={lookup.result} unticked={unticked} onToggle={onToggle} />}
       </div>;
     })}
     <div className="review-actions">
-      <button className="import-button" disabled={ready === 0 || asking} onClick={onImport}>{`Import ${plural(ready, "file", "files")}`}</button>
+      <button className="import-button" disabled={ready === 0 || asking} onClick={onImport}>{asking ? "Waiting for the lookups..." : `Import ${plural(ready, "file", "files")}`}</button>
       <button className="secondary-button" onClick={onCancel}>Cancel</button>
     </div>
   </div>;
