@@ -8,6 +8,9 @@ const message = (error: unknown) => (error instanceof Error ? error.message : "S
 export function FolderLayout({ admin, open }: { admin: LibraryAdmin; open: boolean }) {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [custom, setCustom] = useState("");
+  /** Custom chosen, while its pattern is still being typed. */
+  const [customMode, setCustomMode] = useState(false);
+  const [note, setNote] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -27,6 +30,8 @@ export function FolderLayout({ admin, open }: { admin: LibraryAdmin; open: boole
       const saved = await admin.setFolderLayout(next);
       setLayout(saved);
       setCustom(saved.layout);
+      setCustomMode(!saved.presets.some((item) => item.layout === saved.layout));
+      setNote("Saved. Imports from now on use it.");
     } catch (reason) {
       setError(message(reason));
     }
@@ -39,11 +44,11 @@ export function FolderLayout({ admin, open }: { admin: LibraryAdmin; open: boole
     <p className="settings-copy">How imported music is arranged in your music folder. Music already there stays where it is unless you move it with Folder layout on the Clean up screen.</p>
     <div className="layout-options" role="radiogroup" aria-label="Folder layout">
       {layout.presets.map((item) => <label key={item.layout} className="layout-option">
-        <input type="radio" name="folder-layout" checked={preset?.layout === item.layout} onChange={() => void choose(item.layout)} />
+        <input type="radio" name="folder-layout" checked={!customMode && preset?.layout === item.layout} onChange={() => void choose(item.layout)} />
         {item.name}
       </label>)}
       <label className="layout-option">
-        <input type="radio" name="folder-layout" checked={!preset} onChange={() => document.getElementById("custom-folder-layout")?.focus()} />
+        <input type="radio" name="folder-layout" checked={customMode || !preset} onChange={() => { setCustomMode(true); setNote(""); document.getElementById("custom-folder-layout")?.focus(); }} />
         Custom
       </label>
     </div>
@@ -53,6 +58,7 @@ export function FolderLayout({ admin, open }: { admin: LibraryAdmin; open: boole
     </form>
     <p className="settings-copy layout-help">{"Fields: {folder_artist}, {artist}, {album_artist}, {release}, {title}, {year}, {track:02}, {disc}, {remixer}. Use / for a folder."}</p>
     <p className="settings-copy">Example: <code>{layout.example}</code></p>
+    {note && <p role="status" className="settings-copy">{note}</p>}
     {error && <p role="alert" className="inline-error">{error}</p>}
   </>;
 }

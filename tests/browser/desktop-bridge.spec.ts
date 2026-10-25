@@ -728,10 +728,9 @@ test("folders are added, scanned with visible progress, and the library reloads"
 
   await dialog.getByRole("button", { name: "Add folder..." }).click();
   await expect(dialog.getByText("/Users/dj/Music")).toBeVisible();
-  await expect(dialog.getByText("0 files")).toBeVisible();
   await expect(dialog.getByText("Available")).toBeVisible();
 
-  await dialog.getByRole("button", { name: "Scan Music" }).click();
+  // A folder just added is read at once.
   await expect(dialog.getByLabel("Scan progress")).toBeVisible();
   await page.screenshot({ path: "test-results/folders-scanning.png" });
   await expect(dialog.getByRole("button", { name: "Scan Music" })).toBeDisabled();
@@ -855,9 +854,14 @@ test("download folders are added, switched off and removed, and a refused folder
   await dialog.getByRole("button", { name: "Turn on Downloads" }).click();
   await expect(dialog.getByText("Watching", { exact: true })).toBeVisible();
 
+  // Both ask first; Keep it as it is changes nothing.
   await dialog.getByRole("button", { name: "Count what is in Downloads now as already there" }).click();
+  await dialog.getByRole("alertdialog").getByRole("button", { name: "Keep it as it is" }).click();
+  await dialog.getByRole("button", { name: "Count what is in Downloads now as already there" }).click();
+  await dialog.getByRole("alertdialog").getByRole("button", { name: "Count them" }).click();
   await expect(dialog.getByText("Everything in Downloads now counts as already there.")).toBeVisible();
   await dialog.getByRole("button", { name: "Remove Downloads from download folders" }).click();
+  await dialog.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
   await expect(dialog.getByText("No download folders yet.")).toBeVisible();
   const sent = (await calls(page)).filter((call) => /watch_folder|watch_baseline/.test(call.command) && call.args);
   expect(sent.map((call) => [call.command, call.args])).toEqual([
@@ -1110,7 +1114,7 @@ test("import on its own: a finished release with clean tags goes in with the rec
   await page.waitForTimeout(500);
   expect(await importsOf()).toEqual([]);
   await card.getByRole("checkbox").check();
-  await expect(card.getByRole("status")).toHaveText("Imported on their own: Clean Single.");
+  await expect(card.getByRole("status")).toContainText("Imported on their own: Clean Single.");
   await expect(card).toContainText("Waiting for you: Between Spaces (its tags need a look).");
   const imports = await importsOf();
   expect(imports.map((args) => args.name)).toEqual(["Clean Single"]);
@@ -1242,7 +1246,8 @@ test("import: in one table a release's heading stays in view sideways, says when
 
   await button.click();
   await expect(clean.getByRole("status")).toContainText("Nothing was imported. Left where they are: Clean Single/01.aif (A file is already there.).");
-  await expect(button).toHaveCount(0);
+  // Nothing went in, so it can be tried again once the cause is dealt with.
+  await expect(button).toBeEnabled();
 
   // A refused import reads every release again (it may have been refused for a place another took);
   // changing a choice reads each once more, never twice.
@@ -1281,12 +1286,14 @@ test("import all: a review lists doubtful tags, then every finished release is i
   await expect(review).toHaveCount(0);
   expect((await calls(page)).filter((call) => call.command === "library_import_release")).toHaveLength(0);
 
+  const scansBefore = (await calls(page)).filter((call) => call.command === "library_scan").length;
   await page.getByRole("button", { name: "Import all 2 finished releases..." }).click();
   await page.getByRole("region", { name: "Before importing" }).getByRole("button", { name: "Import 3 files" }).click();
   await expect(page.getByText("3 files are now in your music folder. 1 file was left in the download folder")).toBeVisible();
   const all = await calls(page);
   expect(all.filter((call) => call.command === "library_import_release").map((call) => call.args.name)).toEqual(["Between Spaces", "Second Light"]);
-  expect(all.filter((call) => call.command === "library_scan")).toHaveLength(1);
+  // One scan for the whole run (the music folder was also scanned once when it was added).
+  expect(all.filter((call) => call.command === "library_scan")).toHaveLength(scansBefore + 1);
   const imported = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: "Imported" }) });
   await expect(imported.getByText("Second Light", { exact: true })).toBeVisible();
 });
@@ -1975,13 +1982,21 @@ test("clean up: crates are compared, sorted and merged", async ({ page }) => {
   await expect(card.getByLabel("From")).toHaveValue("2");
   await expect(card.getByLabel(/^Crate/)).toHaveValue("1");
   await card.getByLabel("Order").selectOption("bpm");
-  await card.getByRole("button", { name: "Sort crate" }).click();
+  // Sorting for good asks first.
+  await card.getByRole("button", { name: "Sort crate..." }).click();
+  await expect(card.getByRole("alertdialog")).toContainText("Warm-up takes BPM order for good");
+  await card.getByRole("alertdialog").getByRole("button", { name: "Sort it" }).click();
   await expect(card.getByRole("status")).toContainText("Warm-up is now in BPM order.");
   // A comparison of crates as they were is gone once one changes.
   await expect(card.getByRole("region", { name: "Comparison" })).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__sorted)).toEqual({ crateId: 1, sort: "bpm" });
   await card.getByLabel("From").selectOption({ label: "Peak" });
-  await card.getByRole("button", { name: "Merge" }).click();
+  // Removing the merged crate is never the default.
+  await expect(card.getByRole("checkbox", { name: "Remove the merged crate" })).not.toBeChecked();
+  await card.getByRole("checkbox", { name: "Remove the merged crate" }).check();
+  await card.getByRole("button", { name: "Merge..." }).click();
+  await expect(card.getByRole("alertdialog")).toContainText("Peak's tracks go into Warm-up, and Peak is removed.");
+  await card.getByRole("alertdialog").getByRole("button", { name: "Merge" }).click();
   await expect(card.getByRole("status")).toContainText("1 track added to Warm-up; Peak removed.");
   await expect(crates.getByRole("button", { name: /Peak/ })).toHaveCount(0);
 });
@@ -2014,7 +2029,8 @@ test("clean up: a file moved outside openCrate is found and relinked; one not fo
   // Choosing is cancelled: nothing happens.
   await card.getByRole("button", { name: "Choose the file for Late Train" }).click();
   await expect(card.getByRole("status")).toHaveCount(0);
-  await card.getByRole("button", { name: "Relink Night Drive" }).click();
+  await expect(card.getByRole("checkbox", { name: "Relink Night Drive" })).toBeChecked();
+  await card.getByRole("button", { name: "Relink 1 track" }).click();
   await expect(card.getByRole("status")).toHaveText("1 track was relinked; rekordbox was told the new place of 1 file.");
   await expect(found).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__relinked)).toEqual([13]);
@@ -2397,7 +2413,6 @@ test("a held disappearance is explained and only confirmed on request", async ({
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Add folder..." }).click();
-  await dialog.getByRole("button", { name: "Scan Music" }).click();
   await expect(dialog.getByText("12 files vanished at once")).toBeVisible();
   const scans = () => calls(page).then((all) => all.filter((call) => call.command === "library_scan").map((call) => call.args));
   expect(await scans()).toEqual([{ rootId: 7 }]);

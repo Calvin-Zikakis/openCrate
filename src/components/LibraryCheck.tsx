@@ -26,6 +26,8 @@ function facts(copy: DuplicateCopies["copies"][number]): string {
 export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChanged?: () => void }) {
   const [health, setHealth] = useState<LibraryHealth | null>(null);
   const [checking, setChecking] = useState(false);
+  /** The results folded away, so Settings is short again. */
+  const [folded, setFolded] = useState(false);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState<Untidy | null>(null);
   const [tidied, setTidied] = useState<TidiedFolder | null>(null);
@@ -80,6 +82,7 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
   const check = async () => {
     setChecking(true);
     setError("");
+    setFolded(false);
     try {
       setHealth(await admin.checkLibrary());
     } catch (reason) {
@@ -92,9 +95,12 @@ export function LibraryCheck({ admin, onChanged }: { admin: LibraryAdmin; onChan
   return <>
     <h3>Library check</h3>
     <p className="settings-copy">Looks for folders named from untidy tags (such as "Artist;"), the same recording filed more than once, and files whose tags could not be read. Checking only reads what the last scan found. Tidy moves a folder's files to the tidy name, and tells rekordbox where any it uses went, so they keep their cues and playlists.</p>
-    <button className="secondary-button" disabled={checking} onClick={() => void check()}>{checking ? "Checking..." : "Check library"}</button>
+    <div className="merge-actions">
+      <button className="secondary-button" disabled={checking} onClick={() => void check()}>{checking ? "Checking..." : health ? "Check again" : "Check library"}</button>
+      {health && <button className="link-button" aria-expanded={!folded} onClick={() => setFolded(!folded)}>{folded ? "Show the results" : "Hide the results"}</button>}
+    </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
-    {health && <div className="library-check" role="region" aria-label="Library check results">
+    {health && !folded && <div className="library-check" role="region" aria-label="Library check results">
       {tidyError && <p role="alert" className="inline-error">{tidyError}</p>}
       {resolved && <p role="status" className="settings-copy">{`${plural(resolved.archived, "copy", "copies")} moved to ${resolved.archive}${resolved.merged > 0 ? `; ${resolved.merged} merged into the kept copy in rekordbox` : ""}.`}</p>}
       {tidied && <div role="status" className="settings-copy">

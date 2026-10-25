@@ -55,7 +55,7 @@ export function CleanUp({ admin, onChanged }: Props) {
     </div>
     <HistoryCard admin={admin} onChanged={changed} saves={saves} />
     <MovedCard admin={admin} onChanged={onChanged} />
-    <GenresCard admin={admin} onChanged={changed} />
+    <GenresCard admin={admin} onChanged={changed} saves={saves} />
     <TitlesCard admin={admin} onChanged={changed} />
     <ArtCard admin={admin} onChanged={changed} />
     <CratesCard admin={admin} onChanged={changed} />
@@ -73,15 +73,23 @@ function relinkedNote(done: Relinked): string {
 function MovedCard({ admin, onChanged }: Props) {
   const [found, setFound] = useState<MovedFiles | null>(null);
   const [folded, setFolded] = useState(false);
+  /** Pairs left out of Relink; a guess by name and size starts left out. */
+  const [unticked, setUnticked] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const look = async () => {
+    const next = await admin.movedFiles();
+    setFound(next);
+    setUnticked(new Set(next.moved.filter((item) => !item.sameFile).map((item) => item.missing.fileId)));
+  };
 
   const check = async () => {
     setBusy(true);
     setError("");
+    setNote("");
     try {
-      setFound(await admin.movedFiles());
+      await look();
       setFolded(false);
     } catch (reason) {
       setError(message(reason));
@@ -99,7 +107,7 @@ function MovedCard({ admin, onChanged }: Props) {
       if (!done) return;
       setNote(relinkedNote(done));
       if (done.relinked > 0) onChanged();
-      setFound(await admin.movedFiles());
+      await look();
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -112,7 +120,7 @@ function MovedCard({ admin, onChanged }: Props) {
     <h2>Moved files</h2>
     <p className="settings-copy">Finds tracks whose file is missing because it was moved or renamed outside openCrate, and the file it most likely is now: the same file on disk, or one of the same name and size that appeared since. Relinking keeps the track's crates, your fields and its date added. If rekordbox uses the file, it is told the new place too, which needs writing to rekordbox on.</p>
     <div className="merge-actions">
-      <button className="secondary-button" disabled={busy} onClick={() => void check()}>{found ? "Check again" : "Find moved files"}</button>
+      <button className="secondary-button" disabled={busy} onClick={() => void check()}>{busy ? "Looking..." : found ? "Check again" : "Find moved files"}</button>
       {found && total > 0 && <button className="link-button" aria-expanded={!folded} onClick={() => setFolded(!folded)}>{folded ? `Show the list (${total})` : "Hide the list"}</button>}
     </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
@@ -121,15 +129,29 @@ function MovedCard({ admin, onChanged }: Props) {
     {found && total > 0 && !folded && <>
       {found.moved.length > 0 && <>
         <p className="settings-copy">{`${plural(found.moved.length, "missing file was", "missing files were")} found somewhere else in your music folders.`}</p>
-        {found.moved.length > 1 && <button className="import-button" disabled={busy} onClick={() => void act(() => admin.relink(found.moved.map((item) => [item.missing.fileId, item.found.fileId])))}>{`Relink all ${found.moved.length}`}</button>}
+        {found.moved.some((item) => !item.sameFile) && <p className="settings-copy">A match by name and size alone starts unticked: check it before relinking.</p>}
+        {found.moved.length > 1 && <div className="merge-actions">
+          <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set())}>Tick all</button>
+          <button className="link-button" disabled={busy} onClick={() => setUnticked(new Set(found.moved.map((item) => item.missing.fileId)))}>Untick all</button>
+        </div>}
         <ul className="folder-list" aria-label="Found elsewhere">{found.moved.slice(0, DRAWN).map((item) => <li key={item.missing.fileId} className="folder-row">
-          <div className="folder-text">
-            <strong>{`${item.missing.title || "Untitled"} - ${item.missing.artist}`}</strong>
-            <small>{`Was: ${item.missing.path}`}</small>
-            <small>{`Now: ${item.found.path} (${item.sameFile ? "the same file, moved or renamed" : "same name and size"})`}</small>
-          </div>
-          <button className="secondary-button" disabled={busy} aria-label={`Relink ${item.missing.title}`} onClick={() => void act(() => admin.relink([[item.missing.fileId, item.found.fileId]]))}>Relink</button>
+          <label className="send-row">
+            <input type="checkbox" checked={!unticked.has(item.missing.fileId)} aria-label={`Relink ${item.missing.title}`} onChange={() => setUnticked((before) => {
+              const next = new Set(before);
+              if (!next.delete(item.missing.fileId)) next.add(item.missing.fileId);
+              return next;
+            })} />
+            <span className="folder-text">
+              <strong>{`${item.missing.title || "Untitled"} - ${item.missing.artist}`}</strong>
+              <small>{`Was: ${item.missing.path}`}</small>
+              <small>{`Now: ${item.found.path} (${item.sameFile ? "the same file, moved or renamed" : "same name and size"})`}</small>
+            </span>
+          </label>
         </li>)}</ul>
+        {(() => {
+          const chosen = found.moved.filter((item) => !unticked.has(item.missing.fileId));
+          return <button className="import-button" disabled={busy || chosen.length === 0} onClick={() => void act(() => admin.relink(chosen.map((item) => [item.missing.fileId, item.found.fileId])))}>{busy ? "Relinking..." : `Relink ${plural(chosen.length, "track", "tracks")}`}</button>;
+        })()}
       </>}
       {found.unmatched.length > 0 && <>
         <p className="settings-copy">{`${plural(found.unmatched.length, "missing file was", "missing files were")} not found. If you know where one is now, choose it; it has to be in one of your music folders.`}</p>
@@ -156,6 +178,7 @@ function RefileCard({ admin, onChanged }: Props) {
   const check = async () => {
     setBusy("checking");
     setError("");
+    setNote("");
     try {
       setPlan(await admin.refilePlan());
       setUnticked(new Set());
@@ -225,7 +248,7 @@ function RefileCard({ admin, onChanged }: Props) {
   </section>;
 }
 
-function GenresCard({ admin, onChanged }: Props) {
+function GenresCard({ admin, onChanged, saves }: Props & { saves: number }) {
   const [genres, setGenres] = useState<Genres | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [showAll, setShowAll] = useState(false);
@@ -240,13 +263,15 @@ function GenresCard({ admin, onChanged }: Props) {
       setError(message(reason));
     }
   }, [admin]);
-  useEffect(() => { void load(); }, [load]);
+  // Read again after any save here, an Undo included, so the spellings shown are the files' own.
+  useEffect(() => { void load(); }, [load, saves]);
 
   const rename = async (from: string[], to: string) => {
     if (!to.trim()) return;
     setBusy(true);
     setError("");
     try {
+      setNote("");
       const done = await admin.renameGenres(from, to.trim());
       setNote(`${done.files === 0 ? "No file changed." : `${plural(done.files, "file now has", "files now have")} the genre ${to.trim()}.`}${leftOut(done.left)}`);
       setNames({});
@@ -386,11 +411,15 @@ function ArtCard({ admin, onChanged }: Props) {
   const [folded, setFolded] = useState(false);
   const [busy, setBusy] = useState<number | "all" | null>(null);
   const [notes, setNotes] = useState<Record<number, string>>({});
+  /** What the last cover did, kept on the card: the release's row goes once it has a cover. */
+  const [note, setNote] = useState("");
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
 
   const check = async () => {
     setBusy("all");
     setError("");
+    setNote("");
     try {
       setMissing(await admin.releasesWithoutArt());
       setFolded(false);
@@ -401,25 +430,37 @@ function ArtCard({ admin, onChanged }: Props) {
       setBusy(null);
     }
   };
-  const fill = async (release: MissingArt, source: "folder" | "online" | "choose") => {
-    setBusy(release.releaseId);
+  /** Give one release a cover; true when it got one. A failure stays on its row. */
+  const fill = async (release: MissingArt, source: "folder" | "online" | "choose", alone = true): Promise<boolean> => {
+    setBusy(alone ? release.releaseId : "all");
     setError("");
+    if (alone) setNote("");
     try {
       const done = await admin.setReleaseArt(release.releaseId, source);
-      if (done) {
-        setNotes({ ...notes, [release.releaseId]: `${plural(done.files, "file", "files")} now ${done.files === 1 ? "has" : "have"} the cover.${leftOut(done.left)}` });
-        setMissing((before) => before?.filter((found) => found.releaseId !== release.releaseId) ?? null);
-        onChanged();
-      }
+      if (!done) return false;
+      if (alone) setNote(`${release.title}: ${plural(done.files, "file", "files")} now ${done.files === 1 ? "has" : "have"} the cover.${leftOut(done.left)}`);
+      setMissing((before) => before?.filter((found) => found.releaseId !== release.releaseId) ?? null);
+      onChanged();
+      return true;
     } catch (reason) {
-      setNotes({ ...notes, [release.releaseId]: message(reason) });
+      setNotes((before) => ({ ...before, [release.releaseId]: message(reason) }));
+      return false;
     } finally {
-      setBusy(null);
+      if (alone) setBusy(null);
     }
   };
   const fillAllFromFolders = async () => {
     if (!missing) return;
-    for (const release of missing.filter((found) => found.folderImage)) await fill(release, "folder");
+    const todo = missing.filter((found) => found.folderImage);
+    setNote("");
+    let given = 0;
+    for (const [index, release] of todo.entries()) {
+      setProgress(`Using the folder images: ${index + 1} of ${todo.length}...`);
+      if (await fill(release, "folder", false)) given += 1;
+    }
+    setProgress("");
+    setBusy(null);
+    setNote(`${plural(given, "release now has", "releases now have")} a cover from its folder.${given < todo.length ? ` ${todo.length - given} could not; each says why.` : ""}`);
   };
   const withFolder = missing?.filter((found) => found.folderImage).length ?? 0;
 
@@ -427,10 +468,11 @@ function ArtCard({ admin, onChanged }: Props) {
     <h2>Album art</h2>
     <p className="settings-copy">Finds releases whose files carry no picture. A cover can come from an image beside the files (cover.jpg and the like), from the Cover Art Archive (needs no key; one request a second), or from an image you choose. It goes into every file of the release.</p>
     <div className="merge-actions">
-      <button className="secondary-button" disabled={busy !== null} onClick={() => void check()}>{missing ? "Check again" : "Check album art"}</button>
+      <button className="secondary-button" disabled={busy !== null} onClick={() => void check()}>{busy === "all" && !progress ? "Checking..." : missing ? "Check again" : "Check album art"}</button>
       {missing && missing.length > 0 && <button className="link-button" aria-expanded={!folded} onClick={() => setFolded(!folded)}>{folded ? `Show the list (${missing.length})` : "Hide the list"}</button>}
     </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
+    {(progress || note) && <p role="status" className="settings-copy">{progress || note}</p>}
     {missing && missing.length === 0 && <p className="settings-copy">Every release has a cover.</p>}
     {missing && missing.length > 0 && !folded && <>
       <p className="settings-copy">{`${plural(missing.length, "release has", "releases have")} no cover${withFolder > 0 ? `; ${withFolder} ${withFolder === 1 ? "has" : "have"} an image beside the files` : ""}.`}</p>
@@ -544,7 +586,9 @@ function CratesCard({ admin, onChanged }: Props) {
   const [from, setFrom] = useState<number | null>(null);
   const [first, setFirst] = useState<number | null>(null);
   const [second, setSecond] = useState<number | null>(null);
-  const [remove, setRemove] = useState(true);
+  const [remove, setRemove] = useState(false);
+  /** A sort or merge waiting for a yes: both change crates for good. */
+  const [asking, setAsking] = useState<"sort" | "merge" | null>(null);
   const [order, setOrder] = useState<Sort>("title");
   const [comparison, setComparison] = useState<CrateComparison | null>(null);
   const [busy, setBusy] = useState(false);
@@ -570,6 +614,7 @@ function CratesCard({ admin, onChanged }: Props) {
   useEffect(() => { void load(); }, [load]);
 
   const act = async (work: () => Promise<string>) => {
+    setAsking(null);
     setBusy(true);
     setError("");
     setNote("");
@@ -590,7 +635,10 @@ function CratesCard({ admin, onChanged }: Props) {
     <select value={value ?? ""} onChange={(event) => set(Number(event.target.value))}>{crates.map((found) => <option key={found.id} value={found.id}>{found.name}</option>)}</select>
   </label>;
 
-  if (crates.length === 0) return null;
+  if (crates.length === 0) return <section className="sync-card" role="region" aria-label="Crates">
+    <h2>Crates</h2>
+    <p className="settings-copy">Sort, merge and compare crates here once you have some. Make a crate with the + beside CRATES in the sidebar.</p>
+  </section>;
   return <section className="sync-card" role="region" aria-label="Crates">
     <h2>Crates</h2>
     <p className="settings-copy">Merge one crate into another, sort a crate for good, or see what two crates share. Crates are openCrate's own; rekordbox is not changed.</p>
@@ -599,17 +647,29 @@ function CratesCard({ admin, onChanged }: Props) {
         <h3>Sort</h3>
         {picker("Crate", sorted, setSorted)}
         <label className="crate-pick">Order<select value={order} onChange={(event) => setOrder(event.target.value as Sort)}>{ORDERS.map((item) => <option key={item.sort} value={item.sort}>{item.label}</option>)}</select></label>
-        <button className="secondary-button" disabled={busy || sorted === null} onClick={() => void act(async () => { await admin.sortCrate(sorted!, order); return `${name(sorted)} is now in ${orderWords(order)} order.`; })}>Sort crate</button>
+        {asking === "sort"
+          ? <div className="crate-confirm" role="alertdialog" aria-label={`Sort ${name(sorted)}?`} onKeyDown={(event) => { if (event.key === "Escape") setAsking(null); }}>
+            <span>{`${name(sorted)} takes ${orderWords(order)} order for good; the order it has now is not kept.`}</span>
+            <button className="link-button" disabled={busy} onClick={() => void act(async () => { await admin.sortCrate(sorted!, order); return `${name(sorted)} is now in ${orderWords(order)} order.`; })}>Sort it</button>
+            <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
+          </div>
+          : <button className="secondary-button" disabled={busy || sorted === null} onClick={() => setAsking("sort")}>Sort crate...</button>}
       </div>
       {crates.length > 1 && <div className="crate-tool">
         <h3>Merge</h3>
         {picker("From", from, setFrom)}
         {picker("Into", into, setInto)}
-        <label className="crate-pick"><input type="checkbox" checked={remove} onChange={(event) => setRemove(event.target.checked)} />Remove the merged crate</label>
-        <button className="secondary-button" disabled={busy || into === null || from === null || into === from} onClick={() => void act(async () => {
-          const added = await admin.mergeCrates(into!, [from!], remove);
-          return `${plural(added, "track", "tracks")} added to ${name(into)}${remove ? `; ${name(from)} removed` : ""}.`;
-        })}>Merge</button>
+        <label className="send-row"><input type="checkbox" checked={remove} onChange={(event) => setRemove(event.target.checked)} />Remove the merged crate</label>
+        {asking === "merge"
+          ? <div className="crate-confirm" role="alertdialog" aria-label={`Merge ${name(from)} into ${name(into)}?`} onKeyDown={(event) => { if (event.key === "Escape") setAsking(null); }}>
+            <span>{`${name(from)}'s tracks go into ${name(into)}${remove ? `, and ${name(from)} is removed` : ""}.`}</span>
+            <button className="link-button" disabled={busy} onClick={() => void act(async () => {
+              const added = await admin.mergeCrates(into!, [from!], remove);
+              return `${plural(added, "track", "tracks")} added to ${name(into)}${remove ? `; ${name(from)} removed` : ""}.`;
+            })}>Merge</button>
+            <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
+          </div>
+          : <button className="secondary-button" disabled={busy || into === null || from === null || into === from} onClick={() => setAsking("merge")}>Merge...</button>}
       </div>}
       {crates.length > 1 && <div className="crate-tool">
         <h3>Compare</h3>

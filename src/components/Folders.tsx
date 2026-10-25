@@ -23,11 +23,12 @@ function summaryText(summary: ScanSummary): string {
     return `This folder is not available right now (${summary.reason}). Your library was left as it was.`;
   }
   if (summary.cancelled) return "Scan cancelled. What was read so far is kept; scan again to finish.";
-  const parts = [`${summary.tracksCreated} new tracks`, `${summary.tracksUpdated} updated`];
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts = [count(summary.tracksCreated, "new track", "new tracks"), `${summary.tracksUpdated} updated`];
   if (summary.markedMissing > 0) parts.push(`${summary.markedMissing} no longer on disk`);
   if (summary.tagErrors > 0) parts.push(`${summary.tagErrors} without readable tags`);
   const held = summary.heldMissing > 0
-    ? ` ${summary.heldMissing} files vanished at once, so they were left unchanged in case the drive is not fully connected.`
+    ? ` ${count(summary.heldMissing, "file", "files")} vanished at once, so they were left unchanged in case the drive is not fully connected.`
     : "";
   return `Done: ${parts.join(", ")}.${held}`;
 }
@@ -95,7 +96,11 @@ export function Folders({ admin, open, onChanged }: Props) {
     setAdding(true);
     try {
       const added = await admin.addFolder();
-      if (added) await refresh();
+      if (added) {
+        await refresh();
+        // A new folder is read at once, as on the welcome card, rather than showing 0 files.
+        await start(added.id);
+      }
     } catch (reason) {
       setError(message(reason));
     } finally {

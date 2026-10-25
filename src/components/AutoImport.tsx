@@ -13,6 +13,8 @@ const NONE: AutoOutcome = { imported: [], waiting: [] };
 export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () => void) {
   const [settings, setSettings] = useState<AutoImportSettings>(() => loadAutoImport(localStorage));
   const [outcome, setOutcome] = useState<AutoOutcome>(NONE);
+  /** Why the last look could not import anything, shown on the card; "" when it could. */
+  const [problem, setProblem] = useState("");
   const refresh = useRef(onImported);
   refresh.current = onImported;
   const change = (next: AutoImportSettings) => {
@@ -21,7 +23,7 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
   };
 
   useEffect(() => {
-    if (!admin || !settings.on) return;
+    if (!admin || !settings.on) { setProblem(""); return; }
     let running = false;
     let live = true;
     // New settings give every release another look.
@@ -32,7 +34,11 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
       try {
         const roots = (await admin.folders()).filter((folder) => folder.availability === "available");
         const root = roots.find((folder) => folder.id === settings.rootId) ?? roots[0];
-        if (!root) return;
+        if (!root) {
+          setProblem("Paused: no music folder can be reached right now. It carries on when one is back.");
+          return;
+        }
+        setProblem("");
         const snapshot = await admin.downloadReleases();
         const layout = await admin.folderLayout().catch(() => null);
         const chosen = loadOptions();
@@ -45,8 +51,9 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
           imported: [...before.imported, ...done.imported],
           waiting: [...before.waiting.filter((item) => !done.imported.includes(item.name) && !done.waiting.some((other) => other.name === item.name)), ...done.waiting],
         }));
-      } catch {
+      } catch (reason) {
         // Tried again at the next look.
+        setProblem(`The last look did not work: ${reason instanceof Error ? reason.message : "something went wrong"}. It tries again shortly.`);
       } finally {
         running = false;
       }
@@ -56,7 +63,7 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
     return () => { live = false; clearInterval(timer); };
   }, [admin, settings]);
 
-  return { settings, change, outcome };
+  return { settings, change, outcome, problem, clear: () => setOutcome(NONE) };
 }
 
 export type AutoImport = ReturnType<typeof useAutoImport>;
@@ -65,13 +72,15 @@ interface Props {
   settings: AutoImportSettings;
   onChange: (next: AutoImportSettings) => void;
   outcome: AutoOutcome;
+  problem?: string;
+  onClear?: () => void;
   roots: FolderInfo[];
   /** What the download folders hold now, so a release imported by hand stops waiting. */
   releases: DownloadRelease[];
 }
 
 /** The Import screen's switch for importing on its own, and what it has done this session. */
-export function AutoImportCard({ settings, onChange, outcome, roots, releases }: Props) {
+export function AutoImportCard({ settings, onChange, outcome, problem = "", onClear, roots, releases }: Props) {
   const recipes = loadRecipes(localStorage);
   const available = roots.filter((folder) => folder.availability === "available");
   const stillWaiting = outcome.waiting.filter((item) => releases.some((release) => release.name === item.name && !release.imported));
@@ -87,7 +96,8 @@ export function AutoImportCard({ settings, onChange, outcome, roots, releases }:
       </select></label>
       {recipes.length === 0 && <small>Save a recipe in the track editor to use one here.</small>}
     </div>
-    {outcome.imported.length > 0 && <p className="settings-copy" role="status">{`Imported on their own: ${outcome.imported.join(", ")}.`}</p>}
+    {settings.on && problem && <p className="inline-error" role="alert">{problem}</p>}
+    {outcome.imported.length > 0 && <p className="settings-copy" role="status">{`Imported on their own: ${outcome.imported.join(", ")}.`} {onClear && <button className="link-button" onClick={onClear}>Clear</button>}</p>}
     {stillWaiting.length > 0 && <p className="settings-copy">{`Waiting for you: ${stillWaiting.map((item) => `${item.name} (${item.why})`).join("; ")}.`}</p>}
   </div>;
 }

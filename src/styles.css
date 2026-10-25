@@ -580,3 +580,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 /* Import on its own: where new releases go, and the recipe applied on the way. */
 .auto-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin: 4px 0 8px; }
 .auto-choices small { color: var(--faint); font-size: 11px; }
+
+/* Every music-folder and recipe choice on the Import screen looks like the conversion choices. */
+.plan-root select, .auto-choices select { color: var(--text); font-size: 12px; background: var(--raised); border: 1px solid var(--line); padding: 7px 10px; width: auto; min-width: 170px; max-width: none; }
