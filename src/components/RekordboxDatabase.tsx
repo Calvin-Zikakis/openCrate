@@ -8,7 +8,8 @@ const REASONS: Record<string, string> = {
 const when = (ms: number) => new Date(ms).toLocaleString();
 
 /** Settings: the opt-in switch for reading rekordbox's own library, and its backups. */
-export function RekordboxDatabase({ admin, open }: { admin: LibraryAdmin; open: boolean }) {
+/** `askFirst`: whether tracks dropped on a rekordbox playlist wait for a yes; a preference kept by the app. */
+export function RekordboxDatabase({ admin, open, askFirst, onAskFirst }: { admin: LibraryAdmin; open: boolean; askFirst?: boolean; onAskFirst?: (ask: boolean) => void }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [backups, setBackups] = useState<RekordboxBackup[]>([]);
   const [warning, setWarning] = useState(false);
@@ -112,6 +113,10 @@ export function RekordboxDatabase({ admin, open }: { admin: LibraryAdmin; open: 
       </div>
     </div>}
     {status?.writeEnabled && !status.writeNeedsConfirmation && <p className="settings-copy">{`Writing is on for rekordbox ${status.writeConfirmedVersion ?? ""}.`}</p>}
+    {status?.writeEnabled && onAskFirst && <label className="setting-row">
+      <span><strong>Ask before adding to a rekordbox playlist</strong><small>Tracks dropped on a playlist in the sidebar wait for Add. Off: they go straight in.</small></span>
+      <input type="checkbox" checked={askFirst ?? true} onChange={(event) => onAskFirst(event.target.checked)} />
+    </label>}
     {status?.writeEnabled && status.writeNeedsConfirmation && <div className="warning-panel">
       <p className="settings-copy">{`rekordbox is now ${version} (it was ${status.writeConfirmedVersion ?? "unknown"} when you turned writing on). Writing stays off until you confirm again.`}</p>
       <button className="secondary-button" disabled={busy || !status.writeTested} onClick={() => void enableWrite(true)}>{`Confirm writing for ${version}`}</button>

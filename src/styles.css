@@ -600,6 +600,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 
 /* The playlist browser: rekordbox's tree a folder at a time, as cards. */
 .playlist-browser { display: flex; flex-direction: column; min-height: 0; }
+.browser-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.browser-actions .secondary-button { display: inline-flex; align-items: center; gap: 6px; }
+.browser-name { max-width: 360px; margin: 0 0 12px; }
 .browser-trail { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px; margin: 0 0 16px; font-size: 12px; color: var(--faint); }
 .browser-trail button { display: inline; padding: 0; border-radius: 0; font-size: 12px; background: none; }
 .browser-trail button[aria-current="page"] { color: var(--text); background: none; text-decoration: none; cursor: default; }

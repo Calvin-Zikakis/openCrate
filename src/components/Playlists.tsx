@@ -20,6 +20,9 @@ interface Props {
   /** Show the folders and playlists in the main area, as a browser; `active` while it shows. */
   onBrowse?: () => void;
   browsing?: boolean;
+  /** Tracks dropped on a playlist wait for a yes; `onStopAsking` turns the question off. */
+  askFirst?: boolean;
+  onStopAsking?: () => void;
 }
 
 type Kind = "folder" | "playlist";
@@ -34,20 +37,9 @@ export function startOf(rows: PlaylistInfo[]): number | null {
   return top.length === 1 && only?.isFolder && only.name === "ROOT" ? only.id : null;
 }
 
-export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrowse, browsing = false }: Props) {
-  const [rows, setRows] = useState<PlaylistInfo[]>([]);
-  const [open, setOpen] = useState<Set<number>>(new Set());
-  const [failed, setFailed] = useState(false);
-  const opened = useRef(false);
-  const [over, setOver] = useState<number | null>(null);
-  const [note, setNote] = useState<{ text: string; failed: boolean; done: boolean } | null>(null);
-  /** A crate dropped on a folder (null: the top of the tree), waiting for the owner to say yes. */
-  const [asking, setAsking] = useState<{ crate: { id: number; name: string }; folder: PlaylistInfo | null } | null>(null);
-  /** A new rekordbox folder or playlist being named, inside `parent` (null: the top of the tree). */
-  const [naming, setNaming] = useState<{ parent: PlaylistInfo | null; name: string; kind: Kind } | null>(null);
-  /** What can be made, and where: in `parent` (null: the top of the tree). */
-  const [menu, setMenu] = useState<{ parent: PlaylistInfo | null; x: number; y: number; playlist?: PlaylistInfo } | null>(null);
-  /** Whether a playlist or folder can be made: writing to rekordbox on, and its version confirmed. */
+/** Whether a playlist or folder can be made: writing to rekordbox on, and its version confirmed.
+ * null until rekordbox's status has been read. */
+function useCanWrite(admin: LibraryAdmin, version: number) {
   const [canWrite, setCanWrite] = useState<boolean | null>(null);
   useEffect(() => {
     let live = true;
@@ -56,7 +48,27 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
     }, () => { if (live) setCanWrite(false); });
     return () => { live = false; };
   }, [admin, version]);
-  const cannotWrite = canWrite === false ? "Needs writing to rekordbox on in Settings" : undefined;
+  return canWrite;
+}
+const CANNOT_WRITE = "Needs writing to rekordbox on in Settings";
+
+export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrowse, browsing = false, askFirst = true, onStopAsking }: Props) {
+  const [rows, setRows] = useState<PlaylistInfo[]>([]);
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const [failed, setFailed] = useState(false);
+  const opened = useRef(false);
+  const [over, setOver] = useState<number | null>(null);
+  const [note, setNote] = useState<{ text: string; failed: boolean; done: boolean } | null>(null);
+  /** A crate dropped on a folder (null: the top of the tree), waiting for the owner to say yes. */
+  const [asking, setAsking] = useState<{ crate: { id: number; name: string }; folder: PlaylistInfo | null } | null>(null);
+  /** Tracks dropped on a playlist, waiting for the owner to say yes. */
+  const [adding, setAdding] = useState<{ row: PlaylistInfo; trackIds: number[] } | null>(null);
+  /** A new rekordbox folder or playlist being named, inside `parent` (null: the top of the tree). */
+  const [naming, setNaming] = useState<{ parent: PlaylistInfo | null; name: string; kind: Kind } | null>(null);
+  /** What can be made, and where: in `parent` (null: the top of the tree). */
+  const [menu, setMenu] = useState<{ parent: PlaylistInfo | null; x: number; y: number; playlist?: PlaylistInfo } | null>(null);
+  const canWrite = useCanWrite(admin, version);
+  const cannotWrite = canWrite === false ? CANNOT_WRITE : undefined;
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -88,6 +100,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
 
   /** Tracks dropped on a playlist go into rekordbox's own playlist, when writing is on. */
   const drop = async (row: PlaylistInfo, trackIds: number[]) => {
+    setAdding(null);
     setNote({ text: `Adding to ${row.name} in rekordbox...`, failed: false, done: false });
     try {
       const done = await admin.addToRekordboxPlaylist(row.id, trackIds);
@@ -195,8 +208,9 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
       if (stale) return;
       setRows(next);
       setFailed(false);
-      // A question about a folder that has gone is dropped; any other stays open.
+      // A question about a folder or playlist that has gone is dropped; any other stays open.
       setAsking((current) => current?.folder && !next.some((row) => row.id === current.folder?.id) ? null : current);
+      setAdding((current) => current && !next.some((row) => row.id === current.row.id) ? null : current);
       if (!opened.current && next.length > 0) {
         opened.current = true;
         const first = startOf(next);
@@ -228,6 +242,14 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
       <button className="link-button" disabled={busy} onClick={() => void makePlaylist(asking.crate, asking.folder)}>Make playlist</button>
       {/* Focus starts on Cancel: Enter alone should not write to rekordbox. */}
       <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
+    </div>}
+    {adding && <div className="crate-confirm" role="alertdialog" aria-label={`Add to ${adding.row.name} in rekordbox?`}
+      onKeyDown={(event) => { if (event.key === "Escape") setAdding(null); }}>
+      <span>Add {adding.trackIds.length === 1 ? "1 track" : `${adding.trackIds.length} tracks`} to {adding.row.name} in rekordbox?</span>
+      <button className="link-button" disabled={busy} onClick={() => void drop(adding.row, adding.trackIds)}>Add</button>
+      <button className="link-button" disabled={busy} title="Later drops go straight in. Ask again from Settings." onClick={() => { onStopAsking?.(); void drop(adding.row, adding.trackIds); }}>Add, and stop asking</button>
+      {/* Focus starts on Cancel: Enter alone should not write to rekordbox. */}
+      <button className="link-button" autoFocus onClick={() => setAdding(null)}>Cancel</button>
     </div>}
     {note && <p className={note.failed ? "crate-error" : "crate-note"} role={note.failed ? "alert" : "status"}>{note.text}</p>}
     {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={menu.parent ? `${menu.parent.name} actions` : "New in playlists"} style={inWindow(menu.x, menu.y)}>
@@ -271,7 +293,8 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
           const ids = draggedTracks(event.dataTransfer);
           if (!ids || busy) return;
           event.preventDefault();
-          void drop(row, ids);
+          if (askFirst) setAdding({ row, trackIds: ids });
+          else void drop(row, ids);
         }}>
         <span className="truncate">{row.name}</span><small>{row.inLibrary}/{row.entries}</small>
       </button>
@@ -289,13 +312,25 @@ interface BrowserProps {
   folderId: number | null;
   onFolder: (folderId: number | null) => void;
   onOpen: (playlist: PlaylistInfo) => void;
+  /** rekordbox's library was written and read again. */
+  onChanged?: () => void;
 }
 
 /** rekordbox's folders and playlists in the main area, a folder at a time, like a file browser:
  * a folder opens in place, a playlist opens its tracks. */
-export function PlaylistBrowser({ admin, version, folderId, onFolder, onOpen }: BrowserProps) {
+export function PlaylistBrowser({ admin, version, folderId, onFolder, onOpen, onChanged }: BrowserProps) {
   const [rows, setRows] = useState<PlaylistInfo[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const canWrite = useCanWrite(admin, version);
+  /** A new playlist or folder being named, in the folder shown. */
+  const [naming, setNaming] = useState<{ kind: Kind; name: string } | null>(null);
+  const [note, setNote] = useState<{ text: string; failed: boolean; done: boolean } | null>(null);
+  const busy = note !== null && !note.done;
+  useEffect(() => {
+    if (!note?.done || note.failed) return;
+    const timer = setTimeout(() => setNote(null), NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [note]);
   useEffect(() => {
     let stale = false;
     admin.playlists().then((next) => { if (!stale) { setRows(next); setFailed(false); } }, () => { if (!stale) setFailed(true); });
@@ -310,18 +345,54 @@ export function PlaylistBrowser({ admin, version, folderId, onFolder, onOpen }: 
   const trail: PlaylistInfo[] = [];
   for (let at = current; at && at.id !== start; at = rows?.find((row) => row.id === at?.parentId) ?? null) trail.unshift(at);
   const inside = (folder: PlaylistInfo) => (rows ?? []).filter((row) => row.parentId === folder.id).length;
+  const where = current ? `in ${current.name}` : "at the top of the playlists";
+
+  const make = async () => {
+    if (!naming || busy) return;
+    const { kind, name } = naming;
+    setNaming(null);
+    if (!name.trim()) return;
+    setNote({ text: `Making the ${kind} ${name.trim()} in rekordbox...`, failed: false, done: false });
+    try {
+      const parent = current?.id ?? null;
+      const made = kind === "folder" ? await admin.createRekordboxFolder(name, parent) : await admin.createRekordboxPlaylist(name, parent);
+      setNote({ text: `Made the ${kind} ${made.name} ${where} in rekordbox.`, failed: false, done: true });
+      onChanged?.();
+    } catch (reason) {
+      setNote({ text: message(reason), failed: true, done: true });
+    }
+  };
+  const newButton = (kind: Kind) => <button className="secondary-button" disabled={busy || canWrite !== true || failed} title={canWrite === false ? CANNOT_WRITE : `New ${kind} ${where}`}
+    onClick={() => setNaming({ kind, name: "" })}><Icon name={kind === "folder" ? "folder" : "queue"} size={14} />New {kind}</button>;
 
   return <div className="playlist-browser">
     <div className="library-hero folded">
       <div><h1>Playlists</h1></div>
+      <div className="browser-actions">{newButton("playlist")}{newButton("folder")}</div>
     </div>
     <nav className="browser-trail" aria-label="Folder path">
       <button className="link-button" aria-current={current ? undefined : "page"} onClick={() => onFolder(null)}>rekordbox</button>
       {trail.map((folder) => <span key={folder.id}><span aria-hidden="true"> / </span><button className="link-button" aria-current={folder.id === current?.id ? "page" : undefined} onClick={() => onFolder(folder.id)}>{folder.name}</button></span>)}
     </nav>
+    {naming && <input {...PLAIN_TEXT}
+      className="crate-name-input browser-name"
+      aria-label={`New ${naming.kind} ${where}`}
+      placeholder={`Name the new ${naming.kind}, then press Return`}
+      autoFocus
+      maxLength={100}
+      value={naming.name}
+      onChange={(event) => setNaming((now) => now && { ...now, name: event.target.value })}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") { event.preventDefault(); void make(); }
+        if (event.key === "Escape") { event.preventDefault(); setNaming(null); }
+      }}
+      onBlur={() => { if (naming.name.trim()) void make(); else setNaming(null); }}
+    />}
+    {canWrite === false && <p className="settings-copy">Making playlists and folders needs writing to rekordbox on in Settings.</p>}
+    {note && <p className={note.failed ? "inline-error" : "settings-copy"} role={note.failed ? "alert" : "status"}>{note.text}</p>}
     {failed && <p role="alert" className="inline-error">Playlists could not be read. Try reading rekordbox again on the rekordbox screen.</p>}
     {rows && rows.length === 0 && !failed && <p className="settings-copy">No playlists yet. Read rekordbox on the rekordbox screen to see its folders and playlists here.</p>}
-    {rows && rows.length > 0 && items.length === 0 && <p className="settings-copy">This folder is empty. Right-click it in the sidebar to make a playlist or folder in it.</p>}
+    {rows && rows.length > 0 && items.length === 0 && <p className="settings-copy">This folder is empty.</p>}
     {items.length > 0 && <ul className="browser-grid" aria-label={current ? `In ${current.name}` : "Playlists and folders"}>{items.map((row) => <li key={row.id}>
       <button className="browser-card" onClick={() => (row.isFolder ? onFolder(row.id) : onOpen(row))}>
         <span className={`browser-icon${row.isFolder ? " is-folder" : ""}`} aria-hidden="true"><Icon name={row.isFolder ? "folder" : "queue"} size={30} /></span>

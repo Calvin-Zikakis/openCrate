@@ -2542,8 +2542,17 @@ test("a track dropped on a rekordbox playlist goes into rekordbox once writing i
   const closers = sidebar.getByRole("navigation", { name: "Playlists" }).getByRole("button", { name: "Closers" });
   const row = page.getByTestId("track-row").filter({ hasText: "Rust Track 0004" });
 
+  // A drop asks first, with Cancel focused; Cancel writes nothing.
+  await row.dragTo(closers);
+  const ask = sidebar.getByRole("alertdialog", { name: "Add to Closers in rekordbox?" });
+  await expect(ask).toContainText("Add 1 track to Closers in rekordbox?");
+  await expect(ask.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await ask.getByRole("button", { name: "Cancel" }).click();
+  await expect(ask).toHaveCount(0);
+
   // Writing off: nothing is written, and the note says where to turn it on.
   await row.dragTo(closers);
+  await ask.getByRole("button", { name: "Add", exact: true }).click();
   await expect(sidebar.getByRole("alert")).toContainText("Turn it on in Settings");
   expect(await page.evaluate(() => (window as any).__rbAdded)).toBeUndefined();
 
@@ -2554,9 +2563,21 @@ test("a track dropped on a rekordbox playlist goes into rekordbox once writing i
   await expect(dialog.getByText("Writing is on for rekordbox 7.2.19.0342.")).toBeVisible();
   await dialog.getByRole("button", { name: "Close settings" }).click();
 
+  // "Add, and stop asking" writes, and later drops go straight in until Settings asks again.
   await row.dragTo(closers);
+  await ask.getByRole("button", { name: "Add, and stop asking" }).click();
   await expect(sidebar.getByRole("status")).toContainText("Added 1 to Closers in rekordbox.");
   expect(await page.evaluate(() => (window as any).__rbAdded)).toEqual([{ playlistId: 4, trackIds: [4] }]);
+  await row.dragTo(closers);
+  await expect(ask).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as any).__rbAdded.length)).toBe(2);
+  await page.getByRole("button", { name: "Settings" }).click();
+  const askBox = dialog.getByRole("checkbox", { name: /Ask before adding to a rekordbox playlist/ });
+  await expect(askBox).not.toBeChecked();
+  await askBox.click();
+  await dialog.getByRole("button", { name: "Close settings" }).click();
+  await row.dragTo(closers);
+  await expect(ask).toBeVisible();
 });
 
 test("BPM and key say whether rekordbox analysed them or they come from the file's tags", async ({ page }) => {
@@ -2660,6 +2681,37 @@ test("playlists: PLAYLISTS opens a browser of folders and playlists, a folder at
   await expect(page.getByRole("list", { name: "In Sets" })).toBeVisible();
   await page.getByRole("navigation", { name: "Folder path" }).getByRole("button", { name: "rekordbox" }).click();
   await expect(page.getByRole("list", { name: "Playlists and folders" })).toBeVisible();
+  // Writing off: New playlist says why it cannot be used.
+  await expect(page.getByRole("button", { name: "New playlist" })).toBeDisabled();
+  await expect(page.getByText("Making playlists and folders needs writing to rekordbox on in Settings.")).toBeVisible();
+});
+
+test("playlists: the browser makes a playlist or folder in the folder it shows", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__rbEnabled = true; (window as any).__rbWriting = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "rekordbox", exact: true }).click();
+  await page.getByRole("button", { name: "Choose export..." }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "PLAYLISTS" }).click();
+  const main = page.locator(".playlist-browser");
+  // Escape gives up without writing.
+  await main.getByRole("button", { name: "New playlist" }).click();
+  await main.getByRole("textbox", { name: "New playlist at the top of the playlists" }).fill("Gone");
+  await page.keyboard.press("Escape");
+  await expect(main.getByRole("textbox")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__rbPlaylists)).toBeUndefined();
+
+  await main.getByRole("button", { name: "New playlist" }).click();
+  await main.getByRole("textbox", { name: "New playlist at the top of the playlists" }).fill("Openers");
+  await page.keyboard.press("Enter");
+  await expect(main.getByRole("status")).toContainText("Made the playlist Openers at the top of the playlists in rekordbox.");
+  await page.getByRole("list", { name: "Playlists and folders" }).getByRole("button", { name: /Sets/ }).click();
+  await main.getByRole("button", { name: "New folder" }).click();
+  await main.getByRole("textbox", { name: "New folder in Sets" }).fill("Friday");
+  await page.keyboard.press("Enter");
+  await expect(main.getByRole("status")).toContainText("Made the folder Friday in Sets in rekordbox.");
+  expect(await page.evaluate(() => (window as any).__rbPlaylists)).toEqual([{ name: "Openers", folderId: null }]);
+  expect(await page.evaluate(() => (window as any).__rbFolders)).toEqual([{ name: "Friday", folderId: 2 }]);
 });
 
 test("crates: a crate dropped on a rekordbox folder becomes a playlist there once the owner says yes", async ({ page }) => {
