@@ -1,7 +1,7 @@
 # openCrate
 
 openCrate is a free DJ library manager in development for Windows and macOS.
-The stack is Rust, Tauri 2 and React. Bandcamp and Soulseek downloads
+The stack is Rust, Tauri 2 and React. Downloads from any source
 will become a clean `Artist/Release` library, with new tracks sent to rekordbox
 through XML. rekordbox remains the owner of playlists, cues and beat grids.
 The planned read-back is XML-first, with an experimental copy-only `master.db`
@@ -103,7 +103,7 @@ based on files that really exist, and applies it only when you press the button.
 Select a track and press **Cues and grid** to see the hot cues, memory cues, loops and beat grid rekordbox has
 for it (after reading an export), exactly as rekordbox wrote them.
 
-In Settings, **Download folders** takes the folders where Bandcamp and Soulseek put files; the Import screen then lists
+In Settings, **Download folders** takes the folders where your downloads land, whatever their source; the Import screen then lists
 what is in them and which releases look finished downloading. Each release has a **Preview** button that shows where every file would go in your music folder, from its tags,
 and what would stop it. It is a dry run: nothing is copied or imported yet.
 

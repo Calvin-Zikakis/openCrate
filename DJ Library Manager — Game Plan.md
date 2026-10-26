@@ -4,7 +4,7 @@ Oct 22, 2026 · @Calvin
 
 ## Decisions so far
 
-v1 is a free, GPL-3.0 desktop app in Rust + Tauri for macOS and Windows. It turns Bandcamp and Soulseek downloads into a clean Artist/Release library, syncs it to rekordbox through XML, and plays it back with rekordbox's cues on a waveform.
+v1 is a free, GPL-3.0 desktop app in Rust + Tauri for macOS and Windows. It turns downloads from any source into a clean Artist/Release library, syncs it to rekordbox through XML, and plays it back with rekordbox's cues on a waveform.
 
 | Decision | Choice | What it forces |
 | --- | --- | --- |
@@ -19,7 +19,7 @@ v1 is a free, GPL-3.0 desktop app in Rust + Tauri for macOS and Windows. It turn
 | Player v1 | Waveform with cue overlay | Waveform rendering and cue read-back are v1 work |
 | Sync targets v1 | rekordbox only, via XML | Serato, Traktor and Engine wait for later |
 | Playlists | rekordbox owns them. openCrate shows them read-only, from the rekordbox XML export | A read-back of the playlist tree. No playlist editing and no playlist files in v1 |
-| New music sources | Bandcamp and Soulseek | Whole-release folders, inconsistent tags, frequent fake lossless |
+| New music sources | Any download folder: web shops, peer-to-peer clients, rips | Whole-release folders, inconsistent tags, frequent fake lossless |
 | Singles | Artist/Release/Track | Every release gets its own folder |
 | Artist folder | Remixer for remixes | A remix EP splits across several remixer folders |
 | Upgrades | Replace with the better copy, keep cues, archive the old file | Synced tracks need database mode; otherwise they wait in review |
@@ -161,13 +161,13 @@ openCrate and rekordbox are kept in step both ways, like a Git merge ([design](d
 
 ## Identification and metadata
 
-No single source is reliable for Bandcamp and Soulseek files, so the app combines several weak signals into one scored match per release. Anything below the auto-file threshold goes to the review queue.
+No single source is reliable for downloaded files, so the app combines several weak signals into one scored match per release. Anything below the auto-file threshold goes to the review queue.
 
 Signals, in the order they are tried:
 
-1. **Existing tags.** Bandcamp files usually carry artist, title and album. Read everything, trust nothing yet. Files already tagged by beets, Picard or MiniMediaScanner carry MusicBrainz IDs, which count as a strong signal and can skip the lookup.
-2. **Folder and file names.** Soulseek folders often look like `Artist - Album (2024) [FLAC]`. Strip format and quality tokens, then pull out track numbers and version strings (Extended Mix, X Remix, VIP, Edit).
-3. **Bandcamp page data.** Bandcamp has no public API, but its files often carry the artist's Bandcamp URL in the comment tag. The release page's embedded structured data gives the canonical names.
+1. **Existing tags.** Files from web shops usually carry artist, title and album. Read everything, trust nothing yet. Files already tagged by beets, Picard or MiniMediaScanner carry MusicBrainz IDs, which count as a strong signal and can skip the lookup.
+2. **Folder and file names.** Folders from peer-to-peer clients often look like `Artist - Album (2024) [FLAC]`. Strip format and quality tokens, then pull out track numbers and version strings (Extended Mix, X Remix, VIP, Edit).
+3. **Shop page data.** Some web shops put the release page's address in the comment tag; the page's embedded structured data gives the canonical names.
 4. **Release databases.** MusicBrainz is free but limited to about one request per second per IP address. Discogs needs a personal token, which each user enters in settings. See Looking up tags without hitting limits.
 5. **Audio fingerprint.** Chromaprint plus AcoustID confirms a recording when it is known. Coverage of underground releases is thin, so a miss counts as neutral, not negative.
 
@@ -189,14 +189,14 @@ Reading the tags already in a file (ID3, Vorbis comments, MP4 atoms) is local an
 | Option | How it works | Verdict |
 | --- | --- | --- |
 | MusicBrainz, AcoustID and Discogs, live | Public APIs. MusicBrainz allows about 1 request per second per IP, AcoustID 3 per second, Discogs 60 per minute with a token (25 without) | Chosen for v1. The limits are per IP, so every DJ has their own budget. Query per release, cache everything, throttle locally |
-| beets | Python CLI, MIT licensed. Its autotagger matches whole albums against MusicBrainz, and plugins add Discogs, Beatport, Deezer, Spotify, Tidal, AcoustID and a Bandcamp source. SQLite library | Not a dependency: it needs Python and has no installer story. Its matching model is the one to copy: weighted distance, strong, medium and low tiers, and a quiet mode that skips what it is unsure of |
+| beets | Python CLI, MIT licensed. Its autotagger matches whole albums against MusicBrainz, and plugins add Discogs, Beatport, Deezer, Spotify, Tidal, AcoustID and shop sources. SQLite library | Not a dependency: it needs Python and has no installer story. Its matching model is the one to copy: weighted distance, strong, medium and low tiers, and a quiet mode that skips what it is unsure of |
 | MiniMediaScanner and its Datasets | .NET CLI, GPL-3.0, requires PostgreSQL. The datasets are bulk copies of Deezer, Tidal, Spotify and MusicBrainz, gathered over months of API calls | Not for v1. The February 2026 dataset is 21.7 GB packed and 149 GB unpacked as SQL, it needs Postgres, it goes stale for new releases (which are what DJs import), the Datasets repository lists no license, and the data was harvested from commercial APIs whose terms need checking. Two ideas are worth taking: numbers must match exactly, and its 80% text and 98% fingerprint thresholds as a starting point |
 | Lexicon, Find Tags & Album Art | Paid tier. Queries SonoVault, Lexicon's own database, by the existing artist and title text. Fills genre, year, label, album, artwork and energy-style fields | The limits are Lexicon's problem, on its own server. Not available to us without building a service |
 | MusicBee auto-tag | User-triggered, one album at a time, against a configurable list of web sources | Never bulk, so never throttled |
 
 What openCrate does:
 
-1. **Local first.** Tags, names, MusicBrainz IDs already in the files, and the Bandcamp page need no catalog. Chromaprint fingerprints are computed locally; only the lookup goes online.
+1. **Local first.** Tags, names, MusicBrainz IDs already in the files, and a shop's release page need no catalog. Chromaprint fingerprints are computed locally; only the lookup goes online.
 2. **Per release, not per track.** One MusicBrainz release lookup returns the whole tracklist. Fingerprint one or two tracks to find the release, then confirm the rest by track count and durations.
 3. **Cache every answer, including misses,** by release ID, fingerprint and normalized query. Nothing is asked twice.
 4. **Throttle each provider** with a token bucket and back off on 429 and 503. The queue runs in the background and resumes after a restart.

@@ -31,8 +31,8 @@ fn bare_number(stem: &str) -> Option<(u32, &str)> {
     (plausible && number > 0 && !rest.is_empty() && !rest.contains(" - ")).then_some((number, rest))
 }
 
-/// Bandcamp's `Artist - Album - 03 Title`.
-fn bandcamp(stem: &str, info: &mut TagInfo) -> bool {
+/// A web shop's `Artist - Album - 03 Title`.
+fn artist_album_number_title(stem: &str, info: &mut TagInfo) -> bool {
     let Some((head, last)) = stem.rsplit_once(" - ") else {
         return false;
     };
@@ -52,10 +52,10 @@ fn bandcamp(stem: &str, info: &mut TagInfo) -> bool {
     true
 }
 
-/// `01 - Artist - Title`, `1. Title`, `03 Title`, `Artist - Album - 03 Title` (Bandcamp),
+/// `01 - Artist - Title`, `1. Title`, `03 Title`, `Artist - Album - 03 Title` (web shops),
 /// `Artist - Title` or just `Title`.
 fn from_file_stem(stem: &str, info: &mut TagInfo) {
-    if bandcamp(stem, info) {
+    if artist_album_number_title(stem, info) {
         return;
     }
     let digits = stem.chars().take_while(char::is_ascii_digit).count();

@@ -1,6 +1,6 @@
 //! What a name in a download folder is, by name alone.
 //!
-//! Browsers and Soulseek clients write to a temporary name and rename when the download ends,
+//! Browsers and peer-to-peer clients write to a temporary name and rename when the download ends,
 //! so a name that looks temporary means "not yet". The check is deliberately generous: leaving
 //! a finished file for one more poll costs seconds, importing half a file costs a bad import.
 
@@ -10,7 +10,7 @@ use oc_paths::container_for;
 pub enum EntryKind {
     /// An audio file; the label is the container, as `oc_paths::container_for` names it.
     Audio(&'static str),
-    /// A zip, rar or 7z, which is how Bandcamp delivers a purchase.
+    /// A zip, rar or 7z, which is how web shops deliver a purchase.
     Archive,
     /// Cover art that travels with a release.
     Artwork,
@@ -40,7 +40,7 @@ const PARTIAL_EXTENSIONS: [&[u8]; 14] = [
     b"bc!",
 ];
 
-/// Prefixes that mean the same. Soulseek clients keep unfinished downloads under `INCOMPLETE~`.
+/// Prefixes that mean the same. Some peer-to-peer clients keep unfinished downloads under `INCOMPLETE~`.
 const PARTIAL_PREFIXES: [&[u8]; 2] = [b"incomplete~", b"incomplete_"];
 
 const IGNORED_NAMES: [&[u8]; 4] = [b"thumbs.db", b"desktop.ini", b".ds_store", b"icon\r"];

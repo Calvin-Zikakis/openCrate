@@ -256,7 +256,7 @@ fn names_in_the_library_layout_give_a_fallback() {
 }
 
 #[test]
-fn bare_and_bandcamp_track_numbers_are_read_and_names_with_numbers_are_not() {
+fn bare_and_artist_album_track_numbers_are_read_and_names_with_numbers_are_not() {
     let bare = guess(&["Between Spaces", "03 Night Drive.flac"]);
     assert_eq!(
         (
@@ -266,18 +266,18 @@ fn bare_and_bandcamp_track_numbers_are_read_and_names_with_numbers_are_not() {
         ),
         (Some(3), Some("Night Drive"), Some("Between Spaces"))
     );
-    let bandcamp = guess(&[
+    let shop = guess(&[
         "Studio 001 - Between Spaces",
         "Studio 001 - Between Spaces - 11 Soft Focus (Dub Mix).flac",
     ]);
-    assert_eq!(bandcamp.artist.as_deref(), Some("Studio 001"));
+    assert_eq!(shop.artist.as_deref(), Some("Studio 001"));
     assert_eq!(
-        bandcamp.album.as_deref(),
+        shop.album.as_deref(),
         Some("Between Spaces"),
         "not the folder name"
     );
-    assert_eq!(bandcamp.track_number, Some(11));
-    assert_eq!(bandcamp.title.as_deref(), Some("Soft Focus (Dub Mix)"));
+    assert_eq!(shop.track_number, Some(11));
+    assert_eq!(shop.title.as_deref(), Some("Soft Focus (Dub Mix)"));
     for (file, artist, title) in [
         ("50 Cent - In Da Club.mp3", Some("50 Cent"), "In Da Club"),
         ("99 Problems.mp3", None, "99 Problems"),

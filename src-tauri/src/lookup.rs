@@ -592,7 +592,7 @@ mod tests {
         );
         let cleared = set_key(&service, &lookups, "acoustid", Some("   ".into())).unwrap();
         assert!(!cleared.acoustid.saved);
-        assert!(set_key(&service, &lookups, "bandcamp", Some("x".into())).is_err());
+        assert!(set_key(&service, &lookups, "nowhere", Some("x".into())).is_err());
     }
 
     #[test]

@@ -126,7 +126,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
     if (busy && name.trim()) return;
     setNaming(null);
     if (!name.trim()) return;
-    setNote({ text: `Making the ${kind} ${name.trim()} in rekordbox...`, failed: false, done: false });
+    setNote({ text: `Making the ${kind} ${name.trim()} ${parent ? `in ${parent.name}` : "at the top of the playlists"} in rekordbox...`, failed: false, done: false });
     try {
       const made = kind === "folder" ? await admin.createRekordboxFolder(name, parent?.id ?? null) : await admin.createRekordboxPlaylist(name, parent?.id ?? null);
       setNote({ text: `Made the ${kind} ${made.name} ${parent ? `in ${parent.name}` : "at the top of the playlists"} in rekordbox.`, failed: false, done: true });
@@ -352,7 +352,7 @@ export function PlaylistBrowser({ admin, version, folderId, onFolder, onOpen, on
     const { kind, name } = naming;
     setNaming(null);
     if (!name.trim()) return;
-    setNote({ text: `Making the ${kind} ${name.trim()} in rekordbox...`, failed: false, done: false });
+    setNote({ text: `Making the ${kind} ${name.trim()} ${where} in rekordbox...`, failed: false, done: false });
     try {
       const parent = current?.id ?? null;
       const made = kind === "folder" ? await admin.createRekordboxFolder(name, parent) : await admin.createRekordboxPlaylist(name, parent);

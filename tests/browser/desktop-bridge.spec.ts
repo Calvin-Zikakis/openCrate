@@ -176,7 +176,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 releases: downloads.length === 0 ? [] : [
                   rel("Between Spaces", "ready"),
                   rel("Night Drive EP", "downloading", { audioFiles: 3 }),
-                  rel("Bought on Bandcamp.zip", "settling", { loose: true, audioFiles: 0, archives: 1, quietSeconds: 4 }),
+                  rel("Bought online.zip", "settling", { loose: true, audioFiles: 0, archives: 1, quietSeconds: 4 }),
                   rel("Old Favourites", "ready", { alreadyThere: true, audioFiles: 12 }),
                   ...((window as any).__twoReady ? [rel("Second Light", "ready", { audioFiles: 2 })] : []),
                   ...((window as any).__cleanReady ? [rel("Clean Single", "ready", { audioFiles: 1 })] : []),
@@ -2508,7 +2508,7 @@ test("the Import screen shows what has finished downloading and what was already
   await expect(fresh).toContainText("8 tracks");
   await expect(fresh).toContainText("Ready");
   await expect(page.getByRole("listitem").filter({ hasText: "Night Drive EP" })).toContainText("Still downloading");
-  await expect(page.getByRole("listitem").filter({ hasText: "Bought on Bandcamp.zip" })).toContainText("1 archive");
+  await expect(page.getByRole("listitem").filter({ hasText: "Bought online.zip" })).toContainText("1 archive");
   await expect(page.getByRole("heading", { name: "Already there when you added the folder" })).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "Old Favourites" })).toContainText("12 tracks");
 

@@ -19,7 +19,7 @@ const SERVICES: { id: Service; name: string; about: string; where: string }[] = 
 ];
 
 /** Settings: the owner's own keys for lookup services. A saved key is shown only by its last
- * four characters. MusicBrainz needs no key; Bandcamp has no public API to hold one. */
+ * four characters. MusicBrainz needs no key. */
 export function LookupKeys({ admin, open }: { admin: LibraryAdmin; open: boolean }) {
   const [keys, setKeys] = useState<Keys | null>(null);
   const [drafts, setDrafts] = useState<Record<Service, string>>({ discogs: "", acoustid: "" });
@@ -46,7 +46,7 @@ export function LookupKeys({ admin, open }: { admin: LibraryAdmin; open: boolean
 
   return <>
     <h3>Online lookups</h3>
-    <p className="settings-copy">Look up asks MusicBrainz, which needs no key. Add your own keys to use more services; they stay on this computer and are only sent to the service they belong to. Bandcamp has no public service to hold a key.</p>
+    <p className="settings-copy">Look up asks MusicBrainz, which needs no key. Add your own keys to use more services; they stay on this computer and are only sent to the service they belong to.</p>
     {SERVICES.map((service) => {
       const key = keys?.[service.id];
       return <div key={service.id} className="key-row">
