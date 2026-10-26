@@ -1,5 +1,5 @@
 //! Writing tags. `write_tags` writes into a staged copy before it is filed and is never used on
-//! a file in a download folder or in the library. `rewrite_tags` changes a file already in the
+//! a file in a watch folder or in the library. `rewrite_tags` changes a file already in the
 //! library, only for a change the owner ticked in the rekordbox sync, and never in place.
 
 use std::path::Path;

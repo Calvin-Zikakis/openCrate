@@ -417,7 +417,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               layout = String(args?.layout);
               return layoutOut();
             case "library_plan_release":
-              if (args?.name === "Night Drive EP") throw "That release is no longer in the download folder.";
+              if (args?.name === "Night Drive EP") throw "That release is no longer in the watch folder.";
               if (args?.name === "Clean Single") {
                 return {
                   release: args?.name, rootLabel: "Music", ready: 1, blocked: 0,
@@ -460,7 +460,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               if (args?.name === "Second Light") return { rootId: 7, rootLabel: "Music", filed: 2, skipped: [] };
               return { rootId: 7, rootLabel: "Music", filed: 1, skipped: [{ source: `${args?.name}/02.flac`, problem: "No track number in the tags or file name." }] };
             case "library_add_watch_folder":
-              if ((window as any).__overlap) throw "That folder is, contains or lies inside your music library. Download folders must be separate from it.";
+              if ((window as any).__overlap) throw "That folder is, contains or lies inside your music library. Watch folders must be separate from it.";
               downloads.push({ id: 9, label: "Downloads", path: (window as any).__downloadPath ?? "/Users/dj/Downloads", enabled: true, online: true, lastSeenMs: 1 });
               return downloads[0];
             case "library_set_watch_folder_enabled":
@@ -845,19 +845,19 @@ test("a folder is removed only after confirmation, and the library reloads", asy
   expect(removal.map((call) => call.args)).toEqual([{ rootId: 7 }]);
 });
 
-test("download folders are added, switched off and removed, and a refused folder is explained", async ({ page }) => {
+test("watch folders are added, switched off and removed, and a refused folder is explained", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("No download folders yet.")).toBeVisible();
+  await expect(dialog.getByText("No watch folders yet.")).toBeVisible();
 
   await page.evaluate(() => { (window as any).__overlap = true; });
-  await dialog.getByRole("button", { name: "Add download folder..." }).click();
-  await expect(dialog.getByRole("alert")).toContainText("Download folders must be separate from it.");
+  await dialog.getByRole("button", { name: "Add watch folder..." }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Watch folders must be separate from it.");
   await page.evaluate(() => { (window as any).__overlap = false; });
 
-  await dialog.getByRole("button", { name: "Add download folder..." }).click();
+  await dialog.getByRole("button", { name: "Add watch folder..." }).click();
   await expect(dialog.getByText("/Users/dj/Downloads")).toBeVisible();
   await expect(dialog.getByText("Watching", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("alert")).toHaveCount(0);
@@ -873,9 +873,9 @@ test("download folders are added, switched off and removed, and a refused folder
   await dialog.getByRole("button", { name: "Count what is in Downloads now as already there" }).click();
   await dialog.getByRole("alertdialog").getByRole("button", { name: "Count them as there" }).click();
   await expect(dialog.getByText("Everything in Downloads now counts as already there.")).toBeVisible();
-  await dialog.getByRole("button", { name: "Remove Downloads from download folders" }).click();
+  await dialog.getByRole("button", { name: "Remove Downloads from watch folders" }).click();
   await dialog.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
-  await expect(dialog.getByText("No download folders yet.")).toBeVisible();
+  await expect(dialog.getByText("No watch folders yet.")).toBeVisible();
   const sent = (await calls(page)).filter((call) => /watch_folder|watch_baseline/.test(call.command) && call.args);
   expect(sent.map((call) => [call.command, call.args])).toEqual([
     ["library_set_watch_folder_enabled", { id: 9, enabled: false }],
@@ -926,7 +926,7 @@ test("the settings close button stays put while the settings scroll", async ({ p
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await dialog.getByRole("button", { name: "Add folder..." }).click();
-  await dialog.getByRole("button", { name: "Add download folder..." }).click();
+  await dialog.getByRole("button", { name: "Add watch folder..." }).click();
   await expect(dialog.getByText("/Users/dj/Downloads")).toBeVisible();
 
   const body = dialog.locator(".dialog-body");
@@ -946,7 +946,7 @@ test("a release can be previewed before anything is imported, and the screen scr
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await dialog.getByRole("button", { name: "Add folder..." }).click();
-  await dialog.getByRole("button", { name: "Add download folder..." }).click();
+  await dialog.getByRole("button", { name: "Add watch folder..." }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
   await page.getByRole("button", { name: "By release" }).click();
@@ -970,7 +970,7 @@ test("a release can be previewed before anything is imported, and the screen scr
 
   await screen.evaluate((element) => { element.scrollTop = 0; });
   await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByText("1 file is ready to go into Music; 1 needs attention and stays in the download folder.")).toBeVisible();
+  await expect(page.getByText("1 file is ready to go into Music; 1 needs attention and stays in the watch folder.")).toBeVisible();
   await expect(page.getByText("Tags are written as shown")).toBeVisible();
   await expect(page.getByText("Studio 001/Between Spaces/01 - Studio 001 - Night Drive.flac")).toBeVisible();
   await expect(page.getByText("No track number in the tags or file name.")).toBeVisible();
@@ -1028,7 +1028,7 @@ test("a release can be previewed before anything is imported, and the screen scr
   // The stand-in backend forgets its folders on reload; add them again.
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add folder..." }).click();
-  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add download folder..." }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add watch folder..." }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
   await expect(page.getByRole("button", { name: "Preview Between Spaces" })).toHaveAttribute("aria-expanded", "true");
@@ -1036,7 +1036,7 @@ test("a release can be previewed before anything is imported, and the screen scr
   await expect(table.getByRole("columnheader", { name: "#", exact: true })).toBeVisible();
   expect(Math.abs((await titleHeading.boundingBox())!.width - after)).toBeLessThanOrEqual(2);
   await page.getByRole("button", { name: "Preview Night Drive EP" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "no longer in the download folder" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "no longer in the watch folder" })).toBeVisible();
   const sent = (await calls(page)).filter((call) => call.command === "library_plan_release");
   const kept = { convert: { lossless: null, lossy: null }, tidy: true };
   expect(sent.map((call) => call.args)).toEqual([
@@ -1050,7 +1050,7 @@ test("import: a previewed release is copied in, the library rescanned, and it mo
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add folder..." }).click();
-  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add download folder..." }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add watch folder..." }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
   await page.getByRole("button", { name: "By release" }).click();
@@ -1099,14 +1099,14 @@ test("import: with rekordbox open, imported tracks wait for it and the note says
   expect(await page.evaluate(() => (window as any).__rbSentNew ?? 0)).toBe(0);
 });
 
-/** Opens Import with a music and a download folder, showing releases one by one unless told otherwise. */
+/** Opens Import with a music and a watch folder, showing releases one by one unless told otherwise. */
 async function openImportWithFolders(page: Page, view: "One table" | "By release" = "By release") {
   // Chosen before the screen opens, so no release is read for the other view first.
   await page.addInitScript((value) => { localStorage.setItem("opencrate.importView", value); }, view === "By release" ? "releases" : "table");
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add folder..." }).click();
-  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add download folder..." }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add watch folder..." }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Import" }).first().click();
   await page.getByRole("group", { name: "Show releases as" }).getByRole("button", { name: view }).click();
@@ -1291,7 +1291,7 @@ test("import all: a review lists doubtful tags, then every finished release is i
   await openImportWithFolders(page);
   await page.getByRole("button", { name: "Import all 2 finished releases..." }).click();
   const review = page.getByRole("region", { name: "Before importing" });
-  await expect(review).toContainText("3 files from 2 releases will be imported. 1 file stays in the download folder");
+  await expect(review).toContainText("3 files from 2 releases will be imported. 1 file stays in the watch folder");
   await expect(review.getByRole("heading", { name: "2 files have tags worth a look" })).toBeVisible();
   await expect(review.getByText("The year looks wrong.")).toBeVisible();
   await expect(review.getByText("No track in the tags; taken from the file name.")).toBeVisible();
@@ -1302,7 +1302,7 @@ test("import all: a review lists doubtful tags, then every finished release is i
   const scansBefore = (await calls(page)).filter((call) => call.command === "library_scan").length;
   await page.getByRole("button", { name: "Import all 2 finished releases..." }).click();
   await page.getByRole("region", { name: "Before importing" }).getByRole("button", { name: "Import 3 files" }).click();
-  await expect(page.getByText("3 files are now in your music folder. 1 file was left in the download folder")).toBeVisible();
+  await expect(page.getByText("3 files are now in your music folder. 1 file was left in the watch folder")).toBeVisible();
   const all = await calls(page);
   expect(all.filter((call) => call.command === "library_import_release").map((call) => call.args.name)).toEqual(["Between Spaces", "Second Light"]);
   // One scan for the whole run (the music folder was also scanned once when it was added).
@@ -1990,7 +1990,7 @@ test("an empty library says there is no music yet, points to Settings and Import
   await expect(page.locator(".empty-state").getByRole("heading", { name: "No matches this time" })).toBeVisible();
 });
 
-test("settings: a long download folder path is shown whole, on a line of its own, above its buttons", async ({ page }) => {
+test("settings: a long watch folder path is shown whole, on a line of its own, above its buttons", async ({ page }) => {
   await page.setViewportSize({ width: 864, height: 700 });
   await stubBridge(page, "managed");
   const path = "/Users/dj/Library/Mobile Documents/com~apple~CloudDocs/Music Downloads/New Releases 2026";
@@ -1998,13 +1998,13 @@ test("settings: a long download folder path is shown whole, on a line of its own
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
-  await dialog.getByRole("button", { name: "Add download folder..." }).click();
+  await dialog.getByRole("button", { name: "Add watch folder..." }).click();
   const row = dialog.locator(".folder-row").filter({ hasText: "Downloads" });
   const shown = row.locator("small[title]");
   await expect(shown).toHaveText(path);
   expect(await shown.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   // The buttons sit below the path, inside the dialog, and Remove is still reachable.
-  const remove = row.getByRole("button", { name: "Remove Downloads from download folders" });
+  const remove = row.getByRole("button", { name: "Remove Downloads from watch folders" });
   await expect(remove).toBeInViewport();
   const [pathBox, removeBox, dialogBox] = await Promise.all([shown.boundingBox(), remove.boundingBox(), dialog.boundingBox()]);
   expect(pathBox && removeBox && removeBox.y >= pathBox.y + pathBox.height - 1).toBe(true);
@@ -2496,10 +2496,10 @@ test("the Import screen shows what has finished downloading and what was already
   await page.addInitScript(() => { localStorage.setItem("opencrate.importView", "releases"); });
   await page.goto("/");
   await page.getByRole("button", { name: "Import" }).first().click();
-  await expect(page.getByRole("heading", { name: "No download folders yet" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No watch folders yet" })).toBeVisible();
   await page.getByRole("button", { name: "Choose in Settings..." }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Add download folder..." }).click();
+  await dialog.getByRole("button", { name: "Add watch folder..." }).click();
   await expect(dialog.getByText("/Users/dj/Downloads")).toBeVisible();
   await page.keyboard.press("Escape");
 
@@ -2925,7 +2925,11 @@ test("rekordbox database: reading fills the playlists and keeps a backup", async
   await expect(page.getByRole("button", { name: "Read again" })).toHaveCount(0);
   await page.screenshot({ path: "test-results/rekordbox-database-read.png" });
   await page.getByRole("button", { name: "Settings" }).click();
-  const backups = page.getByRole("dialog", { name: "Settings" }).getByRole("list", { name: "rekordbox backups" });
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.getByText(/^1 backup, the latest before reading on /)).toBeVisible();
+  await expect(settings.getByRole("list", { name: "rekordbox backups" })).toHaveCount(0);
+  await settings.getByRole("button", { name: "Show the backup" }).click();
+  const backups = settings.getByRole("list", { name: "rekordbox backups" });
   await expect(backups.getByRole("listitem")).toHaveCount(1);
   await expect(backups).toContainText("Before reading");
   await expect(backups).toContainText("40 tracks, 3 playlists");
@@ -2950,6 +2954,7 @@ test("rekordbox database: restore asks first, and a new rekordbox version must b
   await expect(page.getByRole("heading", { name: "rekordbox library" })).toBeVisible();
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("button", { name: "Show the backup" }).click();
   const backups = dialog.getByRole("list", { name: "rekordbox backups" });
   await backups.getByRole("button", { name: /^Pin backup/ }).click();
   await expect(backups.getByRole("button", { name: /^Unpin backup/ })).toBeVisible();
@@ -2963,6 +2968,9 @@ test("rekordbox database: restore asks first, and a new rekordbox version must b
   await expect(dialog.getByRole("status").filter({ hasText: "Restored" })).toBeVisible();
   await expect(backups.getByRole("listitem")).toHaveCount(2);
   await expect(backups).toContainText("Before a restore");
+  await expect(dialog.getByText(/^2 backups, the latest before a restore on /)).toBeVisible();
+  await dialog.getByRole("button", { name: "Hide the list" }).click();
+  await expect(dialog.getByRole("list", { name: "rekordbox backups" })).toHaveCount(0);
   await page.evaluate(() => { (window as any).__rbVersion = "7.2.20.0001"; });
   await dialog.getByRole("button", { name: "Close settings" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
@@ -3068,7 +3076,7 @@ test("first start: the welcome walks through the music folder, downloads and rek
   await expect(welcome).toBeVisible();
   await welcome.getByRole("button", { name: "Add your music folder..." }).click();
   await expect(welcome.getByText("Music: 20 files read")).toBeVisible({ timeout: 10_000 });
-  await welcome.getByRole("button", { name: "Add a download folder..." }).click();
+  await welcome.getByRole("button", { name: "Add a watch folder..." }).click();
   await expect(welcome.getByText("Downloads", { exact: true })).toBeVisible();
   await page.screenshot({ path: "test-results/welcome.png" });
   await welcome.getByRole("button", { name: "Open the rekordbox screen" }).click();

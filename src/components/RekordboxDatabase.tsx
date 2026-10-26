@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { LibraryAdmin, RekordboxBackup, RekordboxDatabase as Status } from "../library/types";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
+/** "Before writing" as it reads mid-sentence. */
+const lowered = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+
 const REASONS: Record<string, string> = {
   read: "Before reading", "before-write": "Before writing", "before-restore": "Before a restore", "before-restore-damaged": "Before a restore (the library was damaged)",
 };
@@ -15,6 +18,10 @@ export function RekordboxDatabase({ admin, open, askFirst, onAskFirst }: { admin
   const [warning, setWarning] = useState(false);
   const [writeWarning, setWriteWarning] = useState(false);
   const [restoring, setRestoring] = useState<RekordboxBackup | null>(null);
+  /** The backup list is folded: a line says how many there are and when the latest was taken. */
+  const [showBackups, setShowBackups] = useState(false);
+  /** Newest first, as the host lists them. */
+  const latest = backups[0];
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -123,18 +130,19 @@ export function RekordboxDatabase({ admin, open, askFirst, onAskFirst }: { admin
     </div>}
     {error && <p role="alert" className="inline-error">{error}</p>}
     {note && <p role="status" className="settings-copy">{note}</p>}
-    {backups.length > 0 && <>
+    {latest && <>
       <h4>Backups of rekordbox's library</h4>
-      <p className="settings-copy">The last 20 are kept, and every pinned one until you unpin it.</p>
-      <ul className="folder-list" aria-label="rekordbox backups">{backups.map((backup) => <li key={backup.name} className="folder-row">
+      <p className="settings-copy">{`${backups.length === 1 ? "1 backup" : `${backups.length} backups`}, the latest ${lowered(REASONS[latest.reason] ?? latest.reason)} on ${when(latest.takenMs)}. The last 20 are kept, and every pinned one until you unpin it.`}</p>
+      <button className="link-button" aria-expanded={showBackups} onClick={() => { if (showBackups) setRestoring(null); setShowBackups(!showBackups); }}>{showBackups ? "Hide the list" : backups.length === 1 ? "Show the backup" : `Show all ${backups.length} backups`}</button>
+      {showBackups && <ul className="folder-list" aria-label="rekordbox backups">{backups.map((backup) => <li key={backup.name} className="folder-row">
         <div className="folder-text">
           <strong>{`${REASONS[backup.reason] ?? backup.reason}, ${when(backup.takenMs)}`}{backup.pinned ? " (pinned)" : ""}</strong>
           <small>{`${backup.tracks} ${backup.tracks === 1 ? "track" : "tracks"}, ${backup.playlists} ${backup.playlists === 1 ? "playlist" : "playlists"}${backup.appVersion ? `, rekordbox ${backup.appVersion}` : ""}`}</small>
         </div>
         <button className="secondary-button" disabled={busy} aria-label={`${backup.pinned ? "Unpin" : "Pin"} backup from ${when(backup.takenMs)}`} onClick={() => void pin(backup)}>{backup.pinned ? "Unpin" : "Pin"}</button>
         <button className="secondary-button" disabled={busy} aria-label={`Restore backup from ${when(backup.takenMs)}`} onClick={() => setRestoring(backup)}>Restore...</button>
-      </li>)}</ul>
-      {restoring && <div className="warning-panel" role="region" aria-label="Restore this backup?">
+      </li>)}</ul>}
+      {showBackups && restoring && <div className="warning-panel" role="region" aria-label="Restore this backup?">
         <h4>Restore this backup?</h4>
         <p className="settings-copy">{`rekordbox's library goes back to how it was on ${when(restoring.takenMs)}. The library you have now is saved as a backup first, so this can be undone. rekordbox must be closed.`}</p>
         <div className="warning-actions">

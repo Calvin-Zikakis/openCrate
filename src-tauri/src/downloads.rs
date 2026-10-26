@@ -1,6 +1,6 @@
-//! What is in the download folders right now, read only.
+//! What is in the watch folders right now, read only.
 //!
-//! Each poll lists every enabled, reachable download folder and asks `oc-ingest` which
+//! Each poll lists every enabled, reachable watch folder and asks `oc-ingest` which
 //! releases look finished. The stability trackers live here, in memory: a restart makes every
 //! file wait out the quiet period again, which is the safe direction. Nothing is copied,
 //! staged or changed; importing is a later slice.
@@ -39,7 +39,7 @@ pub struct ReleaseDto {
     pub folder_label: String,
     /// For display only; lossy where the name is not text.
     pub name: String,
-    /// A file directly in the download folder rather than a release folder.
+    /// A file directly in the watch folder rather than a release folder.
     pub loose: bool,
     /// `ready`, `downloading`, `settling` or `nothing`.
     pub state: &'static str,
@@ -49,7 +49,7 @@ pub struct ReleaseDto {
     /// Every file is older than the day the folder was added, so it was there already and a
     /// later import would not pick it up on its own.
     pub already_there: bool,
-    /// Imported with openCrate. The originals are still in the download folder.
+    /// Imported with openCrate. The originals are still in the watch folder.
     pub imported: bool,
     pub newest_modified_ms: i64,
 }
@@ -111,7 +111,7 @@ fn describe(
     }
 }
 
-/// List the download folders and evaluate their releases at `now_ms`. Newest first.
+/// List the watch folders and evaluate their releases at `now_ms`. Newest first.
 pub fn poll(
     service: &LibraryService,
     watch: &DownloadWatch,
@@ -143,7 +143,7 @@ pub fn poll(
         } else {
             let path = oc_paths::bytes_to_os_string(&folder.path_raw)
                 .map(PathBuf::from)
-                .map_err(|_| "A download folder path cannot be represented here.".to_owned())?;
+                .map_err(|_| "A watch folder path cannot be represented here.".to_owned())?;
             let baseline = service
                 .watch_baseline(folder.id)
                 .map_err(|error| error.to_string())?;

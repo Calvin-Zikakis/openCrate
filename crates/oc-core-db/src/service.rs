@@ -963,13 +963,13 @@ impl LibraryService {
         })
     }
 
-    /// Every download folder.
+    /// Every watch folder.
     pub fn watch_folders(&self) -> Result<Vec<WatchFolder>> {
         list_watch_folders(self.pool.lease().connection())
     }
 
-    /// Add a download folder. It must exist, be readable, and neither overlap the library,
-    /// openCrate's own data folder, nor another download folder. Nothing in it is read beyond
+    /// Add a watch folder. It must exist, be readable, and neither overlap the library,
+    /// openCrate's own data folder, nor another watch folder. Nothing in it is read beyond
     /// the check, and nothing is staged: only releases that arrive later are picked up.
     pub fn add_watch_folder(&self, path: &Path, label: &str) -> Result<i64> {
         let reserved = [self.data_directory.as_path()];
@@ -995,13 +995,13 @@ impl LibraryService {
         })?
     }
 
-    /// What a download folder held when it was added; `None` if it was added before such
+    /// What a watch folder held when it was added; `None` if it was added before such
     /// lists were kept.
     pub fn watch_baseline(&self, id: i64) -> Result<Option<std::collections::HashSet<Vec<u8>>>> {
         watch_baseline(self.pool.lease().connection(), id)
     }
 
-    /// Count everything in a download folder now as already there. Reads the folder's names
+    /// Count everything in a watch folder now as already there. Reads the folder's names
     /// only; nothing in it changes.
     pub fn retake_watch_baseline(&self, id: i64) -> Result<()> {
         let folder = list_watch_folders(self.pool.lease().connection())?
@@ -1051,12 +1051,12 @@ impl LibraryService {
         })?
     }
 
-    /// The top-level names imported from a download folder so far.
+    /// The top-level names imported from a watch folder so far.
     pub fn imported_releases(&self, id: i64) -> Result<std::collections::HashSet<Vec<u8>>> {
         imported_names(self.pool.lease().connection(), id)
     }
 
-    /// Record that `files` files of the release `name` were imported from download folder `id`.
+    /// Record that `files` files of the release `name` were imported from watch folder `id`.
     pub fn mark_imported(&self, id: i64, name: Vec<u8>, files: usize) -> Result<()> {
         self.writer
             .run(move |database| database.mark_imported(id, &name, files, now_ms()))?
@@ -1091,19 +1091,19 @@ impl LibraryService {
         })?
     }
 
-    /// Switch a download folder on or off. Takes effect at once; nothing else changes.
+    /// Switch a watch folder on or off. Takes effect at once; nothing else changes.
     pub fn set_watch_folder_enabled(&self, id: i64, enabled: bool) -> Result<()> {
         self.writer
             .run(move |database| database.set_watch_enabled(id, enabled))?
     }
 
-    /// Remove a download folder from the list. Nothing on disk is touched.
+    /// Remove a watch folder from the list. Nothing on disk is touched.
     pub fn remove_watch_folder(&self, id: i64) -> Result<()> {
         self.writer
             .run(move |database| database.remove_watch_folder(id))?
     }
 
-    /// Look at every download folder read-only and remember whether it can be reached. A
+    /// Look at every watch folder read-only and remember whether it can be reached. A
     /// folder that cannot be reached stays in the list and is picked up again on return.
     pub fn check_watch_folders(&self) -> Result<Vec<WatchFolder>> {
         for folder in list_watch_folders(self.pool.lease().connection())? {

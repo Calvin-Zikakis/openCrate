@@ -1,7 +1,7 @@
 //! A dry run of importing one release: where each file would go in the library, what it would
 //! become, which tag values would be written, and what would stop it. Nothing is copied, moved or
 //! written; tags are only read. The import runs the same plan again and follows it. The page names a
-//! download folder, a release inside it and a library folder by id and name, never by path, and
+//! watch folder, a release inside it and a library folder by id and name, never by path, and
 //! the name is checked to be one plain entry of that folder.
 
 use std::ffi::OsString;
@@ -23,7 +23,7 @@ use crate::tagview::{tag_view, TagViewDto};
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanFileDto {
-    /// Where the file is now, relative to the download folder.
+    /// Where the file is now, relative to the watch folder.
     pub source: String,
     /// Where it would go, relative to the library folder.
     pub destination: Option<String>,
@@ -69,7 +69,7 @@ pub struct ImportOptions {
     pub accepted: Vec<Accepted>,
 }
 
-/// Tag values accepted for one file, named by its path relative to the download folder.
+/// Tag values accepted for one file, named by its path relative to the watch folder.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Accepted {
@@ -170,7 +170,7 @@ fn flag_clashes(files: &mut [PlanFileDto]) {
 
 fn single_entry(name: &str) -> Result<(), String> {
     // Exactly one plain name: on Windows "D:foo" is a drive-relative path that a join would
-    // follow out of the download folder.
+    // follow out of the watch folder.
     let mut parts = Path::new(name).components();
     let plain = !name.is_empty()
         && name != "."
@@ -183,7 +183,7 @@ fn single_entry(name: &str) -> Result<(), String> {
     if plain {
         Ok(())
     } else {
-        Err("That is not a release in the download folder.".to_owned())
+        Err("That is not a release in the watch folder.".to_owned())
     }
 }
 
@@ -398,7 +398,7 @@ pub fn plan_release(
         .map_err(|error| error.to_string())?
         .into_iter()
         .find(|folder| folder.id == folder_id)
-        .ok_or("That download folder is not in the list.")?;
+        .ok_or("That watch folder is not in the list.")?;
     let root = service
         .roots()
         .map_err(|error| error.to_string())?
@@ -411,18 +411,18 @@ pub fn plan_release(
     }
     let folder_path = bytes_to_os_string(&folder.path_raw)
         .map(PathBuf::from)
-        .map_err(|_| "The download folder path cannot be shown here.".to_owned())?;
+        .map_err(|_| "The watch folder path cannot be shown here.".to_owned())?;
     let root_path = bytes_to_os_string(&root.path_raw)
         .map(PathBuf::from)
         .map_err(|_| "The music folder path cannot be shown here.".to_owned())?;
 
     let release_path = folder_path.join(name);
     let kind = std::fs::symlink_metadata(&release_path)
-        .map_err(|_| "That release is no longer in the download folder.".to_owned())?;
+        .map_err(|_| "That release is no longer in the watch folder.".to_owned())?;
     if kind.file_type().is_symlink() {
         return Err("Links are not followed, so this cannot be previewed.".to_owned());
     }
-    // Components below the download folder, one list per file.
+    // Components below the watch folder, one list per file.
     let mut entries: Vec<Vec<Vec<u8>>> = Vec::new();
     if kind.is_dir() {
         let listing = list_folder(&release_path).map_err(|error| error.to_string())?;

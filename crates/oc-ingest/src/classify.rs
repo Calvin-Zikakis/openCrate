@@ -1,4 +1,4 @@
-//! What a name in a download folder is, by name alone.
+//! What a name in a watch folder is, by name alone.
 //!
 //! Browsers and peer-to-peer clients write to a temporary name and rename when the download ends,
 //! so a name that looks temporary means "not yet". The check is deliberately generous: leaving

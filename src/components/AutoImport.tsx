@@ -4,7 +4,7 @@ import { loadRecipes } from "../library/recipes";
 import type { DownloadRelease, FolderInfo, LibraryAdmin } from "../library/types";
 import { loadOptions } from "./ImportChoices";
 
-/** How often the download folders are looked at while importing on its own is on. */
+/** How often the watch folders are looked at while importing on its own is on. */
 const AUTO_MS = 10_000;
 const NONE: AutoOutcome = { imported: [], waiting: [] };
 
@@ -15,7 +15,7 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
   const [outcome, setOutcome] = useState<AutoOutcome>(NONE);
   /** Why the last look could not import anything, shown on the card; "" when it could. */
   const [problem, setProblem] = useState("");
-  /** When the download folders were last looked at, so the card shows it is alive. */
+  /** When the watch folders were last looked at, so the card shows it is alive. */
   const [lastLookMs, setLastLookMs] = useState<number | null>(null);
   const refresh = useRef(onImported);
   refresh.current = onImported;
@@ -80,7 +80,7 @@ interface Props {
   lastLookMs?: number | null;
   onClear?: () => void;
   roots: FolderInfo[];
-  /** What the download folders hold now, so a release imported by hand stops waiting. */
+  /** What the watch folders hold now, so a release imported by hand stops waiting. */
   releases: DownloadRelease[];
 }
 
@@ -102,7 +102,7 @@ export function AutoImportCard({ settings, onChange, outcome, problem = "", last
       {recipes.length === 0 && <small>Save a recipe in the track editor to use one here.</small>}
     </div>
     {settings.on && problem && <p className="inline-error" role="alert">{problem}</p>}
-    {settings.on && !problem && <p className="settings-copy">{`On. The download folders are looked at every ${AUTO_MS / 1000} seconds${lastLookMs ? `; last look ${new Date(lastLookMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}.`}</p>}
+    {settings.on && !problem && <p className="settings-copy">{`On. The watch folders are looked at every ${AUTO_MS / 1000} seconds${lastLookMs ? `; last look ${new Date(lastLookMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}.`}</p>}
     {outcome.imported.length > 0 && <p className="settings-copy" role="status">{`Imported on their own: ${outcome.imported.join(", ")}.`} {onClear && <button className="link-button" onClick={onClear}>Clear</button>}</p>}
     {stillWaiting.length > 0 && <p className="settings-copy">{`Waiting for you: ${stillWaiting.map((item) => `${item.name} (${item.why})`).join("; ")}.`}</p>}
   </div>;

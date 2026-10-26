@@ -1,6 +1,6 @@
-//! Group a download folder's entries into releases and decide which are ready.
+//! Group a watch folder's entries into releases and decide which are ready.
 //!
-//! A release is the first folder below the download folder, however deeply its files are
+//! A release is the first folder below the watch folder, however deeply its files are
 //! nested (multi-disc releases keep a `CD1` folder). A file that sits directly in the download
 //! folder is a release of its own. A release is ready when nothing in it looks unfinished and
 //! every file that matters has stopped changing; until then the answer says what it waits for.
@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashSet};
 use crate::classify::{classify, path_has_partial, EntryKind};
 use crate::stability::{Observation, Stability, StabilityTracker};
 
-/// One file as the caller saw it. `components` are relative to the download folder.
+/// One file as the caller saw it. `components` are relative to the watch folder.
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub components: Vec<Vec<u8>>,
@@ -19,9 +19,9 @@ pub struct Entry {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ReleaseKey {
-    /// The first folder below the download folder.
+    /// The first folder below the watch folder.
     Folder(Vec<u8>),
-    /// A file directly in the download folder.
+    /// A file directly in the watch folder.
     Loose(Vec<u8>),
 }
 
@@ -65,7 +65,7 @@ fn tracker_key(components: &[Vec<u8>]) -> Vec<u8> {
     components.join(&0u8)
 }
 
-/// Evaluate every release in one listing of a download folder at `now_ms`. Every entry is
+/// Evaluate every release in one listing of a watch folder at `now_ms`. Every entry is
 /// reported to `tracker` (litter and partial files too, which costs nothing and keeps the
 /// bookkeeping uniform), and tracker entries for files that are gone are dropped. Releases
 /// come back in a stable order.

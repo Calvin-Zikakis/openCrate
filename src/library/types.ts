@@ -291,7 +291,7 @@ export interface WatchFolderInfo {
 
 export type DownloadState = "ready" | "downloading" | "settling" | "nothing";
 
-/** One release (or loose file) seen in a download folder. */
+/** One release (or loose file) seen in a watch folder. */
 export interface DownloadRelease {
   folderId: number;
   folderLabel: string;
@@ -304,7 +304,7 @@ export interface DownloadRelease {
   archives: number;
   /** It was already in the folder when the folder was added. */
   alreadyThere: boolean;
-  /** Imported with openCrate. The originals are still in the download folder. */
+  /** Imported with openCrate. The originals are still in the watch folder. */
   imported: boolean;
   newestModifiedMs: number;
 }
@@ -331,7 +331,7 @@ export interface TagView {
 }
 
 export interface PlanFile {
-  /** Where the file is now, relative to the download folder. */
+  /** Where the file is now, relative to the watch folder. */
   source: string;
   /** Where it would go, relative to the music folder. */
   destination: string | null;
@@ -350,7 +350,7 @@ export interface ImportOptions {
   convert: { lossless: ConvertFormat | null; lossy: ConvertFormat | null };
   /** Strip stray separators (such as a trailing ";") and padding from names. */
   tidy: boolean;
-  /** Values accepted from a lookup, per file (named by its path in the download folder). */
+  /** Values accepted from a lookup, per file (named by its path in the watch folder). */
   accepted?: Accepted[];
 }
 
@@ -602,11 +602,11 @@ export interface LibraryAdmin {
   /** The owner says the folder now at this path is the library. */
   confirmFolder(folderId: number): Promise<void>;
   watchFolders(): Promise<WatchFolderInfo[]>;
-  /** Looks at every download folder (read-only) so an unplugged drive is noticed. */
+  /** Looks at every watch folder (read-only) so an unplugged drive is noticed. */
   checkWatchFolders(): Promise<WatchFolderInfo[]>;
-  /** Opens the system folder picker for a download folder. Null if it was cancelled. */
+  /** Opens the system folder picker for a watch folder. Null if it was cancelled. */
   addWatchFolder(): Promise<WatchFolderInfo | null>;
-  /** Lists the download folders (read-only) and says which releases look finished. */
+  /** Lists the watch folders (read-only) and says which releases look finished. */
   downloadReleases(): Promise<DownloadsSnapshot>;
   /** Where each file of a release would go in a music folder. Reads only. */
   planRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ImportPlan>;

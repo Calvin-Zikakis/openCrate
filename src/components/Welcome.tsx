@@ -104,10 +104,10 @@ export function Welcome({ admin, onOpenRekordbox, onLibraryChanged }: Props) {
         <button className="secondary-button" disabled={busy} onClick={() => void addMusic()}>{folders.length > 0 ? "Add another music folder..." : "Add your music folder..."}</button>
       </li>
       <li className={downloads.length > 0 ? "is-done" : ""}>
-        <strong>Download folders</strong>
+        <strong>Watch folders</strong>
         <small>Where new music lands when you download it. New releases there show on the Import screen; the originals are never changed.</small>
         {downloads.map((folder) => <span key={folder.id} className="welcome-done">{folder.label}</span>)}
-        <button className="secondary-button" disabled={busy} onClick={() => void addDownloads()}>{downloads.length > 0 ? "Add another download folder..." : "Add a download folder..."}</button>
+        <button className="secondary-button" disabled={busy} onClick={() => void addDownloads()}>{downloads.length > 0 ? "Add another watch folder..." : "Add a watch folder..."}</button>
       </li>
       <li className={hasMirror ? "is-done" : ""}>
         <strong>rekordbox</strong>

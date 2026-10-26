@@ -1,4 +1,4 @@
-//! Listing a download folder, read only. This is the one module here that touches the file
+//! Listing a watch folder, read only. This is the one module here that touches the file
 //! system, and it only reads directory entries and metadata.
 //!
 //! Symbolic links are not followed, so a link cannot lead the listing out of the folder or

@@ -118,7 +118,7 @@ test("storage failures are visible and unbuilt features are explicit", async ({ 
   await page.getByRole("button", { name: "Compact", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("could not be saved");
   await page.getByRole("button", { name: "Import", exact: true }).click();
-  await expect(page.getByText("Watching download folders needs a library on disk.")).toBeVisible();
+  await expect(page.getByText("Watch folders need a library on disk.")).toBeVisible();
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await expect(page.getByText("Reading a rekordbox export needs a library on disk.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Playback not available in demo" })).toBeDisabled();

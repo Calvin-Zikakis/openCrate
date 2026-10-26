@@ -146,7 +146,7 @@ pub fn watch_folders(service: &LibraryService) -> Result<Vec<WatchFolderDto>, St
         .map_err(|error| error.to_string())
 }
 
-/// Look at every download folder read-only and list them.
+/// Look at every watch folder read-only and list them.
 pub fn check_watch_folders(service: &LibraryService) -> Result<Vec<WatchFolderDto>, String> {
     service
         .check_watch_folders()
@@ -154,7 +154,7 @@ pub fn check_watch_folders(service: &LibraryService) -> Result<Vec<WatchFolderDt
         .map_err(|error| error.to_string())
 }
 
-/// Add a download folder the owner picked. Nothing in it is staged.
+/// Add a watch folder the owner picked. Nothing in it is staged.
 pub fn add_watch_folder(service: &LibraryService, path: &Path) -> Result<WatchFolderDto, String> {
     let label = path.file_name().map_or_else(
         || path.display().to_string(),
@@ -179,7 +179,7 @@ pub fn set_watch_folder_enabled(
         .map_err(|error| error.to_string())
 }
 
-/// Count everything in a download folder now as already there.
+/// Count everything in a watch folder now as already there.
 pub fn retake_watch_baseline(service: &LibraryService, id: i64) -> Result<(), String> {
     service
         .retake_watch_baseline(id)

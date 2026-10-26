@@ -7,7 +7,7 @@ use crate::{Release, Track};
 /// What is known about one file before the lookup.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileFacts {
-    /// Relative to the download folder; how the page names the file.
+    /// Relative to the watch folder; how the page names the file.
     pub source: String,
     pub tags: TagInfo,
     pub duration_ms: i64,

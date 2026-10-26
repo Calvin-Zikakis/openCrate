@@ -156,7 +156,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
     {stage.kind === "importing" && <p className="settings-copy" role="status">{`Importing ${stage.done + 1} of ${stage.total}: ${stage.current}`} <button className="link-button" onClick={stop}>Stop after this one</button></p>}
     {stage.kind === "scanning" && <p className="settings-copy" role="status">Adding them to your library...</p>}
     {stage.kind === "finished" && <div role="status" className="import-result">
-      <p className="settings-copy">{`${plural(stage.filed, "file is", "files are")} now in your music folder.`}{stage.skipped > 0 ? ` ${plural(stage.skipped, "file was", "files were")} left in the download folder; the notes under each release say why.` : ""}{stage.notTried > 0 ? ` Stopped with ${plural(stage.notTried, "release", "releases")} not imported.` : ""} The originals are still in the download folders.</p>
+      <p className="settings-copy">{`${plural(stage.filed, "file is", "files are")} now in your music folder.`}{stage.skipped > 0 ? ` ${plural(stage.skipped, "file was", "files were")} left in the watch folder; the notes under each release say why.` : ""}{stage.notTried > 0 ? ` Stopped with ${plural(stage.notTried, "release", "releases")} not imported.` : ""} The originals are still in the watch folders.</p>
       {stage.failed.map((item) => <p key={item.name} className="inline-error">{`${item.name}: ${item.error}`}</p>)}
     </div>}
   </div>;
@@ -179,7 +179,7 @@ function Review({ stage, lookups, unticked, onToggle, onLookUp, onCancel, onImpo
   const asking = Object.values(lookups).some((lookup) => lookup.state === "asking");
   const asked = doubtful.some(({ release }) => lookups[keyOf(release)] !== undefined);
   return <div className="import-review" role="region" aria-label="Before importing">
-    <p className="settings-copy">{`${plural(ready, "file", "files")} from ${plural(releases, "release", "releases")} will be imported.`}{blocked > 0 ? ` ${plural(blocked, "file stays", "files stay")} in the download folder (the notes under each release say why).` : ""}</p>
+    <p className="settings-copy">{`${plural(ready, "file", "files")} from ${plural(releases, "release", "releases")} will be imported.`}{blocked > 0 ? ` ${plural(blocked, "file stays", "files stay")} in the watch folder (the notes under each release say why).` : ""}</p>
     {stage.failed.map((item) => <p key={item.name} className="inline-error">{`${item.name}: ${item.error}`}</p>)}
     {doubts.length > 0 && <>
       <h3>{`${plural(doubts.length, "file has", "files have")} tags worth a look`}</h3>

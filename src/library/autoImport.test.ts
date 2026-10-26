@@ -15,7 +15,7 @@ const plan = (name: string, guessed: boolean): ImportPlan => ({
 
 function fakeAdmin(imported: { name: string; accepted: unknown }[], byHand: string[] = []): LibraryAdmin {
   return {
-    // What the download folders hold when the import's turn comes: one imported by hand meanwhile shows as imported.
+    // What the watch folders hold when the import's turn comes: one imported by hand meanwhile shows as imported.
     downloadReleases: async () => ({ folders: [], releases: ["Clean", "Guessed", "Fresh"].map((name) => release(name, { imported: byHand.includes(name) })) }),
     planRelease: async (_folder: number, name: string) => plan(name, name === "Guessed"),
     importRelease: async (_folder: number, name: string, rootId: number, options?: { accepted?: unknown }) => {

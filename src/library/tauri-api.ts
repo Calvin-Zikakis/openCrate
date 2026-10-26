@@ -210,13 +210,13 @@ function toFolder(value: unknown): FolderInfo {
 
 function toWatchFolder(value: unknown): WatchFolderInfo {
   if (!isRecord(value) || typeof value.enabled !== "boolean" || typeof value.online !== "boolean") {
-    throw new Error("The library returned an unreadable download folder.");
+    throw new Error("The library returned an unreadable watch folder.");
   }
   const seen = value.lastSeenMs;
   return {
-    id: whole(value.id, "download folder"), label: text(value.label, "download folder"),
-    path: text(value.path, "download folder"), enabled: value.enabled, online: value.online,
-    lastSeenMs: seen === null ? null : whole(seen, "download folder"),
+    id: whole(value.id, "watch folder"), label: text(value.label, "watch folder"),
+    path: text(value.path, "watch folder"), enabled: value.enabled, online: value.online,
+    lastSeenMs: seen === null ? null : whole(seen, "watch folder"),
   };
 }
 
@@ -742,12 +742,12 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     },
     watchFolders: async () => {
       const response = await invoke("library_watch_folders").catch((error: unknown) => { throw failure(error); });
-      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of download folders.");
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of watch folders.");
       return response.map(toWatchFolder);
     },
     checkWatchFolders: async () => {
       const response = await invoke("library_check_watch_folders").catch((error: unknown) => { throw failure(error); });
-      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of download folders.");
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of watch folders.");
       return response.map(toWatchFolder);
     },
     addWatchFolder: async () => {

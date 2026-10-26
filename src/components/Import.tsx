@@ -72,7 +72,7 @@ interface Props {
 /** The last answer, kept while the app runs, so coming back to this screen shows it at once. */
 let remembered: DownloadsSnapshot | null = null;
 
-/** What is in the download folders now, and importing a release from there into a music folder. */
+/** What is in the watch folders now, and importing a release from there into a music folder. */
 export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
   const [snapshot, setSnapshot] = useState<DownloadsSnapshot | null>(remembered);
   const [error, setError] = useState("");
@@ -261,7 +261,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
     });
     return <div className="plan-panel import-table">
       {rootId === null && noFolder}
-      <p className="settings-copy">Importing copies the files; the originals stay in the download folder. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
+      <p className="settings-copy">Importing copies the files; the originals stay in the watch folder. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
       <PlanTable groups={groups} />
     </div>;
   };
@@ -301,7 +301,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
         </div>}
         {/* An import that filed nothing can be tried again once the cause is dealt with. */}
         {plan && (!result || result.filed === 0) && <>
-          <p className="settings-copy">{plan.ready} {plan.ready === 1 ? "file is" : "files are"} ready to go into {plan.rootLabel}{plan.blocked > 0 ? `; ${plan.blocked} ${plan.blocked === 1 ? "needs attention and stays" : "need attention and stay"} in the download folder` : ""}. Importing copies them; the originals stay in {release.folderLabel}. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
+          <p className="settings-copy">{plan.ready} {plan.ready === 1 ? "file is" : "files are"} ready to go into {plan.rootLabel}{plan.blocked > 0 ? `; ${plan.blocked} ${plan.blocked === 1 ? "needs attention and stays" : "need attention and stay"} in the watch folder` : ""}. Importing copies them; the originals stay in {release.folderLabel}. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
           {plan.ready > 0 && <button className="import-button" disabled={importing !== null || release.state !== "ready"} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
           {release.state !== "ready" && <p className="settings-copy">It can be imported once it has finished downloading.</p>}
           <PlanTable files={plan.files} />
@@ -314,12 +314,12 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
     <div className="feature-empty sync-hero">
       <div className="empty-icon"><Icon name="folder" size={36} /></div>
       <h1>Import</h1>
-      <p>Releases in your download folders, and whether they have finished downloading. Their tags are read as they arrive and shown together in one table, or release by release. Importing copies files into your music folder; the download folder is never changed.</p>
+      <p>Releases in your watch folders, and whether they have finished downloading. Their tags are read as they arrive and shown together in one table, or release by release. Importing copies files into your music folder; the watch folder is never changed.</p>
     </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
-    {!snapshot && !error && <p className="settings-copy" role="status">Looking at your download folders...</p>}
+    {!snapshot && !error && <p className="settings-copy" role="status">Looking at your watch folders...</p>}
     {snapshot && snapshot.folders.length === 0 && <div className="sync-card">
-      <h2>No download folders yet</h2>
+      <h2>No watch folders yet</h2>
       <p className="settings-copy">Choose the folders your downloads land in.</p>
       <button className="secondary-button" onClick={onOpenSettings}>Choose in Settings...</button>
     </div>}
@@ -344,7 +344,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
     </div>}
     {imported.length > 0 && <div className="sync-card">
       <h2>Imported</h2>
-      <p className="settings-copy">Already copied into your music folder. The originals are still in the download folder.</p>
+      <p className="settings-copy">Already copied into your music folder. The originals are still in the watch folder.</p>
       <ul className="folder-list">{shownImported.map(row)}</ul>
       {(allImported ? imported.length > IMPORTED_SHOWN : shownImported.length < imported.length) && <button className="link-button" aria-expanded={allImported} onClick={() => setAllImported((current) => !current)}>{allImported ? "Show fewer" : `Show all ${imported.length}`}</button>}
     </div>}

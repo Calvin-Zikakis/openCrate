@@ -195,7 +195,7 @@ describe("managing folders", () => {
     ]);
   });
 
-  it("lists, adds, switches and removes download folders through their own commands", async () => {
+  it("lists, adds, switches and removes watch folders through their own commands", async () => {
     const download = { id: 9, label: "Downloads", path: "/Users/dj/Downloads", enabled: true, online: true, lastSeenMs: 4 };
     const invoke = vi.fn(async (command: string) => {
       if (command === "library_watch_folders" || command === "library_check_watch_folders") return [download];
@@ -213,9 +213,9 @@ describe("managing folders", () => {
     const cancelled = new TauriLibraryApi(vi.fn().mockResolvedValue(null), manage).admin!;
     expect(await cancelled.addWatchFolder()).toBeNull();
     const bad = new TauriLibraryApi(vi.fn().mockResolvedValue([{ id: 1, label: "x", path: "y", enabled: "yes", online: true, lastSeenMs: null }]), manage).admin!;
-    await expect(bad.watchFolders()).rejects.toThrow("unreadable download folder");
-    const refused = new TauriLibraryApi(vi.fn().mockRejectedValue("That folder is, contains or lies inside another download folder."), manage).admin!;
-    await expect(refused.addWatchFolder()).rejects.toThrow("another download folder");
+    await expect(bad.watchFolders()).rejects.toThrow("unreadable watch folder");
+    const refused = new TauriLibraryApi(vi.fn().mockRejectedValue("That folder is, contains or lies inside another watch folder."), manage).admin!;
+    await expect(refused.addWatchFolder()).rejects.toThrow("another watch folder");
   });
 
   it("reads a track's cues and grid, or nothing, and refuses unreadable data", async () => {
@@ -254,7 +254,7 @@ describe("managing folders", () => {
     for (const bad of [{ ...plan, files: "x" }, { ...plan, files: [{ ...first, shortened: "no" }] }, { ...plan, ready: -1 }, { ...plan, files: [{ ...first, tags: { ...first.tags, fields: [{ name: "Artist", value: 5, guessed: false }] } }] }, { ...plan, files: [{ ...first, tags: undefined }] }]) {
       await expect(new TauriLibraryApi(vi.fn().mockResolvedValue(bad), manage).admin!.planRelease(9, "x", 3)).rejects.toThrow("unreadable");
     }
-    await expect(new TauriLibraryApi(vi.fn().mockRejectedValue("That release is no longer in the download folder."), manage).admin!.planRelease(9, "x", 3)).rejects.toThrow("no longer");
+    await expect(new TauriLibraryApi(vi.fn().mockRejectedValue("That release is no longer in the watch folder."), manage).admin!.planRelease(9, "x", 3)).rejects.toThrow("no longer");
   });
 
   it("reads the downloads snapshot and refuses an unreadable one", async () => {

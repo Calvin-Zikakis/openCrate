@@ -68,11 +68,11 @@ export function Downloads({ admin, open }: Props) {
     }
   };
 
-  return <section aria-label="Download folders">
-    <h3>Download folders</h3>
+  return <section aria-label="Watch folders">
+    <h3>Watch folders</h3>
     <p className="settings-copy">Where new music lands when you download it. openCrate only reads these folders; it never moves, renames or deletes anything in them.</p>
     {folders.length === 0
-      ? <p className="settings-copy">No download folders yet.</p>
+      ? <p className="settings-copy">No watch folders yet.</p>
       : <ul className="folder-list">{folders.map((folder) => <li key={folder.id} className="folder-row folder-row-stacked">
         <div className="folder-text">
           <strong>{folder.label}</strong>
@@ -81,7 +81,7 @@ export function Downloads({ admin, open }: Props) {
         <span className={`folder-badge ${folder.online ? "available" : "unavailable"}`}>{folder.online ? (folder.enabled ? "Watching" : "Off") : "Offline"}</span>
         <button className="secondary-button" aria-label={`${folder.enabled ? "Turn off" : "Turn on"} ${folder.label}`} onClick={() => void toggle(folder)}>{folder.enabled ? "Turn off" : "Turn on"}</button>
         <button className="link-button" aria-label={`Count what is in ${folder.label} now as already there`} title="Only what arrives after this counts as new" onClick={() => setAsking({ folder, what: "retake" })}>Count what is here as already there...</button>
-        <button className="link-button" aria-label={`Remove ${folder.label} from download folders`} onClick={() => setAsking({ folder, what: "remove" })}>Remove...</button>
+        <button className="link-button" aria-label={`Remove ${folder.label} from watch folders`} onClick={() => setAsking({ folder, what: "remove" })}>Remove...</button>
         {asking?.folder.id === folder.id && <div className="crate-confirm" role="alertdialog" aria-label={asking.what === "remove" ? `Remove ${folder.label}?` : `Count what is in ${folder.label} as already there?`} onKeyDown={(event) => { if (event.key === "Escape") setAsking(null); }}>
           <span>{asking.what === "remove"
             ? `${folder.label} stops being watched. Nothing in it is touched, and music already imported from it stays in your library.`
@@ -90,7 +90,7 @@ export function Downloads({ admin, open }: Props) {
           <button className="link-button" autoFocus onClick={() => setAsking(null)}>Cancel</button>
         </div>}
       </li>)}</ul>}
-    <button className="secondary-button" disabled={adding} onClick={() => void add()}>Add download folder...</button>
+    <button className="secondary-button" disabled={adding} onClick={() => void add()}>Add watch folder...</button>
     {note && <p role="status" className="settings-copy">{note}</p>}
     {error && <p role="alert" className="inline-error">{error}</p>}
   </section>;

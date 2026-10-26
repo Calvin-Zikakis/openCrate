@@ -1,4 +1,4 @@
-//! Download folders: where finished downloads appear. They are read only and never part of
+//! Watch folders: where finished downloads appear. They are read only and never part of
 //! the library, so they live in their own table and no file row points into one.
 
 use std::collections::HashSet;
@@ -194,7 +194,7 @@ impl Database {
     }
 }
 
-/// The top-level names imported from a download folder.
+/// The top-level names imported from a watch folder.
 pub fn imported_names(connection: &Connection, id: i64) -> Result<HashSet<Vec<u8>>> {
     let mut statement =
         connection.prepare("SELECT name FROM imported_release WHERE watch_folder_id = ?1")?;

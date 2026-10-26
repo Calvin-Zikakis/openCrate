@@ -294,7 +294,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       : query.playlistId !== null && !query.search && query.format === "all"
         ? <div className="empty-state"><Icon name="queue" size={36} /><h2>None of this playlist is in your folders</h2><p>rekordbox has these tracks somewhere else. Add the folder they are in as a music folder in Settings to see them here.</p></div>
       : !query.search && query.format === "all" && query.playlistId === null && query.artistId === null && query.releaseId === null && (onOpenSettings || onOpenImport)
-        ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>No music in your library yet</h2><p>Add a music folder in Settings, or bring in music from a download folder with Import.</p>
+        ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>No music in your library yet</h2><p>Add a music folder in Settings, or bring in music from a watch folder with Import.</p>
           <div className="empty-actions">{onOpenSettings && <button className="secondary-button" onClick={onOpenSettings}>Open Settings</button>}{onOpenImport && <button className="secondary-button" onClick={onOpenImport}>Go to Import</button>}</div></div>
         : <div className="empty-state"><Icon name="search" size={36} /><h2>No matches this time</h2><p>Try a different title, artist or release, or clear your filters.</p></div>)}
     <div ref={scroll} className="library-scroll" data-testid="library-scroll" role="region" tabIndex={0} aria-label="Scrollable library" onPointerDown={() => {

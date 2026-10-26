@@ -297,7 +297,7 @@ async fn library_watch_folders(
         .map_err(|error| error.to_string())?
 }
 
-/// Look at every download folder (read-only) so an unplugged drive is noticed.
+/// Look at every watch folder (read-only) so an unplugged drive is noticed.
 #[tauri::command]
 async fn library_check_watch_folders(
     state: State<'_, AppState>,
@@ -308,7 +308,7 @@ async fn library_check_watch_folders(
         .map_err(|error| error.to_string())?
 }
 
-/// Ask the owner for a download folder with the system dialog and add it. The page never
+/// Ask the owner for a watch folder with the system dialog and add it. The page never
 /// supplies a path. `None` means the dialog was cancelled.
 #[tauri::command]
 async fn library_add_watch_folder(
@@ -320,7 +320,7 @@ async fn library_add_watch_folder(
         let Some(picked) = app
             .dialog()
             .file()
-            .set_title("Choose a download folder")
+            .set_title("Choose a watch folder")
             .blocking_pick_folder()
         else {
             return Ok(None);
@@ -332,7 +332,7 @@ async fn library_add_watch_folder(
     .map_err(|error| error.to_string())?
 }
 
-/// What is in the download folders now, and which releases look finished. Read only.
+/// What is in the watch folders now, and which releases look finished. Read only.
 #[tauri::command]
 async fn library_download_releases(
     state: State<'_, AppState>,
@@ -1061,7 +1061,7 @@ async fn library_set_watch_folder_enabled(
     .map_err(|error| error.to_string())?
 }
 
-/// Count everything in a download folder now as already there. Reads names only.
+/// Count everything in a watch folder now as already there. Reads names only.
 #[tauri::command]
 async fn library_retake_watch_baseline(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let service = state.library()?;
@@ -1070,7 +1070,7 @@ async fn library_retake_watch_baseline(state: State<'_, AppState>, id: i64) -> R
         .map_err(|error| error.to_string())?
 }
 
-/// Remove a download folder from the list. Nothing on disk is touched.
+/// Remove a watch folder from the list. Nothing on disk is touched.
 #[tauri::command]
 async fn library_remove_watch_folder(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let service = state.library()?;

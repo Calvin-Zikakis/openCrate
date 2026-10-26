@@ -1,7 +1,7 @@
 //! Importing one release: every file the preview says is ready is copied (or converted) into a
 //! staging folder beside the music folder, its tags and cover are written into that copy, and it
 //! is published into its place with `oc_publish`, which never replaces a file that is already
-//! there. The originals in the download folder are only read.
+//! there. The originals in the watch folder are only read.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -143,7 +143,7 @@ fn file_one(service: &LibraryService, staging: &Path, job: &Job) -> Result<Optio
         Ok(Outcome::Published) => Ok(None),
         Ok(Outcome::Rejected(reason)) => {
             if reason == Rejection::DestinationOccupied {
-                // The original is still in the download folder, so this copy is not needed.
+                // The original is still in the watch folder, so this copy is not needed.
                 let _ = std::fs::remove_file(&staged);
             }
             Ok(Some(rejection_text(reason).to_owned()))

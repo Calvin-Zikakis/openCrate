@@ -262,7 +262,7 @@ pub fn canonical(path: &Path) -> io::Result<PathBuf> {
 }
 
 /// Validate a new library root without changing anything. Returns its canonical
-/// path. `roots` and `reserved` (app data, staging, download folders) are
+/// path. `roots` and `reserved` (app data, staging, watch folders) are
 /// canonical paths; roots must not overlap or alias either.
 pub fn check_new_root(
     candidate: &Path,

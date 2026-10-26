@@ -120,13 +120,13 @@ pub enum Error {
     InvalidArrangeSort,
     #[error("A crate needs a name of 1 to 100 characters.")]
     InvalidCrateName,
-    #[error("no download folder with id {0}")]
+    #[error("no watch folder with id {0}")]
     UnknownWatchFolder(i64),
-    #[error("That folder is, contains or lies inside your music library. Download folders must be separate from it.")]
+    #[error("That folder is, contains or lies inside your music library. Watch folders must be separate from it.")]
     WatchOverlapsLibrary,
-    #[error("That folder is, contains or lies inside another download folder.")]
+    #[error("That folder is, contains or lies inside another watch folder.")]
     WatchOverlapsWatch,
-    #[error("That folder is, contains or lies inside a download folder. Your music library must be separate from your download folders.")]
+    #[error("That folder is, contains or lies inside a watch folder. Your music library must be separate from your watch folders.")]
     RootOverlapsWatch,
     #[error("two files would share one name key; the profile is too coarse")]
     NameCollision,
