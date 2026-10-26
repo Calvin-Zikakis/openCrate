@@ -1,8 +1,9 @@
 //! A read-only walk of a library root. It lists directories and reads metadata; it never
-//! opens a file, never follows a link and never writes. What it reports is what a scan
-//! pass needs: the audio files seen, every directory found, and which directories were
-//! listed completely. A directory with any listing error is not "listed", so nothing under
-//! it can be concluded missing.
+//! reads a file, never follows a link and never writes. (On Windows it opens each audio file
+//! with no access rights, only to ask the volume for the file index; see [`file_token`].)
+//! What it reports is what a scan pass needs: the audio files seen, every directory found,
+//! and which directories were listed completely. A directory with any listing error is not
+//! "listed", so nothing under it can be concluded missing.
 
 use std::fs;
 use std::io;
@@ -81,16 +82,31 @@ fn millis(time: io::Result<std::time::SystemTime>) -> i64 {
     }
 }
 
-/// The inode, which survives restarts on the same volume. Other platforms record none.
+/// What tells a file from a copy of it and survives a rename, a move within the volume and a
+/// restart: the inode on Unix, the NTFS file index on Windows. The same bytes as
+/// `FileId::persistent_token` in the probe module. `None` where the volume gives none; a moved
+/// file is then matched by name only.
 #[cfg(unix)]
-fn inode_bytes(metadata: &fs::Metadata) -> Vec<u8> {
+#[allow(clippy::unnecessary_wraps)] // one signature for every platform
+fn file_token(_path: &Path, metadata: &fs::Metadata) -> Option<Vec<u8>> {
     use std::os::unix::fs::MetadataExt;
-    metadata.ino().to_le_bytes().to_vec()
+    Some(metadata.ino().to_le_bytes().to_vec())
 }
 
-#[cfg(not(unix))]
-fn inode_bytes(_metadata: &fs::Metadata) -> Vec<u8> {
-    Vec::new()
+/// The standard library keeps the file index unstable, so the file is opened to ask for it:
+/// with no access rights, which no sharing mode refuses, and nothing is read. A file that
+/// cannot be opened is still indexed, without a token.
+#[cfg(windows)]
+fn file_token(path: &Path, _metadata: &fs::Metadata) -> Option<Vec<u8>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    let handle = fs::OpenOptions::new().access_mode(0).open(path).ok()?;
+    let information = winapi_util::file::information(&handle).ok()?;
+    Some(information.file_index().to_le_bytes().to_vec())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_token(_path: &Path, _metadata: &fs::Metadata) -> Option<Vec<u8>> {
+    None
 }
 
 /// Walk `root`. An error is returned only if the root itself cannot be listed, which a
@@ -151,7 +167,8 @@ pub fn walk_root(root: &Path, options: &WalkOptions<'_>) -> io::Result<WalkRepor
                 let Some(container) = container_for(&name) else {
                     continue;
                 };
-                let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
+                let on_disk = entry.path();
+                let Ok(metadata) = fs::symlink_metadata(&on_disk) else {
                     complete = false;
                     continue;
                 };
@@ -164,7 +181,7 @@ pub fn walk_root(root: &Path, options: &WalkOptions<'_>) -> io::Result<WalkRepor
                     size: i64::try_from(metadata.len()).unwrap_or(i64::MAX),
                     mtime_ms: millis(metadata.modified()),
                     container,
-                    file_token: cfg!(unix).then(|| inode_bytes(&metadata)),
+                    file_token: file_token(&on_disk, &metadata),
                 });
             }
         }
@@ -307,6 +324,35 @@ mod tests {
         let report = walk_root(root.path(), &WalkOptions::default()).unwrap();
         assert_eq!(names(&report), ["Track.mp3"]);
         assert_eq!(report.names_skipped, 3);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn a_files_token_survives_a_rename_and_a_move_and_differs_from_another_files() {
+        let root = tempdir().unwrap();
+        create_dir_all(root.path().join("Sorted")).unwrap();
+        write(root.path().join("01 Night Drive.aif"), b"night").unwrap();
+        write(root.path().join("02 Soft Focus.aif"), b"focus").unwrap();
+        let before = walk_root(root.path(), &WalkOptions::default()).unwrap();
+        let token = |report: &WalkReport, name: &str| {
+            report
+                .files
+                .iter()
+                .find(|file| file.path.display_lossy() == name)
+                .unwrap_or_else(|| panic!("{name} walked"))
+                .file_token
+                .clone()
+                .expect("a token on this platform")
+        };
+        let night = token(&before, "01 Night Drive.aif");
+        assert_ne!(night, token(&before, "02 Soft Focus.aif"));
+        fs::rename(
+            root.path().join("01 Night Drive.aif"),
+            root.path().join("Sorted/Night Drive (renamed).aif"),
+        )
+        .unwrap();
+        let after = walk_root(root.path(), &WalkOptions::default()).unwrap();
+        assert_eq!(token(&after, "Sorted/Night Drive (renamed).aif"), night);
     }
 
     #[cfg(unix)]
