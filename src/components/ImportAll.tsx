@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { oneAtATime } from "../library/autoImport";
+import { mergeAccepted } from "../library/importEdits";
 import type { Accepted, DownloadRelease, ImportOptions, ImportPlan, LibraryAdmin, PlanFile, ReleaseLookup } from "../library/types";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
@@ -66,10 +67,14 @@ interface Props {
   onFinished?: () => void;
   /** The button's words; by default "Import all N finished releases...". */
   label?: (count: number) => string;
+  /** Values typed for a release in the preview; they win over a lookup's suggestions. */
+  typed?: (release: DownloadRelease) => Accepted[];
+  /** Show a release in the preview to type its tags. The review closes first. */
+  onEditTags?: (release: DownloadRelease) => void;
 }
 
 /** Import every finished release at once, after a look at what will happen. */
-export function ImportAll({ admin, releases, rootId, options, rescan, onFinished, label }: Props) {
+export function ImportAll({ admin, releases, rootId, options, rescan, onFinished, label, typed, onEditTags }: Props) {
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
   const [lookups, setLookups] = useState<Record<string, Lookup>>({});
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
@@ -77,6 +82,11 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
   /** Set by Stop: the run ends after the release in hand. */
   const stopAsked = useRef(false);
   const stop = () => { stopAsked.current = true; };
+  /** The choices plus what was typed for `release` and, under that, what a lookup suggested. */
+  const optionsFor = (release: DownloadRelease, looked: Accepted[] = []): ImportOptions => {
+    const accepted = mergeAccepted(typed?.(release) ?? [], looked);
+    return accepted.length > 0 ? { ...options, accepted } : options;
+  };
 
   const check = async () => {
     if (rootId === null || busy) return;
@@ -87,7 +97,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
       if (stopAsked.current) { setStage({ kind: "idle" }); return; }
       setStage({ kind: "checking", done: index, total: releases.length });
       try {
-        plans.push({ release, plan: await admin.planRelease(release.folderId, release.name, rootId, options) });
+        plans.push({ release, plan: await admin.planRelease(release.folderId, release.name, rootId, optionsFor(release)) });
       } catch (reason) {
         failed.push({ name: release.name, error: message(reason) });
       }
@@ -106,7 +116,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
       const key = keyOf(release);
       setLookups((before) => ({ ...before, [key]: { state: "asking" } }));
       try {
-        const result = await admin.lookupRelease(release.folderId, release.name, rootId, options);
+        const result = await admin.lookupRelease(release.folderId, release.name, rootId, optionsFor(release));
         setLookups((before) => ({ ...before, [key]: { state: "done", result } }));
       } catch (reason) {
         setLookups((before) => ({ ...before, [key]: { state: "failed", error: message(reason) } }));
@@ -128,7 +138,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
       try {
         const lookup = lookups[keyOf(release)];
         const accepted = lookup?.state === "done" ? acceptedFrom(lookup.result, unticked) : [];
-        const done = await oneAtATime(() => admin.importRelease(release.folderId, release.name, rootId, accepted.length > 0 ? { ...options, accepted } : options));
+        const done = await oneAtATime(() => admin.importRelease(release.folderId, release.name, rootId, optionsFor(release, accepted)));
         filed += done.filed;
         skipped += done.skipped.length;
       } catch (reason) {
@@ -152,7 +162,8 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
     {stage.kind === "review" && <Review stage={stage} lookups={lookups} unticked={unticked}
       onToggle={(source) => setUnticked((before) => { const next = new Set(before); if (next.has(source)) next.delete(source); else next.add(source); return next; })}
       onLookUp={(plans) => void lookUp(plans)}
-      onCancel={() => setStage({ kind: "idle" })} onImport={() => void run(stage.plans, stage.failed)} />}
+      onCancel={() => setStage({ kind: "idle" })} onImport={() => void run(stage.plans, stage.failed)}
+      onEditTags={onEditTags && ((release) => { setStage({ kind: "idle" }); onEditTags(release); })} />}
     {stage.kind === "importing" && <p className="settings-copy" role="status">{`Importing ${stage.done + 1} of ${stage.total}: ${stage.current}`} <button className="link-button" onClick={stop}>Stop after this one</button></p>}
     {stage.kind === "scanning" && <p className="settings-copy" role="status">Adding them to your library...</p>}
     {stage.kind === "finished" && <div role="status" className="import-result">
@@ -162,7 +173,7 @@ export function ImportAll({ admin, releases, rootId, options, rescan, onFinished
   </div>;
 }
 
-function Review({ stage, lookups, unticked, onToggle, onLookUp, onCancel, onImport }: {
+function Review({ stage, lookups, unticked, onToggle, onLookUp, onCancel, onImport, onEditTags }: {
   stage: Extract<Stage, { kind: "review" }>;
   lookups: Record<string, Lookup>;
   unticked: ReadonlySet<string>;
@@ -170,6 +181,7 @@ function Review({ stage, lookups, unticked, onToggle, onLookUp, onCancel, onImpo
   onLookUp: (plans: { release: DownloadRelease; plan: ImportPlan }[]) => void;
   onCancel: () => void;
   onImport: () => void;
+  onEditTags?: (release: DownloadRelease) => void;
 }) {
   const ready = stage.plans.reduce((sum, { plan }) => sum + plan.ready, 0);
   const blocked = stage.plans.reduce((sum, { plan }) => sum + plan.blocked, 0);
@@ -178,14 +190,19 @@ function Review({ stage, lookups, unticked, onToggle, onLookUp, onCancel, onImpo
   const doubtful = stage.plans.filter(({ release, plan }) => doubtsIn(release.name, plan.files).length > 0);
   const asking = Object.values(lookups).some((lookup) => lookup.state === "asking");
   const asked = doubtful.some(({ release }) => lookups[keyOf(release)] !== undefined);
+  const stuck = stage.plans.filter(({ plan }) => plan.blocked > 0);
+  const edit = (release: DownloadRelease) => onEditTags && <button className="link-button" onClick={() => onEditTags(release)}>Edit tags</button>;
   return <div className="import-review" role="region" aria-label="Before importing">
     <p className="settings-copy">{`${plural(ready, "file", "files")} from ${plural(releases, "release", "releases")} will be imported.`}{blocked > 0 ? ` ${plural(blocked, "file stays", "files stay")} in the watch folder (the notes under each release say why).` : ""}</p>
     {stage.failed.map((item) => <p key={item.name} className="inline-error">{`${item.name}: ${item.error}`}</p>)}
+    {stuck.length > 0 && <ul className="doubt-list" aria-label="Releases that need attention">{stuck.map(({ release, plan }) => <li key={keyOf(release)}>
+      <strong>{release.name}</strong> <small>{`${plural(plan.blocked, "file needs", "files need")} attention`}</small> {edit(release)}
+    </li>)}</ul>}
     {doubts.length > 0 && <>
       <h3>{`${plural(doubts.length, "file has", "files have")} tags worth a look`}</h3>
-      <p className="settings-copy">They will be imported as shown, unless you look them up and keep what the lookup suggests. To change them by hand, import them and use Edit details on the tracks afterwards.</p>
+      <p className="settings-copy">They will be imported as shown, unless you look them up and keep what the lookup suggests, or type them: Edit tags shows the release in the table, where any value can be clicked and changed.</p>
       <ul className="doubt-list">{doubts.map((doubt) => <li key={`${doubt.release}/${doubt.file}`}>
-        <strong>{doubt.file}</strong> <small>{doubt.release}</small>
+        <strong>{doubt.file}</strong> <small>{doubt.release}</small> {edit(stage.plans.find(({ release }) => release.name === doubt.release)!.release)}
         <ul>{doubt.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
       </li>)}</ul>
     </>}

@@ -1,21 +1,67 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { checkValue, FIELD_LABEL, FIELD_OF_NAME, fieldForProblem, RELEASE_WIDE, type ImportEditField } from "../library/importEdits";
 import type { PlanFile, TagView } from "../library/types";
 
-type Field = { value: string | null; guessed: boolean; tidiedFrom: string | null };
+type Field = { value: string | null; guessed: boolean; tidiedFrom: string | null; edited?: boolean };
 
 function field(view: TagView | null, name: string): Field {
   const found = view?.fields.find((candidate) => candidate.name === name);
   return { value: found?.value ?? null, guessed: found?.guessed ?? false, tidiedFrom: found?.tidiedFrom ?? null };
 }
 
-/** A tag value: a faint dash when missing, a small "?" when it came from the file name, and a
- * small "*" when it was tidied (hover shows what it was). */
+/** A tag value: a faint dash when missing, a small "?" when it came from the file name, a small
+ * "*" when it was tidied (hover shows what it was), and a pencil when it was typed here. */
 function Value({ of }: { of: Field }) {
   if (of.value === null) return <span className="tag-missing" title={of.tidiedFrom === null ? "Not in the tags" : `Was "${of.tidiedFrom}"`}>-</span>;
+  if (of.edited) return <span className="tag-edited" title="Typed here; goes into the imported copy">{of.value}<sup className="tag-guess-mark" aria-label="typed here">{"\u270E"}</sup></span>;
   const title = of.guessed ? "Not in the tags; taken from the file name" : of.tidiedFrom !== null ? `Tidied; was "${of.tidiedFrom}"` : of.value;
   return <span className={of.guessed ? "tag-guessed" : of.tidiedFrom !== null ? "tag-tidied" : undefined} title={title}>
     {of.value}{of.guessed && <sup className="tag-guess-mark">?</sup>}{of.tidiedFrom !== null && <sup className="tag-guess-mark" aria-label={`tidied, was ${of.tidiedFrom}`}>*</sup>}
   </span>;
+}
+
+/** Typing a value in the preview. `count`: files in the release, offered all at once for the
+ * fields a release usually shares. Enter or clicking away keeps it, Escape leaves it as it was. */
+function CellEditor({ field, initial, count, onSave, onCancel }: {
+  field: ImportEditField;
+  initial: string;
+  count: number;
+  onSave: (value: string, all: boolean) => void;
+  onCancel: () => void;
+}) {
+  const offerAll = RELEASE_WIDE.has(field) && count > 1;
+  const [text, setText] = useState(initial);
+  const [all, setAll] = useState(offerAll);
+  const [error, setError] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  const done = useRef(false);
+  const save = (fromBlur: boolean) => {
+    if (done.current) return;
+    const problem = checkValue(field, text);
+    if (problem) {
+      // Clicking away from a value that cannot be used leaves things as they were.
+      if (fromBlur) { done.current = true; onCancel(); } else setError(problem);
+      return;
+    }
+    done.current = true;
+    onSave(text, all);
+  };
+  return <div ref={box} className="cell-editor" onBlur={(event) => { if (!box.current?.contains(event.relatedTarget as Node | null)) save(true); }}>
+    <input
+      autoFocus
+      aria-label={`New ${FIELD_LABEL[field]}`}
+      aria-invalid={error !== ""}
+      inputMode={field === "year" || field === "track" ? "numeric" : undefined}
+      value={text}
+      onChange={(event) => { setText(event.target.value); setError(""); }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") { event.preventDefault(); save(false); }
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); done.current = true; onCancel(); }
+      }}
+    />
+    {offerAll && <label className="cell-editor-all"><input type="checkbox" checked={all} onChange={(event) => setAll(event.target.checked)} />{`All ${count} files`}</label>}
+    {error && <small role="alert" className="inline-error">{error}</small>}
+  </div>;
 }
 
 const dash = <span className="tag-missing">-</span>;
@@ -62,27 +108,30 @@ const isWidths = (value: unknown): value is Partial<Record<PlanColumn, number>> 
 
 const clamp = (width: number) => Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)));
 
-function cell(id: PlanColumn, file: PlanFile) {
+/** Draws a tag value, as a button that opens the editor when the preview can be typed in. */
+type Show = (name: string, edit?: ImportEditField, fallback?: ReactNode) => ReactNode;
+
+function cell(id: PlanColumn, file: PlanFile, show: Show) {
   const tags = file.tags;
   switch (id) {
     case "track": {
       const disc = field(tags, "Disc");
-      return <>{Number(disc.value ?? "1") > 1 && <><Value of={disc} />-</>}<Value of={field(tags, "Track")} /></>;
+      return <>{Number(disc.value ?? "1") > 1 && <><Value of={disc} />-</>}{show("Track", "track")}</>;
     }
     case "title": {
-      const title = field(tags, "Title");
+      const name = <span title={file.source}>{file.source.split("/").at(-1) ?? file.source}</span>;
       return <>
-        {title.value === null ? <strong title={file.source}>{file.source.split("/").at(-1) ?? file.source}</strong> : <strong><Value of={title} /></strong>}
-        <small><Value of={field(tags, "Artist")} /></small>
+        <strong>{show("Title", "title", field(tags, "Title").value === null ? name : undefined)}</strong>
+        <small>{show("Artist", "artist")}</small>
       </>;
     }
     case "album": {
       const albumArtist = field(tags, "Album artist");
       const differs = albumArtist.value !== null && albumArtist.value !== field(tags, "Artist").value;
-      return <><Value of={field(tags, "Album")} />{differs && <small className="plan-sub"><Value of={albumArtist} /></small>}</>;
+      return <>{show("Album", "album")}{differs && <small className="plan-sub">{show("Album artist", "albumArtist")}</small>}</>;
     }
-    case "year": return <Value of={field(tags, "Year")} />;
-    case "genre": return <Value of={field(tags, "Genre")} />;
+    case "year": return show("Year", "year");
+    case "genre": return show("Genre", "genre");
     case "key": return <Value of={field(tags, "Key")} />;
     case "bpm": return <Value of={field(tags, "BPM")} />;
     case "length": return tags?.length ?? dash;
@@ -92,6 +141,12 @@ function cell(id: PlanColumn, file: PlanFile) {
   }
 }
 
+/** Typing values into the preview: which were typed, and what to do with a new one. */
+export interface PlanEditing {
+  edited: (source: string, field: ImportEditField) => boolean;
+  onEdit: (change: { sources: string[]; field: ImportEditField; value: string }) => void;
+}
+
 /** Several releases in one table: each starts with a row of its own (`header`) above its files. */
 export interface PlanGroup {
   key: string;
@@ -99,11 +154,14 @@ export interface PlanGroup {
   name: string;
   header: ReactNode;
   files: PlanFile[];
+  /** Given, its values can be typed in. */
+  editing?: PlanEditing;
 }
 
 /** The preview table: drag a heading's edge to resize, right-click a heading to choose columns.
- * Both choices are remembered in this browser. Given `groups`, it lists every release at once. */
-export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?: PlanGroup[] }) {
+ * Both choices are remembered in this browser. Given `groups`, it lists every release at once.
+ * Given `editing` (or a group's own), clicking a value lets it be typed. */
+export function PlanTable({ files = [], groups, editing }: { files?: PlanFile[]; groups?: PlanGroup[]; editing?: PlanEditing }) {
   const allFiles = groups ? groups.flatMap((group) => group.files) : files;
   const [hidden, setHidden] = useState<Set<PlanColumn>>(() => new Set(load(HIDDEN_KEY, DEFAULT_HIDDEN, isIdList)));
   const [widths, setWidths] = useState<Partial<Record<PlanColumn, number>>>(() => load(WIDTHS_KEY, {}, isWidths));
@@ -115,6 +173,8 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
   const [moreRight, setMoreRight] = useState(false);
   /** Releases whose rows are folded away, leaving their heading row. */
   const [folded, setFolded] = useState<Set<string>>(new Set());
+  /** The value being typed: in its cell, or under the file's problem that asked for it. */
+  const [open, setOpen] = useState<{ source: string; field: ImportEditField; where: "cell" | "note" } | null>(null);
   const fold = (key: string) => setFolded((before) => {
     const next = new Set(before);
     if (!next.delete(key)) next.add(key);
@@ -212,14 +272,36 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
     }
   };
 
-  const fileRows = (file: PlanFile) => {
+  const fileRows = (file: PlanFile, release: PlanFile[], edits: PlanEditing | undefined) => {
     const notes = [...(file.problem ? [file.problem] : []), ...(file.shortened ? ["Name shortened to fit Windows' path limit."] : []), ...(file.tags?.warnings ?? [])];
+    const editor = (name: string, edit: ImportEditField) => edits && <CellEditor
+      key={`${file.source}/${edit}`}
+      field={edit}
+      initial={field(file.tags, name).value ?? ""}
+      count={release.length}
+      onSave={(value, all) => { setOpen(null); edits.onEdit({ sources: all ? release.map((item) => item.source) : [file.source], field: edit, value }); }}
+      onCancel={() => setOpen(null)}
+    />;
+    const show: Show = (name, edit, fallback) => {
+      const value = { ...field(file.tags, name), edited: edit !== undefined && edits?.edited(file.source, edit) };
+      const drawn = fallback ?? <Value of={value} />;
+      if (!edit || !edits) return drawn;
+      if (open?.source === file.source && open.field === edit && open.where === "cell") return editor(name, edit);
+      return <button type="button" className="tag-edit" title="Click to change it for the import" aria-label={`Change the ${FIELD_LABEL[edit]} of ${file.source}${value.value === null ? "" : `: ${value.value}`}`} onClick={() => setOpen({ source: file.source, field: edit, where: "cell" })}>{drawn}</button>;
+    };
+    const asked = file.problem && edits ? fieldForProblem(file.problem, field(file.tags, "Title").value !== null) : null;
+    const askedName = asked && Object.entries(FIELD_OF_NAME).find(([, id]) => id === asked)?.[0];
     return <Fragment key={file.source}>
       <tr className={notes.length > 0 ? "plan-row has-notes" : "plan-row"}>
-        {visible.map((column) => <td key={column.id} className={`plan-cell plan-${column.id}`}>{cell(column.id, file)}</td>)}
+        {visible.map((column) => <td key={column.id} className={`plan-cell plan-${column.id}`}>{cell(column.id, file, show)}</td>)}
       </tr>
       {notes.length > 0 && <tr className="plan-notes">
-        <td colSpan={visible.length}><ul className={file.problem ? "tag-warnings plan-blocked" : "tag-warnings"} aria-label={`Notes for ${file.source}`}>{notes.map((note) => <li key={note}>{note}</li>)}</ul></td>
+        <td colSpan={visible.length}><ul className={file.problem ? "tag-warnings plan-blocked" : "tag-warnings"} aria-label={`Notes for ${file.source}`}>{notes.map((note) => <li key={note}>
+          {note}
+          {note === file.problem && asked && askedName && (open?.source === file.source && open.field === asked && open.where === "note"
+            ? <span className="note-editor">{editor(askedName, asked)}</span>
+            : <> <button type="button" className="link-button" onClick={() => setOpen({ source: file.source, field: asked, where: "note" })}>{`Type the ${FIELD_LABEL[asked]}`}</button></>)}
+        </li>)}</ul></td>
       </tr>}
     </Fragment>;
   };
@@ -269,13 +351,13 @@ export function PlanTable({ files = [], groups }: { files?: PlanFile[]; groups?:
       </thead>
       {groups
         ? groups.map((group) => <tbody key={group.key} className="plan-group">
-          <tr className="plan-group-row"><td colSpan={visible.length}><div className="plan-group-head">
+          <tr className="plan-group-row" data-release={group.key}><td colSpan={visible.length}><div className="plan-group-head">
             <button type="button" className="plan-fold" aria-expanded={!folded.has(group.key)} aria-label={`${folded.has(group.key) ? "Show" : "Hide"} the files of ${group.name}`} title={folded.has(group.key) ? `Show the ${group.files.length} files` : "Hide the files"} onClick={() => fold(group.key)}><span aria-hidden="true">{folded.has(group.key) ? "\u25B8" : "\u25BE"}</span></button>
             {group.header}
           </div></td></tr>
-          {!folded.has(group.key) && group.files.map(fileRows)}
+          {!folded.has(group.key) && group.files.map((file) => fileRows(file, group.files, group.editing))}
         </tbody>)
-        : <tbody>{files.map(fileRows)}</tbody>}
+        : <tbody>{files.map((file) => fileRows(file, files, editing))}</tbody>}
     </table>
     </div>
     {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label="Columns" style={{ left: menu.x, top: menu.y }}>

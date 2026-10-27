@@ -639,3 +639,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .header-folded .sync-hero .empty-icon { width: 32px; height: 32px; border-radius: 9px; grid-row: auto; }
 .header-folded .sync-hero { padding-bottom: 10px; }
 .header-folded .sync-hero h1 { font-size: 22px; }
+
+/* Typing a value in the import preview: the value reads as text until pointed at. */
+.tag-edit { all: unset; cursor: text; border-radius: 4px; padding: 0 2px; margin: 0 -2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+.tag-edit:hover { background: var(--hover); box-shadow: 0 0 0 1px rgb(var(--ink) / .12); }
+.tag-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tag-edited { color: var(--accent-text); }
+.tag-edited .tag-guess-mark { color: var(--accent-text); }
+.cell-editor { display: grid; gap: 4px; }
+.cell-editor input:not([type]) { width: 100%; box-sizing: border-box; padding: 4px 6px; border-radius: 5px; border: 1px solid var(--accent); background: var(--raised); color: var(--text); font: inherit; font-size: 12px; }
+.cell-editor input[aria-invalid="true"] { border-color: var(--danger); }
+.cell-editor-all { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--secondary); }
+.note-editor { display: inline-block; min-width: 220px; margin-left: 8px; vertical-align: middle; }

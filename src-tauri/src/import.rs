@@ -567,6 +567,78 @@ mod tests {
     }
 
     #[test]
+    fn an_album_typed_for_a_file_without_one_unblocks_it_and_goes_into_the_copy() {
+        let s = setup();
+        // Loose in the watch folder, as a single from Bandcamp lands: no folder to take an album from.
+        let source = s.area.path().join("Downloads/Studio 001 - Night Drive.aif");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(&source, aiff(1)).unwrap();
+        fixture_tags(
+            &source,
+            &TagInfo {
+                artist: Some("Studio 001".into()),
+                title: Some("Night Drive".into()),
+                ..TagInfo::default()
+            },
+        );
+        let blocked = plan_release(
+            &s.service,
+            s.folder,
+            "Studio 001 - Night Drive.aif",
+            s.root,
+            options(false, None),
+        )
+        .unwrap();
+        assert_eq!(blocked.blocked, 1);
+        assert!(
+            blocked.files[0]
+                .problem
+                .as_deref()
+                .is_some_and(|problem| problem.starts_with("No release")),
+            "{:?}",
+            blocked.files[0].problem
+        );
+
+        let mut typed = options(false, None);
+        typed.accepted.push(crate::plan::Accepted {
+            source: "Studio 001 - Night Drive.aif".into(),
+            album: Some("Night Drive".into()),
+            ..crate::plan::Accepted::default()
+        });
+        let plan = plan_release(
+            &s.service,
+            s.folder,
+            "Studio 001 - Night Drive.aif",
+            s.root,
+            typed.clone(),
+        )
+        .unwrap();
+        assert_eq!((plan.ready, plan.blocked), (1, 0));
+        let done = import_release(
+            &s.service,
+            s.folder,
+            "Studio 001 - Night Drive.aif",
+            s.root,
+            typed,
+        )
+        .unwrap();
+        assert_eq!(done.filed, 1, "{:?}", done.skipped);
+        let filed = s
+            .area
+            .path()
+            .join("Music/Studio 001/Night Drive/Studio 001 - Night Drive.aif");
+        assert_eq!(
+            read_file(&filed).unwrap().tags.album.as_deref(),
+            Some("Night Drive")
+        );
+        assert_eq!(
+            read_file(&source).unwrap().tags.album,
+            None,
+            "the download is left as it was"
+        );
+    }
+
+    #[test]
     fn accepted_lookup_values_decide_the_place_and_are_written() {
         let s = setup();
         let source = s.area.path().join("Downloads/Between Spaces/x.aif");

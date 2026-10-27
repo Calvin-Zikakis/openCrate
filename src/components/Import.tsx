@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { bringIn, needsLook, oneAtATime } from "../library/autoImport";
 import { startPolling } from "../library/poller";
-import { PlanTable, type PlanGroup } from "./PlanTable";
+import { PlanTable, type PlanEditing, type PlanGroup } from "./PlanTable";
+import { applyEdit, toAccepted, type ReleaseEdits } from "../library/importEdits";
 import { Icon } from "./Icon";
 import { AutoImportCard, type AutoImport } from "./AutoImport";
 import { ImportAll } from "./ImportAll";
@@ -31,8 +32,11 @@ function contents(release: DownloadRelease): string {
 
 const keyOf = (release: DownloadRelease) => `${release.folderId}:${release.loose ? "f" : "d"}:${release.name}`;
 
-/** A plan read for one release, with what it was read against so a stale one is never shown. */
-interface Planned { stamp: string; plan: ImportPlan | null; error: string }
+/** A plan read for one release, with what it was read against so a stale one is never shown.
+ * `stale`: read before the latest typed value, shown while that is checked. */
+interface Planned { stamp: string; plan: ImportPlan | null; error: string; stale?: boolean }
+
+const LEGEND = "Tags are written as shown: values marked ? come from the file name, * marks a tidied value, and \u270E one you typed. Click a value to change it; the change goes into the imported copy only.";
 
 /** One line for a closed row: where a single file goes, or how many are ready. */
 function summary(plan: ImportPlan): string {
@@ -90,6 +94,8 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
   const [canConvert, setCanConvert] = useState(false);
   const [view, setView] = useState<View>(loadView);
   const [allImported, setAllImported] = useState(false);
+  /** Values typed in the preview, per release. They travel with the preview and the import. */
+  const [edits, setEdits] = useState<Map<string, ReleaseEdits>>(new Map());
   const changeView = (next: View) => { setView(next); saveView(next); };
 
   const readFolders = useCallback(() => admin.folders().then((found) => {
@@ -112,6 +118,12 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
 
   // Converting needs ffmpeg; without it the choice is shown but not sent.
   const sent: ImportOptions = canConvert ? options : { ...options, convert: { lossless: null, lossy: null } };
+  const typedFor = (release: DownloadRelease) => toAccepted(edits.get(keyOf(release)) ?? {});
+  /** The choices plus what was typed for this release, sent with its preview and its import. */
+  const sentFor = (release: DownloadRelease): ImportOptions => {
+    const accepted = typedFor(release);
+    return accepted.length > 0 ? { ...sent, accepted } : sent;
+  };
 
   /** New files join the library the way any file does: by a scan of the folder. With writing
    * to rekordbox on, they then go straight into rekordbox's Imported playlist. */
@@ -128,13 +140,35 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
   const against = JSON.stringify([sent, rootId, generation]);
   const latest = useRef(against);
   latest.current = against;
-  const stampOf = (release: DownloadRelease) => `${release.audioFiles}:${release.newestModifiedMs}:${against}`;
+  const filesOf = (release: DownloadRelease) => `${release.audioFiles}:${release.newestModifiedMs}`;
+  const stampOf = (release: DownloadRelease) => `${filesOf(release)}|${JSON.stringify(edits.get(keyOf(release)) ?? {})}|${against}`;
   const planned = (release: DownloadRelease) => {
     const entry = plans.get(keyOf(release));
     return entry?.stamp === stampOf(release) ? entry : undefined;
   };
+  /** The plan to show: the current one, or, while a typed value is checked, the one before it. */
+  const shownPlan = (release: DownloadRelease): Planned | undefined => {
+    const current = planned(release);
+    if (current) return current;
+    const entry = plans.get(keyOf(release));
+    return entry && entry.stamp.startsWith(`${filesOf(release)}|`) && entry.stamp.endsWith(`|${against}`) ? { ...entry, stale: true } : undefined;
+  };
+  const editingFor = (release: DownloadRelease): PlanEditing | undefined => release.imported ? undefined : {
+    edited: (source, field) => edits.get(keyOf(release))?.[source]?.[field] !== undefined,
+    onEdit: ({ sources, field, value }) => {
+      setEdits((current) => new Map(current).set(keyOf(release), applyEdit(current.get(keyOf(release)) ?? {}, sources, field, value)));
+      // A preview that opened by itself closes once nothing needs a look; one being typed in stays.
+      choose(keyOf(release), true);
+    },
+  };
 
   const choose = (key: string, open: boolean) => setChosen((current) => new Map(current).set(key, open));
+  /** From the Import all review: open the release (in the release view) and bring it into sight. */
+  const showForEditing = (release: DownloadRelease) => {
+    const key = keyOf(release);
+    choose(key, true);
+    requestAnimationFrame(() => document.querySelector(`[data-release="${CSS.escape(key)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  };
 
   const importNow = async (release: DownloadRelease) => {
     const key = keyOf(release);
@@ -143,7 +177,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
     setImportErrors((current) => { const next = new Map(current); next.delete(key); return next; });
     try {
       await oneAtATime(async () => {
-        const done = await admin.importRelease(release.folderId, release.name, rootId, sent);
+        const done = await admin.importRelease(release.folderId, release.name, rootId, sentFor(release));
         setResults((current) => new Map(current).set(key, done));
         if (done.filed === 0) readAgain();
         if (done.filed > 0) {
@@ -209,7 +243,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
         const stamp = stampOf(release);
         let entry: Planned;
         try {
-          entry = { stamp, plan: await admin.planRelease(release.folderId, release.name, rootId, sent), error: "" };
+          entry = { stamp, plan: await admin.planRelease(release.folderId, release.name, rootId, sentFor(release)), error: "" };
         } catch (reason) {
           entry = { stamp, plan: null, error: message(reason) };
         }
@@ -237,22 +271,23 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
   const table = (list: DownloadRelease[]) => {
     const groups: PlanGroup[] = list.map((release) => {
       const key = keyOf(release);
-      const entry = planned(release);
+      const entry = shownPlan(release);
       const plan = entry?.plan ?? null;
       const step = importing?.key === key ? importing.step : null;
       const result = results.get(key);
       const { text, tone } = status(release, plan);
-      const waiting = !entry && wanted.includes(release) && rootId !== null;
+      const waiting = (!entry || entry.stale === true) && wanted.includes(release) && rootId !== null;
       return {
         key,
         name: release.name,
         files: plan?.files ?? [],
+        editing: result && result.filed > 0 ? undefined : editingFor(release),
         header: <>
           <span className="plan-group-name"><strong>{release.name}</strong><small>{contents(release)} - in {release.folderLabel}</small></span>
           <span className={`folder-badge ${tone}`}>{text}</span>
           {result && !step && <small role="status">{result.filed === 0 ? "Nothing was imported." : `${result.filed} ${result.filed === 1 ? "file is" : "files are"} now in ${result.rootLabel}.`}{result.skipped.length > 0 ? ` Left where they are: ${result.skipped.map((item) => `${item.source} (${item.problem})`).join("; ")}.` : ""}</small>}
-          {plan && plan.ready > 0 && (!result || result.filed === 0) && <button className="import-button" disabled={importing !== null || release.state !== "ready"} aria-label={`Import ${release.name}`} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
-          {waiting && <small role="status">Reading the tags...</small>}
+          {plan && plan.ready > 0 && (!result || result.filed === 0) && <button className="import-button" disabled={importing !== null || release.state !== "ready" || entry?.stale === true} aria-label={`Import ${release.name}`} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
+          {waiting && <small role="status">{entry?.stale ? "Checking..." : "Reading the tags..."}</small>}
           {step && <small role="status">{step === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</small>}
           {entry?.error && <small role="alert" className="inline-error">{entry.error}</small>}
           {importErrors.get(key) && <small role="alert" className="inline-error">{importErrors.get(key)}</small>}
@@ -261,14 +296,14 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
     });
     return <div className="plan-panel import-table">
       {rootId === null && noFolder}
-      <p className="settings-copy">Importing copies the files; the originals stay in the watch folder. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
+      <p className="settings-copy">{`Importing copies the files; the originals stay in the watch folder. ${LEGEND}`}</p>
       <PlanTable groups={groups} />
     </div>;
   };
 
   const row = (release: DownloadRelease) => {
     const key = keyOf(release);
-    const entry = planned(release);
+    const entry = shownPlan(release);
     const plan = release.imported ? null : entry?.plan ?? null;
     const result = results.get(key);
     const step = importing?.key === key ? importing.step : null;
@@ -276,8 +311,8 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
     const auto = release.imported ? result !== undefined : fresh.includes(release) && plan !== null && needsLook(plan);
     const open = chosen.get(key) ?? auto;
     const { text, tone } = status(release, plan);
-    const waiting = !entry && wanted.includes(release) && rootId !== null;
-    return <li key={key} className="folder-row">
+    const waiting = (!entry || entry.stale === true) && wanted.includes(release) && rootId !== null;
+    return <li key={key} className="folder-row" data-release={key}>
       <div className="folder-text">
         <strong>{release.name}</strong>
         <small>{contents(release)} - in {release.folderLabel}</small>
@@ -288,7 +323,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
       {(!release.imported || result) && <button className="secondary-button" aria-expanded={open} aria-label={`Preview ${release.name}`} onClick={() => choose(key, !open)}>{open ? "Hide preview" : release.imported ? "What happened" : "Preview"}</button>}
       {open && <div className="plan-panel">
         {rootId === null && noFolder}
-        {waiting && <p className="settings-copy" role="status">Reading the tags...</p>}
+        {waiting && <p className="settings-copy" role="status">{entry?.stale ? "Checking..." : "Reading the tags..."}</p>}
         {step && <p className="settings-copy" role="status">{step === "copying" ? "Copying and checking each file..." : "Adding them to your library..."}</p>}
         {entry?.error && !release.imported && <p role="alert" className="inline-error">{entry.error}</p>}
         {importErrors.get(key) && <p role="alert" className="inline-error">{importErrors.get(key)}</p>}
@@ -301,10 +336,10 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
         </div>}
         {/* An import that filed nothing can be tried again once the cause is dealt with. */}
         {plan && (!result || result.filed === 0) && <>
-          <p className="settings-copy">{plan.ready} {plan.ready === 1 ? "file is" : "files are"} ready to go into {plan.rootLabel}{plan.blocked > 0 ? `; ${plan.blocked} ${plan.blocked === 1 ? "needs attention and stays" : "need attention and stay"} in the watch folder` : ""}. Importing copies them; the originals stay in {release.folderLabel}. Tags are written as shown: values marked ? come from the file name, and * marks a tidied value.</p>
-          {plan.ready > 0 && <button className="import-button" disabled={importing !== null || release.state !== "ready"} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
+          <p className="settings-copy">{plan.ready} {plan.ready === 1 ? "file is" : "files are"} ready to go into {plan.rootLabel}{plan.blocked > 0 ? `; ${plan.blocked} ${plan.blocked === 1 ? "needs attention and stays" : "need attention and stay"} in the watch folder` : ""}. Importing copies them; the originals stay in {release.folderLabel}. {LEGEND}</p>
+          {plan.ready > 0 && <button className="import-button" disabled={importing !== null || release.state !== "ready" || entry?.stale === true} onClick={() => void importNow(release)}>{`Import ${plan.ready} ${plan.ready === 1 ? "file" : "files"}`}</button>}
           {release.state !== "ready" && <p className="settings-copy">It can be imported once it has finished downloading.</p>}
-          <PlanTable files={plan.files} />
+          <PlanTable files={plan.files} editing={editingFor(release)} />
         </>}
       </div>}
     </li>;
@@ -338,7 +373,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
         : <>
           <p className="settings-copy">{ready} of {fresh.length} {fresh.length === 1 ? "release has" : "releases have"} finished downloading.</p>
           {rootChoice}
-          <ImportAll admin={admin} releases={fresh.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} onFinished={readAgain} />
+          <ImportAll admin={admin} releases={fresh.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} onFinished={readAgain} typed={typedFor} onEditTags={showForEditing} />
           {view === "table" ? table(fresh) : <ul className="folder-list">{fresh.map(row)}</ul>}
         </>}
     </div>}
@@ -352,7 +387,7 @@ export function Import({ admin, auto, onOpenSettings, onImported }: Props) {
       <h2>Already there when you added the folder</h2>
       <p className="settings-copy">These are not picked up on their own. They stay out of the way until you choose to bring them in, one at a time or all together.</p>
       {rootChoice}
-      <ImportAll admin={admin} releases={older.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} onFinished={readAgain}
+      <ImportAll admin={admin} releases={older.filter((release) => release.state === "ready")} rootId={rootId} options={sent} rescan={rescan} onFinished={readAgain} typed={typedFor} onEditTags={showForEditing}
         label={(count) => `Import all ${count} ${count === 1 ? "release" : "releases"} already there...`} />
       {view === "table" ? table(older) : <ul className="folder-list">{older.map(row)}</ul>}
     </div>}

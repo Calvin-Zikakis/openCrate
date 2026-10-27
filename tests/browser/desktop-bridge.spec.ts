@@ -180,6 +180,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                   rel("Old Favourites", "ready", { alreadyThere: true, audioFiles: 12 }),
                   ...((window as any).__twoReady ? [rel("Second Light", "ready", { audioFiles: 2 })] : []),
                   ...((window as any).__cleanReady ? [rel("Clean Single", "ready", { audioFiles: 1 })] : []),
+                  ...((window as any).__untagged ? [rel("Untagged Single.aiff", "ready", { loose: true, audioFiles: 1 }), rel("Two Sides", "ready", { audioFiles: 2 })] : []),
                   ...Array.from({ length: (window as any).__manyImported ?? 0 }, (_, n) => rel(`Earlier ${n + 1}`, "ready", { imported: true, audioFiles: 1 })),
                 ],
               };
@@ -418,6 +419,29 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return layoutOut();
             case "library_plan_release":
               if (args?.name === "Night Drive EP") throw "That release is no longer in the watch folder.";
+              if (args?.name === "Untagged Single.aiff" || args?.name === "Two Sides") {
+                // No album in the tags; whatever was typed arrives as `accepted` and fills it, as the backend does.
+                const sources = args.name === "Two Sides" ? ["Two Sides/01.aiff", "Two Sides/02.aiff"] : ["Untagged Single.aiff"];
+                const typed = (source: string) => (args?.options?.accepted ?? []).find((item: any) => item.source === source) ?? {};
+                const files = sources.map((source, index) => {
+                  const album = typed(source).album ?? null;
+                  return {
+                    source, shortened: false, becomes: null,
+                    destination: album ? `Studio 001/${album}/0${index + 1} - Studio 001 - Night Drive.aif` : null,
+                    problem: album ? null : "No release in the tags or file name.",
+                    tags: {
+                      fields: [
+                        { name: "Title", value: typed(source).title ?? "Night Drive", guessed: false, tidiedFrom: null },
+                        { name: "Artist", value: "Studio 001", guessed: false, tidiedFrom: null },
+                        { name: "Album", value: album, guessed: false, tidiedFrom: null },
+                      ],
+                      audio: "AIFF 24/44.1", length: "4:12", readError: null, warnings: [],
+                    },
+                  };
+                });
+                const blocked = files.filter((file) => file.problem !== null).length;
+                return { release: args.name, rootLabel: "Music", ready: files.length - blocked, blocked, files };
+              }
               if (args?.name === "Clean Single") {
                 return {
                   release: args?.name, rootLabel: "Music", ready: 1, blocked: 0,
@@ -458,6 +482,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               if ((window as any).__fileNothing) return { rootId: 7, rootLabel: "Music", filed: 0, skipped: [{ source: `${args?.name}/01.aif`, problem: "A file is already there." }] };
               imported.add(String(args?.name));
               if (args?.name === "Second Light") return { rootId: 7, rootLabel: "Music", filed: 2, skipped: [] };
+              if (args?.name === "Untagged Single.aiff") return { rootId: 7, rootLabel: "Music", filed: 1, skipped: [] };
               return { rootId: 7, rootLabel: "Music", filed: 1, skipped: [{ source: `${args?.name}/02.flac`, problem: "No track number in the tags or file name." }] };
             case "library_add_watch_folder":
               if ((window as any).__overlap) throw "That folder is, contains or lies inside your music library. Watch folders must be separate from it.";
@@ -1309,6 +1334,67 @@ test("import all: a review lists doubtful tags, then every finished release is i
   expect(all.filter((call) => call.command === "library_scan")).toHaveLength(scansBefore + 1);
   const imported = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: "Imported" }) });
   await expect(imported.getByText("Second Light", { exact: true })).toBeVisible();
+});
+
+test("import: a file blocked for a missing album is fixed by typing it, and the typed value goes with the import", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__untagged = true; });
+  await openImportWithFolders(page);
+  const notes = page.getByRole("list", { name: "Notes for Untagged Single.aiff" });
+  await expect(notes).toContainText("No release in the tags or file name.");
+  const release = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Preview Untagged Single.aiff" }) });
+  await expect(release.getByRole("button", { name: "Import 1 file" })).toHaveCount(0);
+  await notes.getByRole("button", { name: "Type the album" }).click();
+  await page.getByRole("textbox", { name: "New album" }).fill("Night Drive");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("list", { name: "Notes for Untagged Single.aiff" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Change the album of Untagged Single.aiff: Night Drive" })).toBeVisible();
+  await expect(release.getByRole("button", { name: "Preview Untagged Single.aiff" }), "stays open once typed in").toHaveAttribute("aria-expanded", "true");
+  await release.getByRole("button", { name: "Import 1 file" }).click();
+  await expect(page.getByText("1 file is now in Music.")).toBeVisible();
+  const sent = (await calls(page)).filter((call) => call.command === "library_import_release").map((call) => call.args);
+  expect(sent).toEqual([{ folderId: 9, name: "Untagged Single.aiff", rootId: 7, options: { convert: { lossless: null, lossy: null }, tidy: true, accepted: [{ source: "Untagged Single.aiff", album: "Night Drive" }] } }]);
+});
+
+test("import: an album typed for one file of a release goes to all its files, and Escape changes nothing", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__untagged = true; });
+  await openImportWithFolders(page, "One table");
+  const albumOf = (file: string) => page.getByRole("button", { name: `Change the album of ${file}` });
+  await albumOf("Two Sides/01.aiff").click();
+  await page.getByRole("textbox", { name: "New album" }).fill("Thrown away");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("textbox", { name: "New album" })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Notes for Two Sides/01.aiff" })).toContainText("No release");
+
+  await albumOf("Two Sides/01.aiff").click();
+  await expect(page.getByRole("checkbox", { name: "All 2 files" })).toBeChecked();
+  await page.getByRole("textbox", { name: "New album" }).fill("Two Sides");
+  await page.keyboard.press("Enter");
+  await expect(albumOf("Two Sides/02.aiff")).toHaveAccessibleName("Change the album of Two Sides/02.aiff: Two Sides");
+  await expect(page.getByRole("button", { name: "Import Two Sides" })).toHaveText("Import 2 files");
+  const last = (await calls(page)).filter((call) => call.command === "library_plan_release" && call.args.name === "Two Sides").at(-1);
+  expect(last?.args.options.accepted).toEqual([{ source: "Two Sides/01.aiff", album: "Two Sides" }, { source: "Two Sides/02.aiff", album: "Two Sides" }]);
+
+  await albumOf("Two Sides/02.aiff").click();
+  await page.getByRole("textbox", { name: "New album" }).fill("20x6");
+  await page.getByRole("checkbox", { name: "All 2 files" }).uncheck();
+  await page.getByRole("textbox", { name: "New album" }).fill("B Side");
+  await page.keyboard.press("Enter");
+  await expect(albumOf("Two Sides/01.aiff")).toHaveAccessibleName("Change the album of Two Sides/01.aiff: Two Sides");
+  await expect(albumOf("Two Sides/02.aiff")).toHaveAccessibleName("Change the album of Two Sides/02.aiff: B Side");
+});
+
+test("import all: the review offers Edit tags for a release that needs attention", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__untagged = true; });
+  await openImportWithFolders(page);
+  await page.getByRole("button", { name: /^Import all \d+ finished releases\.\.\.$/ }).click();
+  const stuck = page.getByRole("region", { name: "Before importing" }).getByRole("list", { name: "Releases that need attention" });
+  await expect(stuck).toContainText("Untagged Single.aiff");
+  await stuck.getByRole("listitem").filter({ hasText: "Untagged Single.aiff" }).getByRole("button", { name: "Edit tags" }).click();
+  await expect(page.getByRole("region", { name: "Before importing" })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Notes for Untagged Single.aiff" }).getByRole("button", { name: "Type the album" })).toBeVisible();
 });
 
 test("import all: releases already there are brought in together, without a preview each", async ({ page }) => {
