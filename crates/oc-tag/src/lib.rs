@@ -10,6 +10,8 @@ mod guess;
 #[cfg(test)]
 mod tests;
 mod tidy;
+#[cfg(test)]
+mod unsync_tests;
 mod write;
 
 use std::fs::File;
@@ -137,7 +139,7 @@ fn tempo(value: Option<&str>) -> Option<f64> {
 /// Every value of a field that may hold several names: separate items, or one value holding
 /// ID3v2.4's NUL separator. Joined with ", " in their order, duplicates dropped. Names are
 /// never split on "/" or "&", which belong to names such as "AC/DC".
-fn names(tag: &Tag, key: &ItemKey) -> Option<String> {
+fn names(tag: &Tag, key: ItemKey) -> Option<String> {
     let mut found: Vec<String> = Vec::new();
     for value in tag.get_strings(key) {
         for name in value.split('\0') {
@@ -152,22 +154,23 @@ fn names(tag: &Tag, key: &ItemKey) -> Option<String> {
 }
 
 fn one_tag(tag: &Tag) -> TagInfo {
-    let item = |key: &ItemKey| text(tag.get_string(key));
+    let item = |key: ItemKey| text(tag.get_string(key));
     TagInfo {
         title: text(tag.title().as_deref()),
-        artist: names(tag, &ItemKey::TrackArtist).or_else(|| text(tag.artist().as_deref())),
+        artist: names(tag, ItemKey::TrackArtist).or_else(|| text(tag.artist().as_deref())),
         album: text(tag.album().as_deref()),
-        album_artist: names(tag, &ItemKey::AlbumArtist),
-        label: item(&ItemKey::Label),
+        album_artist: names(tag, ItemKey::AlbumArtist),
+        // ID3's TPUB reads back as Publisher in lofty 0.25; Vorbis and MP4 keep a separate Label.
+        label: item(ItemKey::Label).or_else(|| item(ItemKey::Publisher)),
         genre: text(tag.genre().as_deref()),
-        key: item(&ItemKey::InitialKey),
+        key: item(ItemKey::InitialKey),
         bpm: tempo(
-            tag.get_string(&ItemKey::IntegerBpm)
-                .or_else(|| tag.get_string(&ItemKey::Bpm)),
+            tag.get_string(ItemKey::IntegerBpm)
+                .or_else(|| tag.get_string(ItemKey::Bpm)),
         ),
         track_number: tag.track(),
         disc_number: tag.disk(),
-        year: tag.year().and_then(|year| i32::try_from(year).ok()),
+        year: tag.date().map(|date| i32::from(date.year)),
     }
 }
 

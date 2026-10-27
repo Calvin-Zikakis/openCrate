@@ -23,7 +23,7 @@ oc-player = { path = "crates/oc-player" }
 oc-tag = { path = "crates/oc-tag" }
 oc-organize = { path = "crates/oc-organize" }
 rbl-db = { path = "vendor/rbxport/crates/rbl-db" }
-lofty = "0.22"
+lofty = "0.25.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

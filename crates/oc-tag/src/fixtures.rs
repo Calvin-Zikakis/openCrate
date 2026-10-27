@@ -105,12 +105,12 @@ pub fn write_tags(path: &Path, info: &TagInfo) {
 pub fn write_tags_and_cover(path: &Path, info: &TagInfo, cover: Option<&[u8]>) {
     let mut tag = Tag::new(TagType::Id3v2);
     if let Some(data) = cover {
-        tag.push_picture(lofty::picture::Picture::new_unchecked(
-            lofty::picture::PictureType::CoverFront,
-            Some(lofty::picture::MimeType::Png),
-            None,
-            data.to_vec(),
-        ));
+        tag.push_picture(
+            lofty::picture::Picture::unchecked(data.to_vec())
+                .pic_type(lofty::picture::PictureType::CoverFront)
+                .mime_type(lofty::picture::MimeType::Png)
+                .build(),
+        );
     }
     if let Some(value) = &info.title {
         tag.set_title(value.clone());
@@ -130,8 +130,11 @@ pub fn write_tags_and_cover(path: &Path, info: &TagInfo, cover: Option<&[u8]>) {
     if let Some(value) = info.disc_number {
         tag.set_disk(value);
     }
-    if let Some(value) = info.year.and_then(|year| u32::try_from(year).ok()) {
-        tag.set_year(value);
+    if let Some(year) = info.year.and_then(|year| u16::try_from(year).ok()) {
+        tag.set_date(lofty::tag::items::Timestamp {
+            year,
+            ..lofty::tag::items::Timestamp::default()
+        });
     }
     for (key, value) in [
         (ItemKey::AlbumArtist, &info.album_artist),

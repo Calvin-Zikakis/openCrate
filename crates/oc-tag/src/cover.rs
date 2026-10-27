@@ -22,7 +22,7 @@ pub struct Cover {
 }
 
 /// The image type from its first bytes, never from a name or a claimed type.
-fn sniff(data: &[u8]) -> Option<&'static str> {
+pub(crate) fn sniff(data: &[u8]) -> Option<&'static str> {
     if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
         Some("image/jpeg")
     } else if data.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
@@ -117,12 +117,12 @@ mod tests {
         fs::write(path, aiff(1)).unwrap();
         let mut tag = Tag::new(TagType::Id3v2);
         for (kind, data) in pictures {
-            tag.push_picture(Picture::new_unchecked(
-                kind,
-                Some(MimeType::Jpeg),
-                None,
-                data.to_vec(),
-            ));
+            tag.push_picture(
+                Picture::unchecked(data.to_vec())
+                    .pic_type(kind)
+                    .mime_type(MimeType::Jpeg)
+                    .build(),
+            );
         }
         tag.save_to_path(path, lofty::config::WriteOptions::default())
             .unwrap();

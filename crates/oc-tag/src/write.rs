@@ -24,13 +24,29 @@ fn read_with(path: &Path, cover_art: bool) -> Result<TaggedFile, ReadError> {
         .map_err(|error| ReadError::Parse(error.to_string()))
 }
 
-/// A file's tags whole, pictures included, so that writing them back keeps everything. When
-/// only the picture fails to read, the file is refused as [`ReadError::DamagedPicture`].
+/// A picture that says it is a PNG or JPEG while its bytes are not one: what an older build
+/// wrote for a picture with no description, read back by lofty 0.25 with its bytes shifted.
+fn damaged(picture: &Picture) -> bool {
+    matches!(picture.mime_type(), Some(MimeType::Png | MimeType::Jpeg))
+        && crate::cover::sniff(picture.data()).is_none()
+}
+
+/// A file's tags whole, pictures included, so that writing them back keeps everything. When a
+/// picture is damaged, or only the pictures fail to read, the file is refused as
+/// [`ReadError::DamagedPicture`]: saving would rewrite a picture nobody can read.
 fn read_whole(path: &Path) -> Result<TaggedFile, ReadError> {
-    read_with(path, true).map_err(|error| match read_with(path, false) {
+    let whole = read_with(path, true).map_err(|error| match read_with(path, false) {
         Ok(_) => ReadError::DamagedPicture,
         Err(_) => error,
-    })
+    })?;
+    if whole
+        .tags()
+        .iter()
+        .any(|tag| tag.pictures().iter().any(damaged))
+    {
+        return Err(ReadError::DamagedPicture);
+    }
+    Ok(whole)
 }
 
 /// lofty writes a picture with no description into `ID3v2.3` as UTF-16 with a stray one-byte
@@ -94,7 +110,14 @@ pub fn write_tags(
     }
     let year = values.year.and_then(|year| u16::try_from(year).ok());
     if let Some(value) = year {
-        tag.set_year(u32::from(value));
+        tag.set_date(Timestamp {
+            year: value,
+            ..Timestamp::default()
+        });
+    }
+    if values.label.is_some() {
+        // A label read from ID3 sits under Publisher; both are written as TPUB, so drop the old one.
+        tag.remove_key(ItemKey::Publisher);
     }
     for (key, value) in [
         (ItemKey::AlbumArtist, &values.album_artist),
@@ -110,19 +133,18 @@ pub fn write_tags(
     }
     if let Some(cover) = cover {
         if tag.picture_count() == 0 {
-            tag.push_picture(Picture::new_unchecked(
-                PictureType::CoverFront,
-                Some(MimeType::from_str(cover.mime)),
-                // With no description, lofty writes a one-byte terminator after UTF-16 text,
-                // which readers (lofty included) reject.
-                Some("Cover".into()),
-                cover.data.clone(),
-            ));
+            tag.push_picture(
+                Picture::unchecked(cover.data.clone())
+                    .pic_type(PictureType::CoverFront)
+                    .mime_type(MimeType::from_str(cover.mime))
+                    .description("Cover")
+                    .build(),
+            );
         }
     }
     let mut options = WriteOptions::default();
     let options = options.use_id3v23(true);
-    let failed = |error: lofty::error::LoftyError| ReadError::Parse(error.to_string());
+    let failed = |error: lofty::error::FileEncodingError| ReadError::Parse(error.to_string());
     if tag.tag_type() != TagType::Id3v2 {
         return tagged.save_to_path(path, options).map_err(failed);
     }
@@ -183,12 +205,13 @@ pub fn rewrite_cover(path: &Path, cover: Option<&Cover>) -> Result<(), ReadError
             tag.remove_picture(0);
         }
         if let Some(cover) = cover {
-            tag.push_picture(Picture::new_unchecked(
-                PictureType::CoverFront,
-                Some(MimeType::from_str(cover.mime)),
-                Some("Cover".into()),
-                cover.data.clone(),
-            ));
+            tag.push_picture(
+                Picture::unchecked(cover.data.clone())
+                    .pic_type(PictureType::CoverFront)
+                    .mime_type(MimeType::from_str(cover.mime))
+                    .description("Cover")
+                    .build(),
+            );
         }
         let mut options = WriteOptions::default();
         tagged
@@ -330,9 +353,12 @@ fn clear(path: &Path, cleared: &[TextTag]) -> Result<(), ReadError> {
                 TextTag::Title => tag.remove_title(),
                 TextTag::Artist => tag.remove_artist(),
                 TextTag::Album => tag.remove_album(),
-                TextTag::Year => tag.remove_year(),
-                TextTag::Label => tag.remove_key(&ItemKey::Label),
-                TextTag::AlbumArtist => tag.remove_key(&ItemKey::AlbumArtist),
+                TextTag::Year => tag.remove_date(),
+                TextTag::Label => {
+                    tag.remove_key(ItemKey::Label);
+                    tag.remove_key(ItemKey::Publisher);
+                }
+                TextTag::AlbumArtist => tag.remove_key(ItemKey::AlbumArtist),
                 TextTag::Genre => tag.remove_genre(),
                 TextTag::TrackNumber => tag.remove_track(),
             }
@@ -650,22 +676,56 @@ mod tests {
 
     /// A file already holding such a broken picture: tag edits refuse it and leave it as it was,
     /// and new album art replaces the picture, after which it edits like any other.
+    /// An AIFF whose ID3v2.3 picture is what lofty 0.22 wrote for a picture with no
+    /// description: UTF-16 with a byte-order mark and a one-byte terminator, so the picture's
+    /// bytes cannot be found. The title frame before it is sound.
+    fn damaged_cover_aiff() -> Vec<u8> {
+        fn frame(id: [u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = id.to_vec();
+            out.extend(u32::try_from(body.len()).unwrap().to_be_bytes());
+            out.extend([0, 0]);
+            out.extend(body);
+            out
+        }
+        let mut title = vec![0];
+        title.extend(b"Night Drive");
+        let mut picture = vec![1];
+        picture.extend(b"image/png\0");
+        picture.push(3);
+        picture.extend([0xFF, 0xFE, 0]);
+        picture.extend(PNG);
+        let mut frames = frame(*b"TIT2", &title);
+        frames.extend(frame(*b"APIC", &picture));
+        let size = u32::try_from(frames.len()).unwrap();
+        let mut tag = b"ID3".to_vec();
+        tag.extend([3, 0, 0]);
+        tag.extend(
+            [
+                (size >> 21) & 0x7F,
+                (size >> 14) & 0x7F,
+                (size >> 7) & 0x7F,
+                size & 0x7F,
+            ]
+            .map(|byte| u8::try_from(byte).unwrap()),
+        );
+        tag.extend(frames);
+        let mut file = aiff(1);
+        file.extend(b"ID3 ");
+        file.extend(u32::try_from(tag.len()).unwrap().to_be_bytes());
+        file.extend(&tag);
+        if tag.len() % 2 == 1 {
+            file.push(0);
+        }
+        let form = u32::try_from(file.len() - 8).unwrap();
+        file[4..8].copy_from_slice(&form.to_be_bytes());
+        file
+    }
+
     #[test]
     fn a_damaged_picture_is_refused_by_edits_and_replaced_by_new_art() {
         let folder = tempfile::tempdir().unwrap();
         let path = folder.path().join("a.aif");
-        fs::write(&path, aiff(1)).unwrap();
-        let mut tag = Tag::new(TagType::Id3v2);
-        tag.set_title("Night Drive".into());
-        tag.push_picture(Picture::new_unchecked(
-            PictureType::CoverFront,
-            Some(MimeType::Png),
-            None,
-            PNG.to_vec(),
-        ));
-        // What lofty itself writes for a picture with no description in ID3v2.3.
-        let mut options = WriteOptions::default();
-        tag.save_to_path(&path, options.use_id3v23(true)).unwrap();
+        fs::write(&path, damaged_cover_aiff()).unwrap();
         assert_eq!(
             read_file(&path).unwrap().tags.title.as_deref(),
             Some("Night Drive")
