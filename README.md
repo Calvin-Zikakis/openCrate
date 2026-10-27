@@ -60,6 +60,9 @@ If Chromium is missing, use
 The npm wrapper selects Node 24 even when a different global version is installed.
 Without `--workspace`, Cargo defaults to the two library crates.
 
+To build test installers on your own Windows PC or Mac instead of on GitHub, see
+[BUILDING.md](BUILDING.md).
+
 Validation is local, on macOS, with synthetic fixtures only; the latest counts are
 under "Try it on your own music" below. See
 [research 003](docs/research/003-reduced-foundation-validation.md) and
