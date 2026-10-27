@@ -4,7 +4,7 @@
 
 use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
@@ -117,7 +117,7 @@ pub fn check(ffmpeg: &Path, path: &Path) -> Result<Option<u32>, Error> {
 }
 
 fn decode(ffmpeg: &Path, path: &Path, from_seconds: u32) -> Result<Vec<f32>, Error> {
-    let mut child = Command::new(ffmpeg)
+    let mut child = crate::process::command(ffmpeg)
         .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-ss"])
         .arg(from_seconds.to_string())
         .args(["-t", "30", "-i"])
@@ -147,6 +147,8 @@ fn decode(ffmpeg: &Path, path: &Path, from_seconds: u32) -> Result<Vec<f32>, Err
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
+
     use super::*;
 
     /// Noise made of sines every 50 Hz up to `top_hz`, with fixed phases: a full or cut band.
