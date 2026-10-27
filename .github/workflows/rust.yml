@@ -1,27 +1,28 @@
 name: Rust foundation
 
+# By hand, or for a pull request into main: Actions minutes are kept for the installers, and the
+# same checks run locally before every commit.
 on:
-  push:
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # A run started by hand (the Windows run on a branch) is never cancelled by a later push: it
-  # has a group of its own. Push runs on a branch keep only the newest; runs on main finish, so
-  # their build cache is saved.
+  # A run started by hand is never cancelled: it has a group of its own. On a pull request only
+  # the newest commit is checked.
   group: rust-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   validate:
     strategy:
       fail-fast: false
       matrix:
-        # Windows is the slow runner: on pushes to main and by hand only. macOS gives quick feedback everywhere.
-        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '["windows-latest", "macos-latest"]' || '["macos-latest"]') }}
+        # Windows is the slow runner: by hand only. A pull request is checked on macOS.
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest", "macos-latest"]' || '["macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     # SQLCipher and its OpenSSL are compiled from source (decision 0015); a warm cache takes far less.
     timeout-minutes: 45

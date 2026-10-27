@@ -1,8 +1,9 @@
 name: Frontend and desktop shell
 
+# By hand, or for a pull request into main (see rust.yml).
 on:
-  push:
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
