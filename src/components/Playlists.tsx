@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import { carriesCrate, carriesTracks, draggedCrate, draggedTracks } from "../library/drag";
 import type { LibraryAdmin, PlaylistInfo } from "../library/types";
 import { Icon } from "./Icon";
 import { inWindow } from "./menuPlace";
 import { PLAIN_TEXT } from "./plainText";
+
+/** Pixels per level of the playlist tree. */
+const INDENT = 14;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 /** How long a confirmation stays up; a refusal stays until the next drop. */
@@ -271,14 +274,14 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
   });
   const render = (parent: number | null, depth: number) => (children.get(parent) ?? []).map((row) => row.isFolder
     ? <li key={row.id}>
-      <button className={`tree-folder${over === row.id ? " is-drop-target" : ""}`} aria-expanded={open.has(row.id)} style={{ paddingLeft: 12 + depth * 12 }} onClick={(event) => { if (!macRightClick(event)) toggle(row.id); }} {...crateTarget(row)}
+      <button className={`tree-folder${over === row.id ? " is-drop-target" : ""}`} aria-expanded={open.has(row.id)} style={{ paddingLeft: 8 + depth * INDENT }} onClick={(event) => { if (!macRightClick(event)) toggle(row.id); }} {...crateTarget(row)}
         onContextMenu={(event) => openMenu(event, row)} onKeyDown={menuKeys(row)}>
-        <span aria-hidden="true">{open.has(row.id) ? "\u25BE" : "\u25B8"}</span><span className="truncate" title={row.name}>{row.name}</span>
+        <span className="tree-twist" aria-hidden="true">{open.has(row.id) ? "\u25BE" : "\u25B8"}</span><Icon name="folder" size={13} /><span className="truncate" title={row.name}>{row.name}</span><small className="tree-count" aria-hidden="true">{open.has(row.id) ? "" : children.get(row.id)?.length ?? 0}</small>
       </button>
-      {open.has(row.id) && <ul>{naming?.parent?.id === row.id && <li style={{ paddingLeft: 12 + (depth + 1) * 12 }}>{nameInput}</li>}{render(row.id, depth + 1)}</ul>}
+      {open.has(row.id) && <ul className="tree-children" style={{ "--tree-depth": depth } as CSSProperties}>{naming?.parent?.id === row.id && <li style={{ paddingLeft: 8 + (depth + 1) * INDENT }}>{nameInput}</li>}{render(row.id, depth + 1)}</ul>}
     </li>
     : <li key={row.id}>
-      <button className={`tree-playlist${over === row.id ? " is-drop-target" : ""}`} aria-current={activeId === row.id ? "true" : undefined} style={{ paddingLeft: 12 + depth * 12 }}
+      <button className={`tree-playlist${over === row.id ? " is-drop-target" : ""}`} aria-current={activeId === row.id ? "true" : undefined} style={{ paddingLeft: 8 + depth * INDENT }}
         title={`${row.name}: ${row.inLibrary} of ${row.entries} entries are in your library`} onClick={(event) => { if (!macRightClick(event)) onOpen(row); }}
         onContextMenu={(event) => openMenu(event, parentOf(row), row)} onKeyDown={menuKeys(parentOf(row), row)}
         onDragOver={(event) => {
@@ -296,7 +299,9 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
           if (askFirst) setAdding({ row, trackIds: ids });
           else void drop(row, ids);
         }}>
-        <span className="truncate">{row.name}</span><small>{row.inLibrary}/{row.entries}</small>
+        <span className="tree-twist" aria-hidden="true" /><span className="truncate">{row.name}</span>
+        {/* How many are here; the fraction only when some of the playlist is not in the library. */}
+        <small className={`tree-count${row.entries > 0 && row.inLibrary < row.entries ? " is-partial" : ""}`}>{row.entries === 0 ? "" : row.inLibrary === row.entries ? row.entries : `${row.inLibrary}/${row.entries}`}</small>
       </button>
     </li>);
   return <nav className="playlist-tree" aria-label="Playlists" onContextMenu={(event) => openMenu(event, null)}>

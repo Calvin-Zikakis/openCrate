@@ -310,11 +310,18 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .playlist-tree ul { list-style: none; margin: 0; padding: 0; }
 /* A right-click opens a menu; it should not also select the name under it. */
 .playlist-tree button, .crate-item { -webkit-user-select: none; user-select: none; }
-.playlist-tree button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 12px; border-radius: 6px; font-size: 12px; color: var(--secondary); }
+.playlist-tree button { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 5px 12px 5px 8px; border-radius: 6px; font-size: 12px; color: var(--secondary); }
 .playlist-tree button:hover:not(:disabled) { color: var(--text); }
 .playlist-tree .tree-playlist[aria-current="true"] { color: var(--accent-text); background: var(--raised); }
-.playlist-tree .tree-playlist small { margin-left: auto; font-size: 10px; color: var(--faint); }
-.playlist-tree .tree-folder span:first-child { width: 12px; font-size: 13px; line-height: 1; color: var(--secondary); }
+/* Every row has the same disclosure slot, so names at one depth line up whether or not they fold. */
+.playlist-tree .tree-twist { flex: none; width: 14px; font-size: 11px; line-height: 1; text-align: center; color: var(--faint); }
+.playlist-tree .tree-folder { color: var(--text); font-weight: 500; }
+.playlist-tree .tree-folder svg { flex: none; color: var(--secondary); }
+.playlist-tree .tree-count { margin-left: auto; padding-left: 6px; font-size: 10px; font-variant-numeric: tabular-nums; color: var(--faint); }
+.playlist-tree .tree-count.is-partial { color: var(--warn); }
+/* A faint guide down each nested level, so what belongs to which folder reads at a glance. */
+.playlist-tree .tree-children { position: relative; }
+.playlist-tree .tree-children::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: calc(8px + var(--tree-depth, 0) * 14px + 6px); width: 1px; background: var(--line); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .offline-banner { display: grid; gap: 8px; margin-bottom: 14px; padding: 12px 14px; border-radius: 8px; font-size: 12px; color: var(--warn); background: #ffc8570c; }
 .offline-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
