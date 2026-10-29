@@ -1,6 +1,6 @@
 //! Applying one scan pass to a root's files.
 //!
-//! The scanner (a later slice) walks a root read-only and reports what it saw. This
+//! The scanner (`oc_paths::walk_root`) walks a root read-only and reports what it saw. This
 //! module decides what that means for the rows: what is new, what changed, what came
 //! back, and, only when the evidence is good enough, what is missing. Lifecycle is never
 //! touched here; the rows' `lifecycle` belongs to openCrate's own operations.

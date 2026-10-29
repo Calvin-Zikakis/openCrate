@@ -1,6 +1,6 @@
 [package]
 name = "oc-rekordbox"
-description = "Read-only rekordbox interoperability for openCrate"
+description = "rekordbox for openCrate: Locations, the XML export and file, and reading and writing master.db"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

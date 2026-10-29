@@ -4,8 +4,8 @@ Follow the shared project instructions:
 
 @AGENTS.md
 
-Read [docs/HANDOFF.md](docs/HANDOFF.md) first, then the newest entry in
-[docs/LOG.md](docs/LOG.md). They record implemented work, validation limits and
+Read `docs/HANDOFF.md` first, then the newest entry in
+`docs/LOG.md`. They record implemented work, validation limits and
 the next concrete task. The Game Plan records product decisions; a review report
 alone does not authorize changing them.
 

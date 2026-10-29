@@ -5,7 +5,7 @@ Builds the openCrate Windows installer on this PC.
 .DESCRIPTION
 Does on your own computer what the Windows job in .github/workflows/installers.yml does on GitHub. It checks
 the tools the build needs, offers to install missing ones with winget (asking first), then builds an unsigned,
-per-user NSIS installer and prints where it is. See BUILDING.md.
+per-user NSIS installer and prints where it is. See README.md.
 
 .PARAMETER Yes
 Install missing tools without asking about each one.

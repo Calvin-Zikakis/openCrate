@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Builds the macOS app and disk image on this Mac, as the macOS job in .github/workflows/installers.yml does on
-# GitHub. See BUILDING.md. The result is unsigned and meant for testing.
+# GitHub. See README.md. The result is unsigned and meant for testing.
 set -euo pipefail
 
 REPO=${0:A:h:h:h}
@@ -8,7 +8,7 @@ cd $REPO
 
 xcode-select -p >/dev/null 2>&1 || { print "Missing the Xcode Command Line Tools: run xcode-select --install."; exit 1; }
 for tool in node npm cargo; do
-  command -v $tool >/dev/null || { print "Missing $tool: see BUILDING.md."; exit 1; }
+  command -v $tool >/dev/null || { print "Missing $tool: see README.md."; exit 1; }
 done
 
 # Build with the Node major version CI uses (.nvmrc). If another one is installed, npx fetches the right one

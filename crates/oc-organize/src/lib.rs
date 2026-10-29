@@ -1,6 +1,6 @@
 //! Pure naming rules for the library: sanitizing, path templates, Windows path limits and
-//! title and version parsing. No file system access and no database; a later slice that
-//! moves files will use these to decide where a file belongs, and never the other way round.
+//! title and version parsing. No file system access and no database; imports and re-filing
+//! use these to decide where a file belongs, and never the other way round.
 
 pub mod fit;
 pub mod sanitize;

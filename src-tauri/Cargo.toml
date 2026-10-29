@@ -1,6 +1,6 @@
 [package]
 name = "opencrate-desktop"
-description = "Synthetic openCrate desktop shell"
+description = "The openCrate desktop app: the Tauri 2 host for the React interface"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

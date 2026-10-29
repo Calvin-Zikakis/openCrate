@@ -1,7 +1,7 @@
-//! Read audio properties and tags from one file. Reading never writes; [`write_tags`] exists
-//! only for the importer's own staged copies. Cover art is loaded only by the separate [`cover`]
-//! functions. Text is trimmed and bounded, empty values become `None`, and
-//! several tags in one file are merged with the primary tag winning.
+//! Read audio properties and tags from one file. Reading never writes; [`write_tags`] writes the
+//! importer's staged copies and [`rewrite_tags`] changes library files through a copy. Cover art
+//! is loaded only by the separate [`cover`] functions. Text is trimmed and bounded, empty values
+//! become `None`, and several tags in one file are merged with the primary tag winning.
 
 mod cover;
 #[cfg(any(test, feature = "fixtures"))]

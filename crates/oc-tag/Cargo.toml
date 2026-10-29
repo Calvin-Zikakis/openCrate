@@ -1,6 +1,6 @@
 [package]
 name = "oc-tag"
-description = "Read-only audio properties and tags for openCrate"
+description = "Audio properties, tags and album art for openCrate: reading, and writing through a copy"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

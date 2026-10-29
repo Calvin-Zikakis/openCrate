@@ -1,6 +1,6 @@
 [package]
 name = "oc-core-db"
-description = "Owned SQLite lifecycle and recovery for openCrate"
+description = "The openCrate library database: SQLite schema, recovery, queries and the library service"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

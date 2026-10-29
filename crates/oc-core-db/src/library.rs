@@ -1,5 +1,5 @@
 //! Windowed, read-only library queries. The shapes mirror the frontend's
-//! `LibraryQuery` and `LibraryPage`, so a later IPC layer maps one to the other.
+//! `LibraryQuery` and `LibraryPage`, so the desktop app's IPC layer maps one to the other.
 //!
 //! Search matches word prefixes through FTS5, ignoring case and accents; every
 //! term must match. Dynamic SQL is assembled only from fixed fragments, and all

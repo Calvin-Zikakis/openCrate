@@ -1,5 +1,5 @@
 #!/bin/zsh
-# One-time setup of the macOS account Claude uses for hands-free testing (see HANDS-FREE-TESTING.md).
+# One-time setup of the macOS account Claude uses for hands-free testing (see docs/HANDS-FREE-TESTING.md).
 # Run it in Terminal while logged in as that account. It copies the repository, the test music and
 # Claude's notes from /Users/Shared/openCrate-setup (prepared from the owner's account), installs the
 # per-user tools (Rust, Playwright's browsers, Claude Code), signs gh in with a token limited to the
@@ -89,4 +89,4 @@ open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibil
 
 step "Done"
 print "Next: quit and reopen Terminal (permissions are read when it starts), open rekordbox once to"
-print "make its library, quit it, then start Claude as HANDS-FREE-TESTING.md describes."
+print "make its library, quit it, then start Claude as docs/HANDS-FREE-TESTING.md describes."

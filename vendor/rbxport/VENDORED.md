@@ -12,5 +12,7 @@
 patch": `normalized()` in `rbl-db/src/write.rs` returns forward slashes on Windows, the form rekordbox uses for its
 own paths there, so imported files are stored as `C:/...` and `track_id_at` finds them. openCrate also refuses to add
 files to a library that stores backslashes (`oc-rekordbox` `check_path_form`). Carry the patch over on an update.
+- The crates' READMEs are kept as published. Their links to rbxport's own `docs/` folder point at pages that were not
+  copied; read those in the source repository.
 - To update: copy the same files from a newer commit, record it here, and read every change to `rbl-db/src/write.rs`
   before use.

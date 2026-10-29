@@ -1,57 +1,59 @@
 # oc-rekordbox
 
-Lossless Location decoding and a standalone typed XML reader are implemented
-under [decision 0011](../../docs/decisions/0011-read-only-xml-parser.md).
-Neither resolves paths, matches files, touches a database or connects to the UI.
+Everything openCrate exchanges with rekordbox: its Location paths, its XML export (read) and openCrate's own XML
+file (written), and rekordbox's library database, `master.db`, read from a backup copy and written behind the
+app's write setting.
 
-## Public API
+## Locations
 
-`location::decode_location(&str) -> Result<Vec<u8>, location::LocationError>`
-accepts the exact, case-sensitive `file://localhost/` prefix. It percent-decodes
-the suffix once and prepends `/`. A synthetic drive-path input
-`file://localhost/G:/Synthetic%20Track.aif` therefore returns the bytes
-`/G:/Synthetic Track.aif`.
+`location::decode_location(&str) -> Result<Vec<u8>, LocationError>` accepts the exact, case-sensitive
+`file://localhost/` prefix. It percent-decodes the rest once and puts `/` in front, so
+`file://localhost/G:/Synthetic%20Track.aif` becomes the bytes `/G:/Synthetic Track.aif`.
 
-- Both hex cases are accepted. Literal `#`, `+`, punctuation, case and Unicode
-  form are preserved; this is not a URL parser or a form decoder.
-- Percent-encoded non-UTF-8 bytes are preserved. The input is text; the output
-  need not be valid UTF-8.
-- `LocationError` has `UnsupportedPrefix`, `InvalidEscape { offset }` and
-  `NullByte` variants. Escape offsets are byte offsets into the suffix after the
-  prefix. Error messages do not contain the input path.
+- Both hex cases are accepted. Literal `#`, `+`, punctuation, case and Unicode form are kept; this is not a URL
+  parser or a form decoder.
+- Percent-encoded bytes that are not UTF-8 are kept, so the output need not be valid UTF-8.
+- `LocationError` is `UnsupportedPrefix`, `InvalidEscape { offset }` or `NullByte`. Messages never contain the path.
 
-## Safety and limits
+`location::encode_location` writes the Location rekordbox would write for an absolute path: the prefix, then the
+path with forward slashes, percent-encoded with lowercase hex. Backslashes are separators only in a drive path.
 
-The decoder does no filesystem access, Unicode normalization, case folding,
-root remapping or containment checking. Drive, UNC and POSIX path shapes remain
-bytes, not a verified OS path or file identity. It does not sanitize traversal
-components. Callers must not treat successful decoding as permission to open a
-file or as proof of a match.
+Neither does any file system access, normalization, case folding or root mapping (that is `oc-paths`). A decoded
+Location is bytes, not proof that a file exists or matches.
 
-There is no Location encoder, XML writer, rekordbox mirror, `master.db` reader
-or live rekordbox access in the validated baseline. The filesystem identity
-contract remains open under review finding R3; see
-[decision 0009](../../docs/decisions/0009-reduced-foundation-and-recovery.md).
+## XML
 
-## XML reader
+`xml::read(impl BufRead)` and `xml::read_with_limits(impl BufRead, Limits)` read a whole export with `quick-xml` and
+return a typed `Collection`, or an error, only after the full input has been checked. The collection keeps track
+attributes, the original and decoded Locations, cue and beat grid times in seconds, the playlist tree in order,
+duplicate references and unresolved IDs. Unknown parts are skipped after checking, not imported.
 
-`xml::read(impl BufRead)` and `xml::read_with_limits(impl BufRead, Limits)`
-use `quick-xml`, returning a
-complete typed document or an error only after validating the full input.
-It retains metadata attributes, original XML-unescaped Locations and decoded
-path bytes, fractional-second cue/grid data, playlist order, duplicate
-references and explicit unresolved IDs. It performs no file I/O, matching,
-database work or UI integration.
+The default limits are 128 MiB of input, 1,000,000 tracks, 1,000,000 playlist entries and 128 levels of nesting.
+Malformed input, bad Locations, count mismatches, duplicate track IDs and unsupported entity tricks fail. Custom
+limits can only be lower.
 
-Initial limits are 128 MiB of input, 1,000,000 collection tracks, 1,000,000
-playlist references and XML depth 128, including unknown subtrees. Malformed
-input, invalid Locations, count mismatches, duplicate collection IDs and
-unsupported key/entity mechanisms fail. Custom limits can only lower defaults.
-`Collection` exposes tracks, a nested `PlaylistNode` tree, preserved attribute
-maps, sorted unresolved IDs and sorted skipped extension roots in
-`ignored_elements`. Cue/tempo times stay finite nonnegative `f64` seconds.
-Unknown subtrees are skipped rather than imported, with text/entity and
-structural validation; this is not a general XML schema validator.
+`xml::write_offer` and `xml::write_document` write openCrate's own small XML file: the tracks it offers to
+rekordbox and the playlists for crates. They hold only what openCrate knows for sure; rekordbox analyses the files
+itself.
+
+## rekordbox's library (`db`)
+
+`master.db` is an encrypted SQLite database, opened through the vendored `rbl-db` crate (`vendor/rbxport`).
+
+- Reading: `take_snapshot` copies the database and its write-ahead log into a new backup folder, folds the log in
+  and checks the copy, while rekordbox is closed. `read_snapshot` reads the copy into the same `Collection` an XML
+  export gives, so the rest of the app treats both alike.
+- Backups: `list_backups`, `set_pinned` and `prune` keep every pinned backup, the newest few, and the first one
+  taken before writing on each of the last 14 days. `restore` checks a backup, saves the library it replaces as a
+  pinned backup, and puts the chosen one back.
+- Writing (`db::write`): `create_folder`, `create_playlist`, `add_to_playlist` (adding files rekordbox does not have
+  yet), `set_fields` (the merge's title, artist, album, year and label), `relocate` (files that moved; analysis,
+  cues, My Tags and playlists stay with the track) and `merge_duplicates` (two entries for one recording become one:
+  the kept entry gains the other's playlist places, My Tags and rating, then the other is removed with rekordbox's
+  own soft delete; refused when that would lose cues). Each write needs rekordbox closed, takes a backup first,
+  reads back what it wrote, and puts the backup back if anything fails after it.
+- Paths are written with forward slashes (`C:/...`), the form rekordbox uses for its own paths on Windows.
+  `check_path_form` refuses to add files to a library that stores backslashes, a form not yet seen.
 
 ## Validation
 
@@ -62,11 +64,5 @@ cargo test -p oc-rekordbox --locked
 cargo clippy -p oc-rekordbox --all-targets --locked -- -D warnings
 ```
 
-The current run on arm64 macOS with Rust 1.99.0 passed 23 crate tests
-(seven codec and 16 parser), with strict clippy clean. Inputs are synthetic
-strings/readers only, including 10,000 generated collection entries. Tests cover
-punctuation, one-pass decoding, raw bytes, case and Unicode preservation, path
-shapes, malformed escapes, NUL and unsupported prefixes.
-
-No private export or real-data matching test was run. Windows CI is configured,
-not remotely validated. See [research 005](../../docs/research/005-read-only-xml-validation.md).
+The tests use synthetic XML and databases built in the test, including 10,000 generated tracks. No private export
+or real rekordbox library is used. The writes were also checked by hand against a test rekordbox library.

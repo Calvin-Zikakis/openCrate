@@ -3,7 +3,7 @@
 //! Each poll lists every enabled, reachable watch folder and asks `oc-ingest` which
 //! releases look finished. The stability trackers live here, in memory: a restart makes every
 //! file wait out the quiet period again, which is the safe direction. Nothing is copied,
-//! staged or changed; importing is a later slice.
+//! staged or changed here; importing is `import.rs`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

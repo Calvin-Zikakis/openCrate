@@ -2,7 +2,7 @@
 //! file has stopped changing, and which entries make up one release. No clock and no database:
 //! the caller passes the time in, and decides what to do with
 //! the answer. Only `list` touches the file system, and only to read. Nothing here ever
-//! suggests touching a file in the watch folder; a later slice copies a ready release into
+//! suggests touching a file in the watch folder; the desktop app copies a ready release into
 //! staging.
 
 pub mod classify;
