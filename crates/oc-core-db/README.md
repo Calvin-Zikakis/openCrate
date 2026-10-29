@@ -1,9 +1,10 @@
 # oc-core-db
 
-Synchronous SQLite lifecycle and recovery for openCrate. Schema v1 contains only
-`app_state`, a single clean-shutdown marker. There is no library schema/query
-API, writer worker or reader pool. The workspace uses bundled SQLite with the
-online backup feature, not SQLCipher.
+The library database for openCrate: SQLite lifecycle and recovery, the library schema (v28; one migration per file
+in `src/schema`), queries over a reader pool and writes through one writer (`service::LibraryService`). The
+schema covers music folders, files and tracks, rekordbox's copy, crates, edit history, import batches, and the
+Reorganize tool's sittings and the moves put back. The workspace uses bundled SQLite with the online backup
+feature, not SQLCipher.
 
 ## Public API
 
@@ -45,7 +46,7 @@ private; this is not a general-purpose database write API.
   and published without overwriting. Parent-directory flushing is Unix-only.
 - A snapshot precedes each upgrade of an existing schema. Initial creation from
   version 0 has no snapshot. Each migration and its application ID/version
-  changes commit in one transaction. Only the v1 migration ships today.
+  changes commit in one transaction. Migrations are written to run again safely, since tests roll the version back.
 - Restore requires a standalone snapshot, not an arbitrary copy of a live
   database missing its WAL. It validates the source and marks the new copy clean.
   It never replaces an existing database or switches the application to it.

@@ -8,35 +8,26 @@ The planned read-back is XML-first, with an experimental copy-only `master.db`
 reader later. Playlists stay read-only.
 
 Windows is the primary target. The product plan indexes existing libraries in
-place without renaming them. New imports, a review queue and a waveform player
-are later work, not features of the current foundation.
+place without renaming them; imports, crates, a waveform player, Clean up tools and
+an experimental Reorganize tool are built and being tested (see below).
 
 ## Status
 
 The reduced foundation in [decision 0009](docs/decisions/0009-reduced-foundation-and-recovery.md)
 and visual sub-slice in [0010](docs/decisions/0010-synthetic-interface-shell.md)
-are built locally. The Cargo workspace contains two library crates and a Tauri host:
+are where it started. The Cargo workspace now holds the library crates (`oc-core-db`, `oc-rekordbox`,
+`oc-tag`, `oc-paths`, `oc-lookup`, `oc-publish`, `oc-convert` and others) and the Tauri host:
 
-- [oc-core-db](crates/oc-core-db/README.md): lifecycle schema v1 (`app_state`
-  only), cooperative ownership, WAL, clean/dirty detection, online snapshots and
-  non-overwriting restore.
-- [oc-rekordbox](crates/oc-rekordbox/README.md): lossless Location decoding to
-  bytes, not file matching or XML import.
-- [opencrate-desktop](src-tauri/README.md): minimal Tauri 2 host for the
-  React/Vite synthetic shell, with no custom commands or database connection.
+- [oc-core-db](crates/oc-core-db/README.md): the library database (schema v28), with ownership, WAL,
+  clean/dirty detection, snapshots and restore.
+- [oc-rekordbox](crates/oc-rekordbox/README.md): rekordbox XML and, opt-in, its `master.db`.
+- [opencrate-desktop](src-tauri/README.md): the Tauri 2 host and its library commands.
 
-The demo has virtualized track/release/artist views, worker-based search/sort,
-format filters, selection and card drill-down. Only appearance persists in
-`localStorage`. Folder pickers, XML, importing and playback are not connected.
-The player is a disabled preview, and the interface is explicitly labelled
-synthetic. The UI does not access `oc-core-db`; there is no windowed SQLite API,
-scanner, library schema, reader pool or application database writer worker.
+Without a library folder (`OPENCRATE_DATA`), the window is a synthetic demo held in memory.
 
-A macOS arm64 development bundle was built, but its native check established
-process liveness only, not UI readiness. Rust Windows/macOS CI and frontend
-Linux/browser CI are configured, with an on-demand unsigned Windows NSIS build;
-neither workflow has run remotely. Milestone 0 is not complete. The repository
-remains private, and no real music or exports are used by this demo.
+CI runs by hand or for a pull request into main: Rust on Windows and macOS, the frontend and browser tests on
+Linux, and unsigned Windows and macOS installers. The repository remains private, and every test uses synthetic
+music only.
 
 ## Local validation
 
@@ -112,16 +103,23 @@ folder. Any tag can be typed over, a Whole release row fills every file at once,
 knows. Nothing is copied until you press Import; the originals always stay where they are. Imports can land in a crate and
 a rekordbox playlist of your choice, and **Recently imported** lists the last batch.
 
-What it never does: write, rename or move a music file; write to rekordbox or its
-database; access the network; touch any folder you did not pick. Removing a
-folder from the library removes only its index entries. Use a **copy** of a small
-folder and a **copy** of an export first, because this build has not been reviewed
-by you, has never run on Windows, and was verified only on macOS with synthetic
-files. `OPENCRATE_DEMO=<tracks>` opens a throwaway synthetic database instead. If
-the folder you named cannot be opened, the window says why and shows the demo.
+The track list has columns you choose, resize and reorder, with a default of your own, and filters by genre, year and
+date added. **Clean up** fixes things across the library: undo of recent tag changes, moved files (also found in a
+folder you point at), genre spellings, titles, crates (sort, merge, compare), the folder layout and album art. Its
+last card, **Reorganize library (experimental, use at your own risk)**, fills in thin tags with MusicBrainz lookups,
+then moves files into the folder layout in sittings and tells rekordbox where they went; any of the last 20 sittings
+can be put back.
 
-Latest local results: 374 Rust tests, 52 unit tests and 53 browser runs (47 in Chromium; the drag and player tests also in WebKit) pass,
-with strict clippy. See [HANDOFF](docs/HANDOFF.md) for what is built, what is
+What it changes, and only when you choose to: tags you edit or accept; files it imports (as copies), tidies, re-files
+or reorganizes, never moving one over another; and rekordbox's `master.db`, only with reading and writing it turned
+on in Settings, rekordbox closed, and a backup taken first. Lookups go to MusicBrainz, the Cover Art Archive and,
+with a token, Discogs. Other software that remembers file paths (Serato, Traktor, M3U playlists) does not follow
+moved files. Use a **copy** of a small folder first: the build is tested on macOS with synthetic files, and on
+Windows by CI. `OPENCRATE_DEMO=<tracks>` opens a throwaway synthetic database instead. If the folder you named
+cannot be opened, the window says why and shows the demo.
+
+Latest local results (2026-10-29): 693 Rust tests, 86 unit tests and 143 browser runs (Chromium, and WebKit for
+the drag and player tests) pass, with strict clippy; CI is green on Windows, macOS and Linux. See [HANDOFF](docs/HANDOFF.md) for what is built, what is
 not, and the next steps, and [LOG](docs/LOG.md) for the details and the limits
 of every check (including what could not be observed: the native window and
 dialogs).

@@ -1,6 +1,6 @@
 # opencrate-desktop
 
-Minimal Tauri 2 host for the synthetic React shell in
+The Tauri 2 host for the React interface. It began as the synthetic shell in
 [decision 0010](../docs/decisions/0010-synthetic-interface-shell.md).
 It is a workspace member alongside `oc-core-db` and `oc-rekordbox`.
 The workspace's default members remain the two library crates; use
@@ -8,23 +8,22 @@ The workspace's default members remain the two library crates; use
 
 ## API and limits
 
-This is a binary crate with no public Rust library API. It registers two commands,
-`library_mode` and `library_read`, over `oc_core_db::service::LibraryService`. Inbound
-messages are strict (`deny_unknown_fields`, windows of at most 200 rows, search text
-capped); outbound ones are camelCase like `src/library/types.ts`. Without
-`OPENCRATE_DEMO=<tracks>` there is no database, `library_mode` answers `synthetic`, and
-the UI keeps its in-memory Web Worker catalog, as before. With it, the host opens a
-synthetic database in a temporary folder (removed at exit), seeds it, and the UI reads
-through `library_read`. `OPENCRATE_DATA=<absolute folder>` instead opens a persistent
-library there. Whenever a library is open, Settings can add folders and scan them:
-`library_add_root` opens the native folder dialog from Rust (the page never supplies a
-path), `library_scan` runs one scan at a time in the background, and the UI polls
-`library_scan_status` (no event permissions). Folders are only read. The app opens no
-default app-data folder yet (A86). Tauri's own check refuses all these commands to any
-non-local origin; tests cover that. The dialog itself needs a real window and is untested.
+This is a binary crate with no public Rust library API. It registers about 150 commands over
+`oc_core_db::service::LibraryService`, all named `library_*` or `rekordbox_*` (see the `generate_handler!` list in
+`src/main.rs`): reading pages of the library, scanning folders, imports and their lookups, the tag editor, crates,
+playlists, Clean up (moved files, genres, titles, folder layout, album art, Reorganize sittings and putting them
+back), and reading and writing rekordbox. Inbound messages are strict (`deny_unknown_fields`, windows of at most 200
+rows, search text capped); outbound ones are camelCase like `src/library/types.ts`.
 
-- No filesystem, network or shell plugins are installed. The main window's
-  capability has an empty permissions list.
+Without `OPENCRATE_DATA` or `OPENCRATE_DEMO`, `library_mode` answers `synthetic` and the UI keeps its in-memory
+catalog. `OPENCRATE_DEMO=<tracks>` opens a seeded throwaway database; `OPENCRATE_DATA=<absolute folder>` opens a
+persistent library there. Folder pickers are native dialogs opened from Rust (the page never supplies a path).
+Commands that move or rewrite files share one hold, so two of them never change one file at once. Tauri's own check
+refuses all these commands to any non-local origin; tests cover that.
+
+- Only the dialog plugin is installed, used from Rust; there are no filesystem, network or shell plugins.
+  The main window's capability has an empty permissions list. Network lookups (MusicBrainz, the Cover Art
+  Archive, Discogs) are made by the host, not the page.
 - The configured CSP permits local assets, workers, data images and Tauri's
   local IPC transport, not remote services. Inline styles are allowed for
   virtualization and generated artwork. This is not an operating-system sandbox.
