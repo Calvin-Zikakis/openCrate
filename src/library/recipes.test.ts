@@ -30,7 +30,7 @@ describe("edit recipes", () => {
     expect(withRecipe({ title: "02 - x" }, { ...recipe, values: { title: "01 - KEEP" } })).toEqual({ title: "01 - KEEP" });
   });
   it("turns a recipe into values to send with an import, for files that change and can go", () => {
-    const field = (name: string, value: string | null) => ({ name, value, guessed: false, tidiedFrom: null });
+    const field = (name: string, value: string | null) => ({ name, value, guessed: false, tidiedFrom: null, lookedUp: false });
     const file = (source: string, title: string, problem: string | null = null): PlanFile => ({
       source, destination: problem ? null : `A/${source}`, shortened: false, problem, becomes: null,
       tags: { fields: [field("Title", title), field("Artist", "Studio"), field("Year", "2019"), field("Track", "1")], audio: null, length: null, readError: null, warnings: [] },

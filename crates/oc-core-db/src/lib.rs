@@ -6,6 +6,7 @@ pub mod downloads;
 pub mod edits;
 pub mod fields;
 pub mod health;
+pub mod imports;
 pub mod library;
 pub mod matching;
 pub mod merge;
@@ -68,6 +69,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/022_forget_release_agreement.sql"),
     include_str!("schema/023_track_tag_tempo_key.sql"),
     include_str!("schema/024_file_by_size.sql"),
+    include_str!("schema/025_import_batch.sql"),
 ];
 
 #[derive(Debug, Error)]
@@ -394,6 +396,8 @@ mod downloads_tests;
 mod health_tests;
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod imports_tests;
 #[cfg(test)]
 mod merge_tests;
 #[cfg(test)]

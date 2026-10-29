@@ -42,23 +42,72 @@ const SCAN_WAIT_MS = 10 * 60_000;
 
 /** New files join the library the way any file does: by a scan of the folder (`onScanned` then
  * refreshes the lists). With writing to rekordbox on, they then go straight into rekordbox's
- * Imported playlist. Returns what happened in rekordbox, or "" when nothing did. */
-export async function bringIn(admin: LibraryAdmin, rootId: number, onScanned?: () => void): Promise<string> {
+ * Imported playlist. `imported` names the files just filed (from the import's answer): once the
+ * scan knows them as tracks, they go on into the crate and the rekordbox playlist chosen on the
+ * Import screen. Returns what happened after the scan, or "" when nothing did. */
+export async function bringIn(admin: LibraryAdmin, rootId: number, onScanned?: () => void, imported: number[] = []): Promise<string> {
   await admin.scan(rootId).catch(() => undefined);
   for (let waited = 0; waited < SCAN_WAIT_MS; waited += 500) {
     if ((await admin.scanStatus().catch(() => null))?.state !== "running") break;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   onScanned?.();
+  const notes: string[] = [];
   const rekordbox = await admin.rekordboxDatabase().catch(() => null);
-  if (!rekordbox?.writeEnabled || rekordbox.writeNeedsConfirmation || !rekordbox.writeTested) return "";
-  try {
-    const done = await admin.sendNewToRekordbox();
-    onScanned?.();
-    return done.added > 0 ? `Added ${done.added} ${done.added === 1 ? "track" : "tracks"} to rekordbox's Imported playlist.` : "";
-  } catch (reason) {
-    return `Not added to rekordbox yet: ${reason instanceof Error ? reason.message : "something went wrong."} They wait on the rekordbox screen until then.`;
+  const writing = Boolean(rekordbox?.writeEnabled && !rekordbox.writeNeedsConfirmation && rekordbox.writeTested);
+  if (writing) {
+    try {
+      const done = await admin.sendNewToRekordbox();
+      onScanned?.();
+      if (done.added > 0) notes.push(`Added ${plural(done.added, "track", "tracks")} to rekordbox's Imported playlist.`);
+    } catch (reason) {
+      notes.push(`Not added to rekordbox yet: ${reason instanceof Error ? reason.message : "something went wrong."} They wait on the rekordbox screen until then.`);
+    }
   }
+  if (imported.length > 0) notes.push(...await followUp(admin, imported, writing, onScanned));
+  return notes.join(" ");
+}
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+/** The imported tracks go on into the chosen crate and rekordbox playlist. Each step says what
+ * it did, or why it could not. */
+async function followUp(admin: LibraryAdmin, imported: number[], writing: boolean, onScanned?: () => void): Promise<string[]> {
+  const target = await admin.importTarget().catch(() => null);
+  if (!target || (target.crateId === null && target.playlistId === null)) return [];
+  const notes: string[] = [];
+  let tracks: number[];
+  try {
+    tracks = await admin.importedTracks(imported);
+  } catch (reason) {
+    return [`The imported tracks could not be found in the library yet: ${reason instanceof Error ? reason.message : "something went wrong."}`];
+  }
+  if (tracks.length === 0) return ["The imported files are not in the library yet, so they were not added to the crate or playlist."];
+  if (target.crateId !== null) {
+    const name = (await admin.crates().catch(() => [])).find((crate) => crate.id === target.crateId)?.name ?? "the crate";
+    try {
+      const added = await admin.addToCrate(target.crateId, tracks);
+      notes.push(added > 0 ? `Added ${plural(added, "track", "tracks")} to the crate ${name}.` : `The crate ${name} already had them.`);
+      onScanned?.();
+    } catch (reason) {
+      notes.push(`Could not add them to the crate ${name}: ${reason instanceof Error ? reason.message : "something went wrong."}`);
+    }
+  }
+  if (target.playlistId !== null) {
+    const name = (await admin.playlists().catch(() => [])).find((playlist) => playlist.id === target.playlistId)?.name ?? "the rekordbox playlist";
+    if (!writing) {
+      notes.push(`Not added to the rekordbox playlist ${name}: writing to rekordbox is off in Settings.`);
+    } else {
+      try {
+        const done = await admin.addToRekordboxPlaylist(target.playlistId, tracks);
+        notes.push(`Added ${plural(done.added, "track", "tracks")} to the rekordbox playlist ${done.playlist || name}.${done.leftOut.length > 0 ? ` Left out: ${done.leftOut.join("; ")}` : ""}`);
+        onScanned?.();
+      } catch (reason) {
+        notes.push(`Could not add them to the rekordbox playlist ${name}: ${reason instanceof Error ? reason.message : "something went wrong."}`);
+      }
+    }
+  }
+  return notes;
 }
 
 let chain: Promise<unknown> = Promise.resolve();
@@ -90,7 +139,7 @@ export async function autoImport(
   options: ImportOptions,
   recipe: Recipe | null,
   seen: Set<string>,
-  afterImport: (rootId: number) => Promise<void>,
+  afterImport: (rootId: number, imported: number[]) => Promise<void>,
   current: () => boolean = () => true,
 ): Promise<AutoOutcome> {
   const outcome: AutoOutcome = { imported: [], waiting: [] };
@@ -114,7 +163,7 @@ export async function autoImport(
         const now = (await admin.downloadReleases()).releases.find((other) => other.folderId === release.folderId && other.name === release.name);
         if (!now || now.imported || now.alreadyThere) return null;
         const filed = await admin.importRelease(release.folderId, release.name, rootId, { ...options, accepted });
-        if (filed.filed > 0) await afterImport(filed.rootId);
+        if (filed.filed > 0) await afterImport(filed.rootId, filed.imported);
         return filed;
       });
       if (!done) continue;

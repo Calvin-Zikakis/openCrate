@@ -104,8 +104,10 @@ Select a track and press **Cues and grid** to see the hot cues, memory cues, loo
 for it (after reading an export), exactly as rekordbox wrote them.
 
 In Settings, **Watch folders** takes the folders where your downloads land, whatever their source; the Import screen then lists
-what is in them and which releases look finished downloading. Each release has a **Preview** button that shows where every file would go in your music folder, from its tags,
-and what would stop it. It is a dry run: nothing is copied or imported yet.
+what is in them, one row per track, with the tags as they would be written and where every file would go in your music
+folder. Any tag can be typed over, a Whole release row fills every file at once, and **Look up** fills in what MusicBrainz
+knows. Nothing is copied until you press Import; the originals always stay where they are. Imports can land in a crate and
+a rekordbox playlist of your choice, and **Recently imported** lists the last batch.
 
 What it never does: write, rename or move a music file; write to rekordbox or its
 database; access the network; touch any folder you did not pick. Removing a

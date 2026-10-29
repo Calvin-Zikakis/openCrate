@@ -896,6 +896,45 @@ impl LibraryService {
             .run(move |database| database.add_to_crate(crate_id, &track_ids, now_ms()))?
     }
 
+    /// Remember files just filed under a music folder (components below it), so Recently
+    /// imported can show them and the import can be followed into a crate or playlist.
+    pub fn record_import(
+        &self,
+        root_id: i64,
+        files: Vec<Vec<Vec<u8>>>,
+    ) -> Result<crate::imports::Recorded> {
+        self.writer
+            .run(move |database| database.record_import(root_id, &files, now_ms()))?
+    }
+
+    /// [`Self::record_import`] at a given moment, for tests of the batch gap.
+    #[cfg(test)]
+    pub(crate) fn record_import_at(
+        &self,
+        root_id: i64,
+        files: Vec<Vec<Vec<u8>>>,
+        now_ms: i64,
+    ) -> Result<crate::imports::Recorded> {
+        self.writer
+            .run(move |database| database.record_import(root_id, &files, now_ms))?
+    }
+
+    /// Import batches, newest first.
+    pub fn import_batches(&self) -> Result<Vec<crate::imports::ImportBatchRow>> {
+        crate::imports::list_batches(self.pool.lease().connection())
+    }
+
+    /// The tracks behind import rows (from [`Self::record_import`]), once scanned in.
+    pub fn imported_tracks(&self, file_ids: &[i64]) -> Result<Vec<i64>> {
+        crate::imports::tracks_of_files(self.pool.lease().connection(), file_ids)
+    }
+
+    /// Every container in the library with how many tracks have an active file in it, most
+    /// common first.
+    pub fn formats(&self) -> Result<Vec<(String, i64)>> {
+        crate::library::formats(self.pool.lease().connection())
+    }
+
     pub fn remove_from_crate(&self, crate_id: i64, track_ids: Vec<i64>) -> Result<usize> {
         self.writer
             .run(move |database| database.remove_from_crate(crate_id, &track_ids))?

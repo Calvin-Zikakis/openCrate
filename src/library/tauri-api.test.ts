@@ -18,7 +18,7 @@ describe("reading through the Rust backend", () => {
     const api = new TauriLibraryApi(invoke);
     const result = await api.read({ ...DEFAULT_QUERY, search: "night", format: "all", artistId: 4 }, 5, 100, live());
     expect(invoke).toHaveBeenCalledWith("library_read", {
-      query: { view: "tracks", search: "night", sort: "recent", format: null, artistId: 4, releaseId: null, playlistId: null, crateId: null, reversed: false },
+      query: { view: "tracks", search: "night", sort: "recent", format: null, artistId: 4, releaseId: null, playlistId: null, crateId: null, batchId: null, reversed: false },
       start: 5,
       count: 100,
     });
@@ -237,7 +237,7 @@ describe("managing folders", () => {
   it("asks for an import preview by ids and a name, and refuses an unreadable one", async () => {
     const first = {
           source: "Between Spaces/a.aif", destination: "Studio/Between Spaces/01 - Studio - A.aif", shortened: false, problem: null,
-          tags: { fields: [{ name: "Artist", value: "Studio", guessed: false, tidiedFrom: "Studio;" }, { name: "Track", value: null, guessed: true, tidiedFrom: null }], audio: "AIFF 16/44.1", length: "3:27", readError: null, warnings: ["The track number is 0."] },
+          tags: { fields: [{ name: "Artist", value: "Studio", guessed: false, tidiedFrom: "Studio;", lookedUp: false }, { name: "Track", value: null, guessed: true, tidiedFrom: null, lookedUp: false }], audio: "AIFF 16/44.1", length: "3:27", readError: null, warnings: ["The track number is 0."] },
           becomes: "AIFF",
     };
     const plan = {
@@ -278,7 +278,7 @@ describe("managing folders", () => {
   });
 
   it("reads what an import did and refuses an unreadable answer", async () => {
-    const done = { rootId: 3, rootLabel: "Music", filed: 2, skipped: [{ source: "R/x.zip", problem: "Archives are not unpacked yet." }] };
+    const done = { rootId: 3, rootLabel: "Music", filed: 2, skipped: [{ source: "R/x.zip", problem: "Archives are not unpacked yet." }], batchId: 5, imported: [11, 12] };
     const invoke = vi.fn().mockResolvedValue(done);
     expect(await new TauriLibraryApi(invoke, manage).admin!.importRelease(9, "R", 3)).toEqual(done);
     expect(invoke).toHaveBeenLastCalledWith("library_import_release", { folderId: 9, name: "R", rootId: 3, options: null });
@@ -437,7 +437,7 @@ describe("playlists", () => {
     const api = new TauriLibraryApi(invoke);
     await api.read({ ...DEFAULT_QUERY, sort: "playlist", playlistId: 3 }, 0, 10, live());
     expect(invoke).toHaveBeenLastCalledWith("library_read", {
-      query: { view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null, reversed: false },
+      query: { view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null, batchId: null, reversed: false },
       start: 0,
       count: 10,
     });

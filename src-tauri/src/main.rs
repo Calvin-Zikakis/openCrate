@@ -14,6 +14,7 @@ mod export;
 mod export_tests;
 mod folders;
 mod import;
+mod imports;
 mod ipc;
 mod layout;
 mod library_fix;
@@ -1047,6 +1048,60 @@ async fn library_import_release(
     .map_err(|error| error.to_string())?
 }
 
+/// Import batches, newest first, for Recently imported.
+#[tauri::command]
+async fn library_import_batches(
+    state: State<'_, AppState>,
+) -> Result<Vec<imports::ImportBatchDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || imports::batches(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// The tracks behind an import's files (from `library_import_release`), once scanned in.
+#[tauri::command]
+async fn library_imported_tracks(
+    state: State<'_, AppState>,
+    file_ids: Vec<i64>,
+) -> Result<Vec<i64>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || imports::tracks(&service, &file_ids))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Every container in the library with its track count, for the format filter.
+#[tauri::command]
+async fn library_formats(state: State<'_, AppState>) -> Result<Vec<imports::FormatDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || imports::formats(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Where imported tracks go afterwards: a crate, a rekordbox playlist, neither.
+#[tauri::command]
+async fn library_import_target(
+    state: State<'_, AppState>,
+) -> Result<imports::ImportTargetDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || imports::target(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn library_set_import_target(
+    state: State<'_, AppState>,
+    target: imports::ImportTargetDto,
+) -> Result<imports::ImportTargetDto, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || imports::set_target(&service, &target))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 async fn library_set_watch_folder_enabled(
     state: State<'_, AppState>,
@@ -1657,6 +1712,11 @@ fn main() -> Result<(), tauri::Error> {
             library_plan_release,
             library_import_release,
             library_lookup_release,
+            library_import_batches,
+            library_imported_tracks,
+            library_formats,
+            library_import_target,
+            library_set_import_target,
             library_folder_layout,
             library_check,
             player_load,

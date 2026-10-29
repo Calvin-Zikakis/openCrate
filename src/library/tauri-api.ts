@@ -4,7 +4,9 @@ import {
   type CrateInfo,
   type FolderInfo,
   type Format,
+  type ImportBatch,
   type ImportResult,
+  type ImportTarget,
   type LibraryAdmin,
   type LibraryApi,
   type LibraryItem,
@@ -135,6 +137,7 @@ function toWire(query: LibraryQuery) {
     releaseId: query.releaseId,
     playlistId: query.playlistId,
     crateId: query.crateId,
+    batchId: query.batchId,
     reversed: query.reversed,
   };
 }
@@ -229,6 +232,7 @@ function toTagView(value: unknown): TagView {
       return {
         name: text(field.name, "import preview"), value: field.value === null ? null : text(field.value, "import preview"), guessed: field.guessed,
         tidiedFrom: field.tidiedFrom === null || field.tidiedFrom === undefined ? null : text(field.tidiedFrom, "import preview"),
+        lookedUp: field.lookedUp === true,
       };
     }),
     audio: value.audio === null ? null : text(value.audio, "import preview"),
@@ -335,6 +339,23 @@ function toReleaseImport(value: unknown): ReleaseImport {
       if (!isRecord(item)) throw bad();
       return { source: text(item.source, "import"), problem: text(item.problem, "import") };
     }),
+    batchId: value.batchId === null || value.batchId === undefined ? null : whole(value.batchId, "import"),
+    imported: Array.isArray(value.imported) ? ids(value.imported, "import") : [],
+  };
+}
+
+function toImportBatch(value: unknown): ImportBatch {
+  const what = "import batch";
+  if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  return { id: whole(value.id, what), startedMs: whole(value.startedMs, what), lastMs: whole(value.lastMs, what), files: whole(value.files, what), tracks: whole(value.tracks, what) };
+}
+
+function toImportTarget(value: unknown): ImportTarget {
+  const what = "import target";
+  if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+  return {
+    crateId: value.crateId === null || value.crateId === undefined ? null : whole(value.crateId, what),
+    playlistId: value.playlistId === null || value.playlistId === undefined ? null : whole(value.playlistId, what),
   };
 }
 
@@ -759,6 +780,22 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       toPlan(await invoke("library_plan_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
     importRelease: async (folderId, name, rootId, options) =>
       toReleaseImport(await invoke("library_import_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
+    importBatches: async () => {
+      const response = await invoke("library_import_batches").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of import batches.");
+      return response.map(toImportBatch);
+    },
+    importedTracks: async (fileIds) => ids(await invoke("library_imported_tracks", { fileIds }).catch((error: unknown) => { throw failure(error); }), "imported tracks"),
+    importTarget: async () => toImportTarget(await invoke("library_import_target").catch((error: unknown) => { throw failure(error); })),
+    setImportTarget: async (target) => toImportTarget(await invoke("library_set_import_target", { target }).catch((error: unknown) => { throw failure(error); })),
+    formats: async () => {
+      const response = await invoke("library_formats").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of formats.");
+      return response.map((row: unknown) => {
+        if (!isRecord(row)) throw new Error("The library returned an unreadable list of formats.");
+        return { format: text(row.format, "formats"), tracks: whole(row.tracks, "formats") };
+      });
+    },
     lookupRelease: async (folderId, name, rootId, options) =>
       toLookup(await invoke("library_lookup_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
     waveform: async (trackId) => {

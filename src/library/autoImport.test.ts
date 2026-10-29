@@ -10,7 +10,7 @@ const release = (name: string, extra: Partial<DownloadRelease> = {}): DownloadRe
 const plan = (name: string, guessed: boolean): ImportPlan => ({
   release: name, rootLabel: "Music", ready: 1, blocked: 0,
   files: [{ source: `${name}/01.aif`, destination: `A/${name}.aif`, shortened: false, problem: null, becomes: null,
-    tags: { fields: [{ name: "Title", value: "02 - NIGHT", guessed, tidiedFrom: null }], audio: null, length: null, readError: null, warnings: [] } }],
+    tags: { fields: [{ name: "Title", value: "02 - NIGHT", guessed, tidiedFrom: null, lookedUp: false }], audio: null, length: null, readError: null, warnings: [] } }],
 });
 
 function fakeAdmin(imported: { name: string; accepted: unknown }[], byHand: string[] = []): LibraryAdmin {
@@ -20,7 +20,7 @@ function fakeAdmin(imported: { name: string; accepted: unknown }[], byHand: stri
     planRelease: async (_folder: number, name: string) => plan(name, name === "Guessed"),
     importRelease: async (_folder: number, name: string, rootId: number, options?: { accepted?: unknown }) => {
       imported.push({ name, accepted: options?.accepted });
-      return { rootId, rootLabel: "Music", filed: 1, skipped: [] };
+      return { rootId, rootLabel: "Music", filed: 1, skipped: [], batchId: 1, imported: [1] };
     },
   } as unknown as LibraryAdmin;
 }

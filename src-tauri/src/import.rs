@@ -35,6 +35,10 @@ pub struct ImportDto {
     pub filed: usize,
     /// Files left where they are, and why.
     pub skipped: Vec<SkippedDto>,
+    /// The import batch the filed files joined (none when nothing was filed).
+    pub batch_id: Option<i64>,
+    /// One id per filed file, for `library_imported_tracks` once the folder is scanned.
+    pub imported: Vec<i64>,
 }
 
 /// The staging folder for a music folder: its sibling, which must be on the same volume so the
@@ -187,6 +191,8 @@ pub fn import_release(
     let staging = staging_for(&plan.root_path, &plan.root_label)?;
     let mut filed = 0;
     let mut skipped = Vec::new();
+    // Where each filed copy went, below the music folder, for the import record.
+    let mut placed: Vec<Vec<Vec<u8>>> = Vec::new();
     for file in plan.files {
         let Some(job) = &file.job else {
             skipped.push(SkippedDto {
@@ -196,23 +202,41 @@ pub fn import_release(
             continue;
         };
         match file_one(service, &staging, job) {
-            Ok(None) => filed += 1,
+            Ok(None) => {
+                filed += 1;
+                if let Some(destination) = &file.destination {
+                    placed.push(
+                        destination
+                            .split('/')
+                            .map(|part| part.as_bytes().to_vec())
+                            .collect(),
+                    );
+                }
+            }
             Ok(Some(problem)) | Err(problem) => skipped.push(SkippedDto {
                 source: file.source,
                 problem,
             }),
         }
     }
+    let mut recorded = None;
     if filed > 0 {
         service
             .mark_imported(folder_id, name.as_bytes().to_vec(), filed)
             .map_err(|error| error.to_string())?;
+        recorded = Some(
+            service
+                .record_import(root_id, placed)
+                .map_err(|error| error.to_string())?,
+        );
     }
     Ok(ImportDto {
         root_id,
         root_label: plan.root_label,
         filed,
         skipped,
+        batch_id: recorded.as_ref().map(|record| record.batch_id),
+        imported: recorded.map(|record| record.file_ids).unwrap_or_default(),
     })
 }
 
@@ -352,6 +376,18 @@ mod tests {
             .imported_releases(s.folder)
             .unwrap()
             .contains(b"Between Spaces".as_slice()));
+        // The import is on record, one row per filed file, and its tracks appear once scanned.
+        assert_eq!(done.imported.len(), 2);
+        assert!(done.batch_id.is_some());
+        assert_eq!(
+            s.service.imported_tracks(&done.imported).unwrap(),
+            Vec::<i64>::new(),
+            "nothing until the scan"
+        );
+        s.service
+            .scan_root(s.root, &oc_core_db::service::ScanOptions::default())
+            .unwrap();
+        assert_eq!(s.service.imported_tracks(&done.imported).unwrap().len(), 2);
     }
 
     #[test]

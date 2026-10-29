@@ -1,7 +1,7 @@
 //! The messages between the UI and the library service. Strict on the way in (unknown
 //! fields are refused) and camelCase on the way out, matching `src/library/types.ts`.
 
-use oc_core_db::library::{Format, LibraryItem, LibraryPage, LibraryQuery, Sort, View, MAX_WINDOW};
+use oc_core_db::library::{LibraryItem, LibraryPage, LibraryQuery, Sort, View, MAX_WINDOW};
 use oc_core_db::service::LibraryService;
 use serde::{Deserialize, Serialize};
 
@@ -27,15 +27,28 @@ pub enum SortDto {
     Crate,
     Custom,
     Track,
+    Format,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum FormatDto {
-    Aiff,
-    Wav,
-    Mp3,
-    Flac,
+/// A container name as the file table spells it: capitals and digits, such as `AIFF` or `MP3`.
+/// Anything else ("all", "aiff") is refused, as the old fixed list was.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormatDto(pub String);
+
+impl<'de> Deserialize<'de> for FormatDto {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        let plain = !text.is_empty()
+            && text.len() <= 16
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit());
+        if plain {
+            Ok(Self(text))
+        } else {
+            Err(serde::de::Error::custom("not a container name"))
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,6 +64,8 @@ pub struct QueryDto {
     #[serde(default)]
     pub crate_id: Option<i64>,
     #[serde(default)]
+    pub batch_id: Option<i64>,
+    #[serde(default)]
     pub reversed: bool,
 }
 
@@ -65,6 +80,7 @@ impl SortDto {
             Self::Crate => Sort::Crate,
             Self::Custom => Sort::Custom,
             Self::Track => Sort::Track,
+            Self::Format => Sort::Format,
         }
     }
 }
@@ -78,16 +94,12 @@ impl QueryDto {
         });
         query.search.clone_from(&self.search);
         query.sort = self.sort.to_sort();
-        query.format = self.format.map(|format| match format {
-            FormatDto::Aiff => Format::Aiff,
-            FormatDto::Wav => Format::Wav,
-            FormatDto::Mp3 => Format::Mp3,
-            FormatDto::Flac => Format::Flac,
-        });
+        query.format = self.format.as_ref().map(|format| format.0.clone());
         query.artist_id = self.artist_id;
         query.release_id = self.release_id;
         query.playlist_id = self.playlist_id;
         query.crate_id = self.crate_id;
+        query.batch_id = self.batch_id;
         query.reversed = self.reversed;
         query
     }
@@ -217,7 +229,7 @@ mod tests {
         let mapped = sent.to_query();
         assert_eq!(mapped.view, View::Releases);
         assert_eq!(mapped.sort, Sort::Bpm);
-        assert_eq!(mapped.format, Some(Format::Aiff));
+        assert_eq!(mapped.format.as_deref(), Some("AIFF"));
         assert_eq!(
             (mapped.search.as_str(), mapped.artist_id, mapped.release_id),
             ("night", Some(4), None)
@@ -226,10 +238,13 @@ mod tests {
         let mut playlist = base();
         playlist["sort"] = json!("playlist");
         assert_eq!(query(playlist).unwrap().to_query().sort, Sort::Playlist);
-        for (text, format) in [("MP3", Format::Mp3), ("FLAC", Format::Flac)] {
+        for text in ["MP3", "FLAC", "M4A", "OGG"] {
             let mut value = base();
             value["format"] = json!(text);
-            assert_eq!(query(value).unwrap().to_query().format, Some(format));
+            assert_eq!(
+                query(value).unwrap().to_query().format.as_deref(),
+                Some(text)
+            );
         }
     }
 
@@ -243,6 +258,8 @@ mod tests {
             ("sort", json!("RECENT")),
             ("format", json!("all")),
             ("format", json!("aiff")),
+            ("format", json!("")),
+            ("format", json!("MP3; DROP")),
             ("artistId", json!("3")),
             ("search", json!(5)),
         ] {

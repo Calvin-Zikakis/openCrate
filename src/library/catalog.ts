@@ -59,6 +59,7 @@ export function createCatalog(count = 100_000) {
       if (sort === "recent") return b.id - a.id;
       if (sort === "track") return a.releaseId - b.releaseId || a.id - b.id;
       if (sort === "bpm") return (a.bpm ?? Infinity) - (b.bpm ?? Infinity) || a.id - b.id;
+      if (sort === "format") return (a.format ?? "").localeCompare(b.format ?? "") || a.title.localeCompare(b.title) || a.id - b.id;
       const valueA = sort === "artist" ? a.artist : a.title;
       const valueB = sort === "artist" ? b.artist : b.title;
       return (valueA < valueB ? -1 : valueA > valueB ? 1 : 0) || a.id - b.id;

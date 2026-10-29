@@ -11,7 +11,7 @@ use oc_tag::fixtures::{aiff, flac, mp3, wav, wav_frames, write_tags};
 use oc_tag::TagInfo;
 use tempfile::{tempdir, TempDir};
 
-use crate::library::{Format, LibraryItem, LibraryQuery, Sort, View};
+use crate::library::{LibraryItem, LibraryQuery, Sort, View};
 use crate::service::{LibraryService, ScanOptions, ScanPhase, ScanProgress};
 use crate::Error;
 
@@ -228,9 +228,9 @@ fn a_folder_of_audio_becomes_a_browsable_catalog() {
     assert_eq!(read(&fixture, &query(View::Releases, "various")).0, 1);
     assert_eq!(read(&fixture, &query(View::Artists, "guest")).0, 1);
     let mut aiff_only = LibraryQuery::new(View::Tracks);
-    aiff_only.format = Some(Format::Aiff);
+    aiff_only.format = Some("AIFF".into());
     assert_eq!(read(&fixture, &aiff_only).0, 1);
-    aiff_only.format = Some(Format::Mp3);
+    aiff_only.format = Some("MP3".into());
     assert_eq!(read(&fixture, &aiff_only).0, 2);
 }
 
@@ -799,7 +799,7 @@ fn a_playlist_lists_its_matched_tracks_in_the_playlists_own_order() {
     in_set.search = "water".into();
     assert_eq!(read(&fixture, &in_set).0, 1);
     in_set.search = String::new();
-    in_set.format = Some(Format::Mp3);
+    in_set.format = Some("MP3".into());
     assert_eq!(names(&read(&fixture, &in_set).1), ["Open Water"]);
 
     // The playlist order is the export's, not alphabetical: a reversed export flips it.

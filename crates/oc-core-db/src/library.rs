@@ -37,26 +37,9 @@ pub enum Sort {
     Custom,
     /// Release by release, each in disc and track order: how a release or an artist reads.
     Track,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Format {
-    Aiff,
-    Wav,
-    Mp3,
-    Flac,
-}
-
-impl Format {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Aiff => "AIFF",
-            Self::Wav => "WAV",
-            Self::Mp3 => "MP3",
-            Self::Flac => "FLAC",
-        }
-    }
+    /// By the file's container (AIFF, FLAC, MP3...), then title. Tracks only; releases and
+    /// artists fall back to `Title`.
+    Format,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -64,8 +47,9 @@ pub struct LibraryQuery {
     pub view: View,
     pub search: String,
     pub sort: Sort,
-    /// Keeps rows with an active file in this container.
-    pub format: Option<Format>,
+    /// Keeps rows with an active file in this container, named as the file table names it
+    /// ("AIFF", "MP3", "M4A"...).
+    pub format: Option<String>,
     /// Tracks and releases by this artist; the artist row itself in `Artists`.
     pub artist_id: Option<i64>,
     /// Tracks of this release; the release row itself in `Releases`.
@@ -74,6 +58,8 @@ pub struct LibraryQuery {
     pub playlist_id: Option<i64>,
     /// Tracks in one of the owner's crates. Tracks only.
     pub crate_id: Option<i64>,
+    /// Tracks filed by one import batch. Tracks only.
+    pub batch_id: Option<i64>,
     /// The sort the other way round: oldest first, Z to A, BPM high to low. Rows without a
     /// value (no BPM) stay last either way. Playlist, crate and custom orders are never
     /// reversed: they are the owner's own arrangement, and moving a row relies on it.
@@ -92,6 +78,7 @@ impl LibraryQuery {
             release_id: None,
             playlist_id: None,
             crate_id: None,
+            batch_id: None,
             reversed: false,
         }
     }
@@ -293,11 +280,19 @@ fn track_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
             id,
         );
     }
-    if let Some(format) = query.format {
+    if let Some(id) = query.batch_id {
+        filter.add(
+            "t.id IN (SELECT f.track_id FROM import_file b JOIN file f \
+             ON f.root_id = b.root_id AND f.path_key = b.path_key \
+             WHERE b.batch_id = ? AND f.lifecycle = 'active' AND f.track_id IS NOT NULL)",
+            id,
+        );
+    }
+    if let Some(format) = &query.format {
         filter.add(
             "t.id IN (SELECT f.track_id FROM file f \
              WHERE f.lifecycle = 'active' AND f.container = ?)",
-            format.as_str().to_owned(),
+            format.clone(),
         );
     }
 }
@@ -321,11 +316,11 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     if let Some(id) = query.release_id {
         filter.add("r.id = ?", id);
     }
-    if let Some(format) = query.format {
+    if let Some(format) = &query.format {
         filter.add(
             "r.id IN (SELECT t.release_id FROM track t JOIN file f ON f.track_id = t.id \
              WHERE f.lifecycle = 'active' AND f.container = ?)",
-            format.as_str().to_owned(),
+            format.clone(),
         );
     }
 }
@@ -344,11 +339,11 @@ fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     if let Some(id) = query.artist_id {
         filter.add("a.id = ?", id);
     }
-    if let Some(format) = query.format {
+    if let Some(format) = &query.format {
         filter.add(
             "a.id IN (SELECT t.artist_id FROM track t JOIN file f ON f.track_id = t.id \
              WHERE f.lifecycle = 'active' AND f.container = ?)",
-            format.as_str().to_owned(),
+            format.clone(),
         );
     }
 }
@@ -426,6 +421,10 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                 (Sort::Bpm, _) => {
                     "COALESCE(t.bpm, t.tag_bpm) IS NULL, COALESCE(t.bpm, t.tag_bpm), t.id"
                 }
+                (Sort::Format, _) => {
+                    "(SELECT f.container FROM file f WHERE f.track_id = t.id \
+                     AND f.lifecycle = 'active' ORDER BY f.id LIMIT 1), t.title_key, t.id"
+                }
             },
             order_playlist: match query.sort {
                 Sort::Playlist => query.playlist_id,
@@ -444,7 +443,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                     "r.added_ms DESC, r.id DESC"
                 }
                 Sort::Artist => "r.artist_key, r.sort_key, r.id",
-                Sort::Title | Sort::Bpm | Sort::Track => "r.sort_key, r.id",
+                Sort::Title | Sort::Bpm | Sort::Track | Sort::Format => "r.sort_key, r.id",
             },
             order_playlist: None,
             alias: "r",
@@ -456,7 +455,9 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                       (SELECT COUNT(*) FROM track t WHERE t.artist_id = a.id), 0, 0, 0",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => "a.id DESC",
-                Sort::Title | Sort::Artist | Sort::Bpm | Sort::Track => "a.sort_key, a.id",
+                Sort::Title | Sort::Artist | Sort::Bpm | Sort::Track | Sort::Format => {
+                    "a.sort_key, a.id"
+                }
             },
             order_playlist: None,
             alias: "a",
@@ -678,6 +679,20 @@ impl LibraryReader {
         self.lists.truncate(CACHED_LISTS);
         Ok(ids)
     }
+}
+
+/// Every container with an active file behind a track, with the number of such tracks, most
+/// common first and then by name.
+pub fn formats(connection: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut statement = connection.prepare(
+        "SELECT f.container, COUNT(DISTINCT f.track_id) AS tracks FROM file f \
+         WHERE f.lifecycle = 'active' AND f.track_id IS NOT NULL \
+         GROUP BY f.container ORDER BY tracks DESC, f.container",
+    )?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
 }
 
 /// Case-folded sort text for titles and names. Display values are stored as given;

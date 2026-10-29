@@ -20,7 +20,7 @@ import { PlaylistBrowser, Playlists } from "./components/Playlists";
 import { useAutoImport } from "./components/AutoImport";
 import { PlayerBar, type PlayRequest } from "./components/PlayerBar";
 import { Sync } from "./components/Sync";
-import { DEFAULT_QUERY, type Format, type LibraryApi, type LibraryItem, type CrateInfo, type PlaylistInfo, type Sort, type View } from "./library/types";
+import { DEFAULT_QUERY, type Format, type FormatCount, type ImportBatch, type LibraryApi, type LibraryItem, type CrateInfo, type PlaylistInfo, type Sort, type View } from "./library/types";
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from "./preferences";
 import { PLAIN_TEXT } from "./components/plainText";
 
@@ -61,12 +61,13 @@ function closesOutside(close: () => void) {
   };
 }
 
-type Screen = View | "import" | "sync" | "cleanup" | "playlists";
+type Screen = View | "import" | "recent" | "sync" | "cleanup" | "playlists";
 const NAV: { screen: Screen; name: string; icon: IconName }[] = [
   { screen: "tracks", name: "Tracks", icon: "tracks" },
   { screen: "releases", name: "Releases", icon: "releases" },
   { screen: "artists", name: "Artists", icon: "artists" },
   { screen: "import", name: "Import", icon: "import" },
+  { screen: "recent", name: "Recently imported", icon: "clock" },
   { screen: "sync", name: "rekordbox", icon: "sync" },
   { screen: "cleanup", name: "Clean up", icon: "clean" },
 ];
@@ -78,15 +79,32 @@ const PAGE_NOTES = {
   artists: "All your artists live here, with the releases they are on.",
 } as const;
 
+/** The formats offered when the backend cannot say which it holds (the demo). */
+const DEMO_FORMATS = ["AIFF", "WAV", "MP3", "FLAC"];
+
+/** When an import batch happened, in a few words: "Today 21:14 to 21:40" or the date. */
+function describeBatch(batch: ImportBatch): string {
+  const started = new Date(batch.startedMs);
+  const last = new Date(batch.lastMs);
+  const today = new Date();
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  const time = (date: Date) => date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const day = sameDay(started, today) ? "Today" : started.toLocaleDateString([], { month: "short", day: "numeric", year: sameDay(started, today) || started.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+  const span = time(started) === time(last) ? time(started) : `${time(started)} to ${time(last)}`;
+  return `${day} ${span}`;
+}
+
 /** The library query a screen shows; Back uses it to name the list it returns to. */
-function queryOf(screen: Screen, search: string, sort: Sort, format: Format | "all", focus: LibraryItem | null, playlist: PlaylistInfo | null, crate: CrateInfo | null, reversed = false) {
+function queryOf(screen: Screen, search: string, sort: Sort, format: Format | "all", focus: LibraryItem | null, playlist: PlaylistInfo | null, crate: CrateInfo | null, reversed = false, batch: ImportBatch | null = null) {
   return {
-    ...DEFAULT_QUERY, view: screen === "import" || screen === "sync" || screen === "cleanup" || screen === "playlists" ? "tracks" as const : screen,
+    ...DEFAULT_QUERY, view: screen === "import" || screen === "recent" || screen === "sync" || screen === "cleanup" || screen === "playlists" ? "tracks" as const : screen,
     search, sort, reversed, format: screen === "tracks" ? format : "all" as const,
     artistId: focus?.kind === "artists" ? focus.id : null,
     releaseId: focus?.kind === "releases" ? focus.id : null,
     playlistId: playlist?.id ?? null,
     crateId: crate?.id ?? null,
+    // No batch yet: an id no batch has, so the list is empty rather than the whole library.
+    batchId: screen === "recent" ? batch?.id ?? -1 : null,
   };
 }
 
@@ -104,6 +122,11 @@ export function App({ api }: { api: LibraryApi }) {
   const [playlist, setPlaylist] = useState<PlaylistInfo | null>(null);
   const [crate, setCrate] = useState<CrateInfo | null>(null);
   const [crateVersion, setCrateVersion] = useState(0);
+  /** Import batches, newest first, and the one Recently imported shows. */
+  const [batches, setBatches] = useState<ImportBatch[]>([]);
+  const [batch, setBatch] = useState<ImportBatch | null>(null);
+  /** The containers the library holds, for the format filter; the demo offers a fixed few. */
+  const [formatList, setFormatList] = useState<FormatCount[]>([]);
   const [selected, setSelected] = useState<LibraryItem | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [playRequest, setPlayRequest] = useState<PlayRequest | null>(null);
@@ -228,7 +251,7 @@ export function App({ api }: { api: LibraryApi }) {
     setScreen(next); setFocus(null); setPlaylist(null); setCrate(null); setFormat("all"); setSort("recent"); setReversed(false); setFromBrowser(false);
   };
   // Keyed on what the query uses, so a refreshed focus (a new name) is not a new list.
-  const query = useMemo(() => queryOf(screen, search, sort, format, focus, playlist, crate, reversed), [screen, search, sort, format, focus?.kind, focus?.id, playlist, crate, reversed]);
+  const query = useMemo(() => queryOf(screen, search, sort, format, focus, playlist, crate, reversed, batch), [screen, search, sort, format, focus?.kind, focus?.id, playlist, crate, reversed, batch]);
   /** The grid a release or artist was opened from, so Back returns to it as it was. */
   const [backTo, setBackTo] = useState<{ screen: View; sort: Sort; reversed: boolean; top: number } | { crate: CrateInfo; top: number } | { playlist: PlaylistInfo; top: number } | null>(null);
   // A new list says how long it is once read; until then the last count does not apply.
@@ -240,6 +263,25 @@ export function App({ api }: { api: LibraryApi }) {
     setScreen("tracks"); setFocus(null); setPlaylist(null); setCrate(next); setSearch(""); setFormat("all"); setSort("crate"); setReversed(false);
   };
   const crateChanged = useCallback(() => setCrateVersion((value) => value + 1), []);
+  // Recently imported reads the batches when opened and whenever the library changes; the
+  // newest is shown unless one was chosen.
+  useEffect(() => {
+    if (!api.admin || screen !== "recent") return;
+    let live = true;
+    api.admin.importBatches().then((found) => {
+      if (!live) return;
+      setBatches(found);
+      setBatch((current) => found.find((item) => item.id === current?.id) ?? found[0] ?? null);
+    }, () => undefined);
+    return () => { live = false; };
+  }, [api.admin, screen, libraryVersion]);
+  useEffect(() => {
+    if (!api.admin) return;
+    let live = true;
+    api.admin.formats().then((found) => { if (live) setFormatList(found); }, () => undefined);
+    return () => { live = false; };
+  }, [api.admin, libraryVersion]);
+  const formatChoices = api.admin ? formatList.map((item) => item.format) : DEMO_FORMATS;
   useEffect(() => {
     if (!api.admin) return;
     let live = true;
@@ -402,7 +444,10 @@ export function App({ api }: { api: LibraryApi }) {
     const item = index >= 0 ? page?.items[index] : undefined;
     if (item) setPlayRequest({ item, index, query, nonce: Date.now() });
   };
-  const heading = crate?.name ?? playlist?.name ?? focus?.title ?? (screen === "tracks" ? "Tracks" : screen === "releases" ? "Releases" : "Artists");
+  const heading = crate?.name ?? playlist?.name ?? focus?.title ?? (screen === "tracks" ? "Tracks" : screen === "releases" ? "Releases" : screen === "recent" ? "Recently imported" : "Artists");
+  const batchNote = batches.length === 0
+    ? "Nothing has been imported with openCrate yet. Tracks you bring in from the Import screen are listed here, one batch per sitting."
+    : batch ? `${batch.tracks === batch.files ? `${batch.tracks} ${batch.tracks === 1 ? "track" : "tracks"}` : `${batch.tracks} of ${batch.files} files`} imported ${describeBatch(batch)}${batch.tracks < batch.files ? ". The rest are not in the library yet: the music folder has not been scanned since, or they were left in the watch folder" : ""}.` : "";
 
   return <div className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
     <a className="skip-link" href="#main">Skip to library</a>
@@ -438,7 +483,7 @@ export function App({ api }: { api: LibraryApi }) {
         {isLibrary ? <>
           {api.admin && <Welcome admin={api.admin} onOpenRekordbox={() => navigate("sync")} onLibraryChanged={refreshLibrary} />}
           <div className={`library-hero${preferences.headerFolded ? " folded" : ""}`}>
-            <div>{focus && <button className="back-link" onClick={() => backFromFocus(focus.kind)}><Icon name="back" size={14} />Back to {backTo && "crate" in backTo ? (crateList.find((found) => found.id === backTo.crate.id)?.name ?? "tracks") : backTo && "playlist" in backTo ? backTo.playlist.name : focus.kind}</button>}{crate && <button className="back-link" onClick={() => { setCrate(null); setSort("recent"); setReversed(false); }}><Icon name="back" size={14} />Back to tracks</button>}{playlist && <button className="back-link" onClick={() => { setPlaylist(null); setSort("recent"); setReversed(false); if (fromBrowser) setScreen("playlists"); setFromBrowser(false); }}><Icon name="back" size={14} />{fromBrowser ? "Back to playlists" : "Back to tracks"}</button>}{(playlist || crate || focus) && <div className="eyebrow">{playlist ? "REKORDBOX PLAYLIST" : crate ? "CRATE" : focus?.kind === "artists" ? "ARTIST" : "RELEASE"}</div>}<h1>{heading}</h1>{playlist ? <p>{playlist.entries === 0 ? "This playlist is empty in rekordbox." : playlist.inLibrary === playlist.entries ? `All ${playlist.entries} ${playlist.entries === 1 ? "track is" : "tracks are"} in your library.` : `${playlist.inLibrary} of ${playlist.entries} tracks are in your library. The rest are not in your folders.`}</p> : focus ? <p>{(() => { const count = focus.trackCount >= 0 ? focus.trackCount : listTotal ?? 0; return `${count} ${count === 1 ? "track" : "tracks"}`; })()}{focus.kind === "releases" ? ` by ${focus.artist}` : ""}</p> : crate ? <p>Kept in openCrate only. rekordbox is not changed.</p> : <p className="page-note">{PAGE_NOTES[screen === "releases" || screen === "artists" ? screen : "tracks"]}</p>}{api.admin && (playlist || crate || focus) && <button className="play-all" onClick={() => void playAll()}><Icon name="play" size={16} />Play all</button>}{api.admin && screen === "tracks" && listTotal !== 0 && <div className="cover-actions" role="group" aria-label="Export">
+            <div>{focus && <button className="back-link" onClick={() => backFromFocus(focus.kind)}><Icon name="back" size={14} />Back to {backTo && "crate" in backTo ? (crateList.find((found) => found.id === backTo.crate.id)?.name ?? "tracks") : backTo && "playlist" in backTo ? backTo.playlist.name : focus.kind}</button>}{crate && <button className="back-link" onClick={() => { setCrate(null); setSort("recent"); setReversed(false); }}><Icon name="back" size={14} />Back to tracks</button>}{playlist && <button className="back-link" onClick={() => { setPlaylist(null); setSort("recent"); setReversed(false); if (fromBrowser) setScreen("playlists"); setFromBrowser(false); }}><Icon name="back" size={14} />{fromBrowser ? "Back to playlists" : "Back to tracks"}</button>}{(playlist || crate || focus || screen === "recent") && <div className="eyebrow">{playlist ? "REKORDBOX PLAYLIST" : crate ? "CRATE" : focus ? (focus.kind === "artists" ? "ARTIST" : "RELEASE") : "IMPORT BATCH"}</div>}<h1>{heading}</h1>{screen === "recent" ? <p>{batchNote}</p> : playlist ? <p>{playlist.entries === 0 ? "This playlist is empty in rekordbox." : playlist.inLibrary === playlist.entries ? `All ${playlist.entries} ${playlist.entries === 1 ? "track is" : "tracks are"} in your library.` : `${playlist.inLibrary} of ${playlist.entries} tracks are in your library. The rest are not in your folders.`}</p> : focus ? <p>{(() => { const count = focus.trackCount >= 0 ? focus.trackCount : listTotal ?? 0; return `${count} ${count === 1 ? "track" : "tracks"}`; })()}{focus.kind === "releases" ? ` by ${focus.artist}` : ""}</p> : crate ? <p>Kept in openCrate only. rekordbox is not changed.</p> : <p className="page-note">{PAGE_NOTES[screen === "releases" || screen === "artists" ? screen : "tracks"]}</p>}{api.admin && (playlist || crate || focus || (screen === "recent" && batch)) && <button className="play-all" onClick={() => void playAll()}><Icon name="play" size={16} />Play all</button>}{api.admin && screen === "tracks" && listTotal !== 0 && <div className="cover-actions" role="group" aria-label="Export">
               <button className="link-button" onClick={() => void exportList("m3u8")}>Export M3U8 playlist...</button>
               <button className="link-button" onClick={() => void exportList("csv")}>Export CSV...</button>
               {exportNote && <small role="status">{exportNote}</small>}
@@ -463,11 +508,11 @@ export function App({ api }: { api: LibraryApi }) {
             <div className="hero-art" aria-hidden="true">{focus?.kind === "artists" ? <ArtistArtwork api={api} artistId={focus.id} color={focus.color} large /> : <Artwork color={focus?.color ?? 1} large src={focus ? api.artworkUrl?.(focus.releaseId) ?? null : null} />}<div className="hero-disc" /></div>
           </div>
           <div className="library-toolbar">
-            <div className="format-filters" role="group" aria-label="Format filters">{screen === "tracks" ? (["all", "AIFF", "WAV", "MP3", "FLAC"] as const).map((value) => <button key={value} aria-pressed={format === value} onClick={() => setFormat(value)}>{value === "all" ? "All tracks" : value}</button>) : <span />}</div>
-            <div className="view-options"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button>{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setReversed(false); }}><option value="recent">Recently added</option><option value="title">Title</option>{screen !== "artists" && <option value="artist">Artist</option>}{screen === "tracks" && <option value="bpm">BPM</option>}{focus && <option value="track">Track order</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label>{sort !== "playlist" && sort !== "crate" && sort !== "custom" && <button aria-pressed={reversed} aria-label="Reverse the order" title={reversed ? "Back to the usual order" : sort === "recent" ? "Oldest first" : sort === "bpm" ? "BPM high to low" : "Z to A"} onClick={() => setReversed(!reversed)}><span aria-hidden="true" className="reverse-mark">{reversed ? "\u25B2" : "\u25BC"}</span>Reverse</button>}</div>
+            <div className="format-filters" role="group" aria-label={screen === "recent" ? "Import batch" : "Format filters"}>{screen === "tracks" ? ["all", ...formatChoices].map((value) => <button key={value} aria-pressed={format === value} title={value === "all" ? undefined : `${formatList.find((item) => item.format === value)?.tracks ?? ""} ${value} tracks`.trim()} onClick={() => setFormat(value)}>{value === "all" ? "All tracks" : value}</button>) : screen === "recent" && batches.length > 0 ? <label className="batch-pick"><span className="sr-only">Import batch</span><select value={batch?.id ?? ""} onChange={(event) => setBatch(batches.find((item) => item.id === Number(event.target.value)) ?? null)}>{batches.map((item) => <option key={item.id} value={item.id}>{`${describeBatch(item)} - ${item.tracks} ${item.tracks === 1 ? "track" : "tracks"}`}</option>)}</select></label> : <span />}</div>
+            <div className="view-options"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button>{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setReversed(false); }}><option value="recent">Recently added</option><option value="title">Title</option>{screen !== "artists" && <option value="artist">Artist</option>}{screen === "tracks" && <option value="bpm">BPM</option>}{(screen === "tracks" || screen === "recent") && <option value="format">Format</option>}{focus && <option value="track">Track order</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label>{sort !== "playlist" && sort !== "crate" && sort !== "custom" && <button aria-pressed={reversed} aria-label="Reverse the order" title={reversed ? "Back to the usual order" : sort === "recent" ? "Oldest first" : sort === "bpm" ? "BPM high to low" : "Z to A"} onClick={() => setReversed(!reversed)}><span aria-hidden="true" className="reverse-mark">{reversed ? "\u25B2" : "\u25BC"}</span>Reverse</button>}</div>
           </div>
           <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} brief={preferences.headerFolded} keyNotation={preferences.keyNotation} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} selection={selectionSet} onSelectionChange={setSelection} onEdit={api.admin ? setEditing : undefined} onRemoveFromCrate={api.admin && crate ? (ids) => { if (ids.length > 1) setRemoveAsk({ crateId: crate.id, ids }); else void removeFromCrate(ids); return ids.length > 1; } : undefined} onGoTo={api.admin ? goTo : undefined} crates={crateList} onAddToCrate={api.admin ? (crateId, ids) => void addToCrate(crateId, ids) : undefined} within={crate?.name ?? playlist?.name ?? focus?.title} onSort={(next) => { if (next === sort) setReversed(!reversed); else { setSort(next); setReversed(false); } }} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restore?.query === queryKey ? restore.top : 0} version={crateVersion} onTotal={setListTotal} onOpenSettings={api.admin ? () => setSettingsOpen(true) : undefined} onOpenImport={api.admin ? () => navigate("import") : undefined} />
-        </> : <>{screen !== "playlists" && <div className="tool-fold"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button></div>}{screen === "playlists" && api.admin ? <PlaylistBrowser admin={api.admin} version={libraryVersion} folderId={browseFolder} onFolder={setBrowseFolder} onOpen={(next) => openPlaylist(next, true)} onChanged={refreshLibrary} /> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "cleanup" && api.admin ? <CleanUp admin={api.admin} onChanged={() => { refreshLibrary(); crateChanged(); }} /> : screen === "import" && api.admin ? <Import admin={api.admin} auto={auto} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : screen === "cleanup" ? "clean" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : screen === "cleanup" ? "Clean up" : "rekordbox"}</h1><p>{screen === "import" ? "Watch folders need a library on disk. This demo has none." : screen === "cleanup" ? "Cleaning up needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}</>}
+        </> : <>{screen !== "playlists" && <div className="tool-fold"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button></div>}{screen === "playlists" && api.admin ? <PlaylistBrowser admin={api.admin} version={libraryVersion} folderId={browseFolder} onFolder={setBrowseFolder} onOpen={(next) => openPlaylist(next, true)} onChanged={refreshLibrary} /> : screen === "sync" && api.admin ? <Sync admin={api.admin} onChanged={refreshLibrary} /> : screen === "cleanup" && api.admin ? <CleanUp admin={api.admin} onChanged={() => { refreshLibrary(); crateChanged(); }} /> : screen === "import" && api.admin ? <Import admin={api.admin} auto={auto} onOpenSettings={() => setSettingsOpen(true)} onImported={refreshLibrary} onCratesChanged={crateChanged} onOpenRecent={() => navigate("recent")} /> : <div className="feature-empty"><div className="empty-icon"><Icon name={screen === "import" ? "folder" : screen === "cleanup" ? "clean" : "sync"} size={36} /></div><h1>{screen === "import" ? "Import" : screen === "cleanup" ? "Clean up" : "rekordbox"}</h1><p>{screen === "import" ? "Watch folders need a library on disk. This demo has none." : screen === "cleanup" ? "Cleaning up needs a library on disk. This demo has none." : "Reading a rekordbox export needs a library on disk. This demo has none."}</p><span className="coming-label">Open the openCrate app to use this.</span><button className="secondary-button" onClick={() => navigate("tracks")}>Back to tracks</button></div>}</>}
       </main>
     </div>
     {editing && api.admin && <EditTracks admin={api.admin} coverUrl={api.coverUrl?.bind(api)} trackIds={editing} onClose={() => setEditing(null)} onSaved={refreshLibrary} />}

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use rusqlite::Connection;
 use tempfile::{tempdir, TempDir};
 
-use super::{read_page, sort_key, Format, LibraryQuery, LibraryReader, Sort, View, MAX_WINDOW};
+use super::{read_page, sort_key, LibraryQuery, LibraryReader, Sort, View, MAX_WINDOW};
 use crate::synthetic::{
     artist_name, release_title, seed, track_bpm, track_format, track_title, MAX_TRACKS,
 };
@@ -187,7 +187,13 @@ fn a_reversed_query_reads_the_other_way_round_with_no_tempo_still_last() {
     let (_directory, database) = seeded(TRACKS);
     let reader = database.reader().unwrap();
     let mut cached = LibraryReader::new(database.reader().unwrap()).unwrap();
-    for sort in [Sort::Recent, Sort::Title, Sort::Artist, Sort::Track] {
+    for sort in [
+        Sort::Recent,
+        Sort::Title,
+        Sort::Artist,
+        Sort::Track,
+        Sort::Format,
+    ] {
         let mut query = LibraryQuery::new(View::Tracks);
         query.sort = sort;
         let forward: Vec<i64> = all_items(&reader, &query).iter().map(|i| i.id).collect();
@@ -286,16 +292,37 @@ fn tracks_without_a_tempo_sort_last() {
 }
 
 #[test]
+fn sorting_by_format_groups_the_containers_and_orders_titles_within_each() {
+    let (_directory, database) = seeded(TRACKS);
+    let reader = database.reader().unwrap();
+    let mut query = LibraryQuery::new(View::Tracks);
+    query.sort = Sort::Format;
+    let items = all_items(&reader, &query);
+    let formats: Vec<String> = items
+        .iter()
+        .map(|item| item.format.clone().unwrap_or_default())
+        .collect();
+    let mut sorted = formats.clone();
+    sorted.sort();
+    assert_eq!(formats, sorted, "AIFF, then FLAC, then MP3");
+    for pair in items.windows(2) {
+        if pair[0].format == pair[1].format {
+            assert!(
+                sort_key(&pair[0].title) <= sort_key(&pair[1].title),
+                "titles in order within {:?}",
+                pair[0].format
+            );
+        }
+    }
+}
+
+#[test]
 fn formats_filter_by_the_active_file() {
     let (_directory, database) = seeded(TRACKS);
     let reader = database.reader().unwrap();
-    for (format, name, want) in [
-        (Format::Aiff, "AIFF", 334),
-        (Format::Mp3, "MP3", 333),
-        (Format::Flac, "FLAC", 333),
-    ] {
+    for (name, want) in [("AIFF", 334), ("MP3", 333), ("FLAC", 333)] {
         let mut query = LibraryQuery::new(View::Tracks);
-        query.format = Some(format);
+        query.format = Some(name.to_owned());
         let items = all_items(&reader, &query);
         assert_eq!(items.len(), want, "{name}");
         assert!(items
@@ -453,7 +480,7 @@ fn release_and_artist_views_report_counts_and_obey_sort_search_and_format() {
         [&track.release]
     );
     artists.search = String::new();
-    artists.format = Some(Format::Flac);
+    artists.format = Some("FLAC".into());
     assert_eq!(all_items(&reader, &artists).len(), 100);
     artists.artist_id = Some(7);
     assert_eq!(all_items(&reader, &artists).len(), 1);
@@ -581,7 +608,7 @@ fn the_cached_reader_agrees_with_the_direct_query() {
             let mut query = LibraryQuery::new(view);
             query.sort = sort;
             queries.push(query.clone());
-            query.format = Some(Format::Mp3);
+            query.format = Some("MP3".into());
             queries.push(query.clone());
             query.search = "night".into();
             queries.push(query.clone());
@@ -684,7 +711,7 @@ fn benchmark_100k() {
         scenarios.push((format!("tracks {sort:?}"), tracks.clone(), 99_900));
     }
     tracks.sort = Sort::Title;
-    tracks.format = Some(Format::Aiff);
+    tracks.format = Some("AIFF".into());
     scenarios.push(("tracks Title, AIFF".into(), tracks.clone(), 33_200));
     tracks.format = None;
     for text in ["night", "ni", "night drive", "000500", "studio 001"] {
@@ -694,7 +721,7 @@ fn benchmark_100k() {
     }
     tracks.search = "night".into();
     tracks.sort = Sort::Title;
-    tracks.format = Some(Format::Flac);
+    tracks.format = Some("FLAC".into());
     scenarios.push(("tracks search night, FLAC, Title".into(), tracks, 0));
     let mut releases = LibraryQuery::new(View::Releases);
     releases.sort = Sort::Title;
@@ -741,7 +768,7 @@ fn every_page_is_a_slice_of_the_whole_list() {
     let (_directory, database) = seeded(TRACKS);
     let connection = database.reader().unwrap();
     for view in [View::Tracks, View::Releases, View::Artists] {
-        for format in [None, Some(Format::Mp3)] {
+        for format in [None, Some("MP3".to_owned())] {
             let mut query = LibraryQuery::new(view);
             query.sort = Sort::Recent;
             query.format = format;

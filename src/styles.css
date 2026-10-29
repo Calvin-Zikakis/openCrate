@@ -639,3 +639,54 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .header-folded .sync-hero .empty-icon { width: 32px; height: 32px; border-radius: 9px; grid-row: auto; }
 .header-folded .sync-hero { padding-bottom: 10px; }
 .header-folded .sync-hero h1 { font-size: 22px; }
+
+/* The import table: values the owner can type over, marked by where they came from. */
+.import-setup-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.import-setup-head h2 { margin: 0; }
+.import-setup .import-choices, .import-setup .import-target { background: none; border: 0; border-radius: 0; padding: 14px 0 0; }
+.import-setup .import-choices h2, .import-setup .import-target h2 { font-size: 13px; margin: 0 0 4px; }
+.import-setup .sync-card { background: none; border: 0; padding: 14px 0 0; }
+.import-setup .sync-card h2 { font-size: 13px; }
+.import-target .setting-row { justify-content: flex-start; }
+.import-target .setting-row > span { flex: 0 1 460px; }
+.import-target select { color: var(--text); font-size: 12px; background: var(--raised); border: 1px solid var(--line); padding: 7px 10px; min-width: 170px; max-width: none; }
+.import-target select:disabled { opacity: .5; }
+.target-new-crate { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.target-new-crate input { flex: 0 1 260px; font-size: 12px; padding: 8px 10px; color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: 6px; }
+.import-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; }
+.import-actions .import-all { margin: 0; }
+.import-actions .import-button { margin: 0; }
+.import-actions .plan-root { margin: 0; }
+.lookup-note { display: block; flex-basis: 100%; color: var(--secondary); font-size: 11px; }
+.import-grid td.plan-cell { padding-top: 2px; padding-bottom: 2px; }
+.import-grid .plan-row td { white-space: nowrap; }
+.import-grid td.plan-destination { white-space: normal; font-size: 11px; color: var(--secondary); padding-top: 7px; }
+.import-grid td.plan-state { text-align: center; padding-top: 6px; }
+.grid-state { display: inline-grid; place-content: center; width: 16px; height: 16px; border-radius: 99px; font-size: 10px; font-weight: 700; }
+.grid-state.is-blocked { color: var(--base); background: var(--danger); }
+.grid-state.is-doubtful { color: var(--base); background: var(--warn); }
+.grid-state.is-ready { color: var(--ok); }
+.grid-cell { position: relative; display: block; }
+.grid-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 5px 6px 5px 6px; margin-left: -6px; font-variant-numeric: tabular-nums; }
+/* A marked value makes room for its mark, which sits just before the text, inside the cell. */
+.grid-cell.is-guessed .grid-input, .grid-cell.is-tidied .grid-input, .grid-cell.is-lookedUp .grid-input, .grid-cell.is-edited .grid-input { padding-left: 14px; }
+.grid-input::placeholder { color: rgb(var(--ink) / 0.3); font-style: italic; }
+.grid-input:hover { border-color: var(--line); background: rgb(var(--ink) / 0.03); }
+.grid-input:focus { outline: none; border-color: var(--accent); background: var(--raised); }
+.grid-input:disabled { color: var(--secondary); }
+.grid-cell.is-guessed .grid-input { color: var(--warn); }
+.grid-cell.is-tidied .grid-input { color: var(--accent-text); }
+.grid-cell.is-lookedUp .grid-input { color: #7cc4ff; }
+.grid-cell.is-edited .grid-input { color: var(--text); border-bottom-color: var(--accent); }
+.grid-mark { position: absolute; left: -2px; top: 4px; width: 12px; text-align: center; font-size: 9px; pointer-events: none; }
+.grid-cell.is-guessed .grid-mark { color: var(--warn); }
+.grid-cell.is-tidied .grid-mark { color: var(--accent); }
+.grid-cell.is-lookedUp .grid-mark { color: #7cc4ff; }
+.grid-cell.is-edited .grid-mark { color: var(--accent); }
+.tag-tidied, .tag-edited { color: var(--accent-text); }
+.tag-lookedUp { color: #7cc4ff; }
+.tag-blocked { color: var(--danger); }
+.plan-release-row td { background: rgb(var(--ink) / 0.025); }
+.grid-whole { display: inline-block; padding: 5px 0; font-size: 11px; color: var(--secondary); letter-spacing: .2px; }
+.grid-legend { margin: 8px 0 0; font-size: 11px; line-height: 1.7; color: var(--secondary); }
+.batch-pick select { min-width: 260px; color: var(--text); font-size: 12px; background: var(--raised); border: 1px solid var(--line); padding: 7px 10px; border-radius: 20px; }

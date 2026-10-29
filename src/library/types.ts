@@ -1,7 +1,7 @@
 export type View = "tracks" | "releases" | "artists";
-export type Sort = "recent" | "title" | "artist" | "bpm" | "playlist" | "crate" | "custom" | "track";
-/** The formats the list can be filtered by. */
-export type Format = "AIFF" | "WAV" | "MP3" | "FLAC";
+export type Sort = "recent" | "title" | "artist" | "bpm" | "playlist" | "crate" | "custom" | "track" | "format";
+/** A container the list can be filtered by, as the library names it: "AIFF", "MP3", "M4A"... */
+export type Format = string;
 
 export interface LibraryItem {
   id: number;
@@ -37,6 +37,8 @@ export interface LibraryQuery {
   playlistId: number | null;
   /** Tracks in one of the owner's crates (openCrate only, never rekordbox). */
   crateId: number | null;
+  /** Tracks filed by one import batch (Recently imported). */
+  batchId: number | null;
   /** The sort the other way round: oldest first, Z to A, BPM high to low. Rows without a value
    * stay last. Playlist, crate and custom orders are never reversed. */
   reversed: boolean;
@@ -316,6 +318,8 @@ export interface TagField {
   guessed: boolean;
   /** The value before stray separators and padding were tidied away. */
   tidiedFrom: string | null;
+  /** Taken from a lookup, or typed in the table (both reach the host as accepted values). */
+  lookedUp: boolean;
 }
 
 /** What a file's tags say, for checking before import. */
@@ -544,6 +548,33 @@ export interface ReleaseImport {
   filed: number;
   /** Files left where they are, and why. */
   skipped: { source: string; problem: string }[];
+  /** The import batch the filed files joined; null when nothing was filed. */
+  batchId: number | null;
+  /** One id per filed file, for `importedTracks` once the folder is scanned. */
+  imported: number[];
+}
+
+/** One sitting's imports: files filed within a quarter of an hour of each other. */
+export interface ImportBatch {
+  id: number;
+  startedMs: number;
+  lastMs: number;
+  files: number;
+  /** Of the files, those the library knows as tracks. */
+  tracks: number;
+}
+
+/** Where imported tracks go once they are in the library. */
+export interface ImportTarget {
+  crateId: number | null;
+  /** A rekordbox playlist, with writing to rekordbox on. */
+  playlistId: number | null;
+}
+
+/** A container present in the library and how many tracks have a file in it. */
+export interface FormatCount {
+  format: string;
+  tracks: number;
 }
 
 export interface DownloadFolderState {
@@ -612,6 +643,14 @@ export interface LibraryAdmin {
   planRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ImportPlan>;
   /** Copies the ready files of a release into a music folder. The originals stay where they are. */
   importRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseImport>;
+  /** Import batches, newest first. */
+  importBatches(): Promise<ImportBatch[]>;
+  /** The tracks behind an import's `imported` ids, once the music folder has been scanned. */
+  importedTracks(fileIds: number[]): Promise<number[]>;
+  importTarget(): Promise<ImportTarget>;
+  setImportTarget(target: ImportTarget): Promise<ImportTarget>;
+  /** Every container in the library with its track count, most common first. */
+  formats(): Promise<FormatCount[]>;
   /** Asks MusicBrainz about a release; only when the owner presses the button. Writes nothing. */
   lookupRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseLookup>;
   /** Which of the owner's lookup keys are saved, each shown by its last four characters only. */
@@ -802,7 +841,7 @@ export type WorkerReply =
   | { id: number; error: string };
 
 export const DEFAULT_QUERY: LibraryQuery = {
-  view: "tracks", search: "", sort: "recent", format: "all", artistId: null, releaseId: null, playlistId: null, crateId: null, reversed: false,
+  view: "tracks", search: "", sort: "recent", format: "all", artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null, reversed: false,
 };
 
 export const MAX_WINDOW = 200;

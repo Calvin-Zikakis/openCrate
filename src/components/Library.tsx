@@ -286,13 +286,16 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       <span className="heading-pair">{heading("Title", "title", "Sort by title")}<span aria-hidden="true"> / </span>{heading("Artist", "artist", "Sort by artist")}</span>
       <span>Release</span>
       {heading("BPM", "bpm", "Sort by BPM")}
-      <span>Key</span><span>Time</span><span>Format</span>
+      <span>Key</span><span>Time</span>{heading("Format", "format", "Sort by format")}
     </div>}
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"
       ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>This crate is empty</h2><p>Drag tracks from your library onto the crate's name in the sidebar.</p></div>
       : query.playlistId !== null && !query.search && query.format === "all"
         ? <div className="empty-state"><Icon name="queue" size={36} /><h2>None of this playlist is in your folders</h2><p>rekordbox has these tracks somewhere else. Add the folder they are in as a music folder in Settings to see them here.</p></div>
+      : query.batchId !== null && !query.search
+        ? <div className="empty-state"><Icon name="import" size={36} /><h2>Nothing from this import is in the library yet</h2><p>The files were copied, but the music folder has not been scanned since, or every file was left in the watch folder.</p>
+          <div className="empty-actions">{onOpenImport && <button className="secondary-button" onClick={onOpenImport}>Go to Import</button>}</div></div>
       : !query.search && query.format === "all" && query.playlistId === null && query.artistId === null && query.releaseId === null && (onOpenSettings || onOpenImport)
         ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>No music in your library yet</h2><p>Add a music folder in Settings, or bring in music from a watch folder with Import.</p>
           <div className="empty-actions">{onOpenSettings && <button className="secondary-button" onClick={onOpenSettings}>Open Settings</button>}{onOpenImport && <button className="secondary-button" onClick={onOpenImport}>Go to Import</button>}</div></div>

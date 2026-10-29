@@ -47,7 +47,7 @@ export function useAutoImport(admin: LibraryAdmin | undefined, onImported: () =>
         const chosen = loadOptions();
         const options = layout?.canConvert ? chosen : { ...chosen, convert: { lossless: null, lossy: null } };
         const recipe = settings.recipe ? loadRecipes(localStorage).find((found) => found.name === settings.recipe) ?? null : null;
-        const done = await autoImport(admin, snapshot.releases, root.id, options, recipe, seen, (rootId) => bringIn(admin, rootId, () => refresh.current()).then(() => undefined), () => live);
+        const done = await autoImport(admin, snapshot.releases, root.id, options, recipe, seen, (rootId, imported) => bringIn(admin, rootId, () => refresh.current(), imported).then(() => undefined), () => live);
         // What a run did is kept even when the settings changed during it: it happened.
         if (done.imported.length === 0 && done.waiting.length === 0) return;
         setOutcome((before) => ({
