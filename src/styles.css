@@ -662,16 +662,18 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .destination-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .destination-caret { color: var(--secondary); font-size: 10px; }
 /* Opens upward, so the choices never fall below the window's edge. */
-/* One fixed size whatever column shows, so it never jumps under the pointer; each column scrolls. */
-.destination-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 40; display: grid; grid-template-columns: 190px 280px; height: 320px; background: var(--raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 34px #0009; overflow: hidden; }
-.destination-kinds { display: grid; align-content: start; gap: 2px; padding: 8px; min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); }
+/* Opens below the button and takes the height of the column shown; the lists below it are the
+   release rows, which scroll with the screen, and the Imported card sits last so nothing it needs
+   is hidden under the menu. */
+.destination-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; display: grid; grid-template-columns: 190px 280px; background: var(--raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 34px #0009; overflow: hidden; }
+.destination-kinds { display: grid; align-content: start; gap: 2px; padding: 8px; border-right: 1px solid var(--line); }
 .destination-kinds button { display: grid; grid-template-columns: minmax(0, 1fr) 14px; grid-template-rows: auto auto; column-gap: 6px; row-gap: 2px; align-items: center; text-align: left; padding: 8px 8px 8px 10px; border-radius: 6px; color: var(--text); }
 .destination-kinds button strong { grid-column: 1; grid-row: 1; font-size: 12px; font-weight: 500; }
 .destination-kinds button small { grid-column: 1; grid-row: 2; font-size: 11px; color: var(--secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .destination-kinds button .destination-chevron { grid-column: 2; grid-row: 1 / span 2; justify-self: end; color: var(--faint); font-size: 16px; line-height: 1; }
 .destination-kinds button.is-active, .destination-kinds button:hover, .destination-kinds button:focus-visible { background: rgb(var(--ink) / 0.071); outline: none; }
 .destination-kinds button.is-active .destination-chevron { color: var(--text); }
-.destination-choices { display: grid; align-content: start; gap: 1px; padding: 8px; min-height: 0; overflow-y: auto; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
+.destination-choices { display: grid; align-content: start; gap: 1px; padding: 8px; max-height: 360px; overflow-y: auto; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
 .destination-choices button[role=menuitemradio], .destination-choices button[role=menuitem] { display: flex; align-items: center; gap: 8px; text-align: left; font-size: 12px; padding: 7px 8px; border-radius: 5px; color: var(--text); }
 .destination-choices button[role=menuitemradio]:hover, .destination-choices button[role=menuitem]:hover, .destination-choices button:focus-visible { background: rgb(var(--ink) / 0.071); outline: none; }
 .destination-choices button:disabled { color: var(--secondary); }

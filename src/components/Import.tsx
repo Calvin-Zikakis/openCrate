@@ -447,17 +447,6 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
           {section(fresh)}
         </>}
     </div>}
-    {imported.length > 0 && <div className="sync-card import-setup">
-      <div className="import-setup-head">
-        <h2>{`Imported (${imported.length})`}</h2>
-        <button className="link-button" aria-expanded={!importedFolded} aria-controls="imported-list" onClick={() => { setImportedFolded(!importedFolded); saveImportedFolded(!importedFolded); }}>{importedFolded ? "Show" : "Hide"}</button>
-      </div>
-      {!importedFolded && <div id="imported-list">
-        <p className="settings-copy">Already copied into your music folder. The originals are still in the watch folder.{onOpenRecent && <> <button className="link-button" onClick={onOpenRecent}>Open Recently imported</button></>}</p>
-        <ul className="folder-list">{shownImported.map(row)}</ul>
-        {(allImported ? imported.length > IMPORTED_SHOWN : shownImported.length < imported.length) && <button className="link-button" aria-expanded={allImported} onClick={() => setAllImported((current) => !current)}>{allImported ? "Show fewer" : `Show all ${imported.length}`}</button>}
-      </div>}
-    </div>}
     {older.length > 0 && <div className="sync-card">
       <h2>Already there when you added the folder</h2>
       <p className="settings-copy">Not picked up on their own; bring them in when you want them.</p>
@@ -470,6 +459,17 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
         <div className="folder-text"><strong>{release.name}</strong><small>{contents(release)} - in {release.folderLabel}</small></div>
         <button className="secondary-button" aria-label={`Put back ${release.name}`} onClick={() => void dismiss([release], false)}>Put back</button>
       </li>)}</ul>}
+    </div>}
+    {imported.length > 0 && <div className="sync-card import-setup">
+      <div className="import-setup-head">
+        <h2>{`Imported (${imported.length})`}</h2>
+        <button className="link-button" aria-expanded={!importedFolded} aria-controls="imported-list" onClick={() => { setImportedFolded(!importedFolded); saveImportedFolded(!importedFolded); }}>{importedFolded ? "Show" : "Hide"}</button>
+      </div>
+      {!importedFolded && <div id="imported-list">
+        <p className="settings-copy">Already copied into your music folder. The originals are still in the watch folder.{onOpenRecent && <> <button className="link-button" onClick={onOpenRecent}>Open Recently imported</button></>}</p>
+        <ul className="folder-list">{shownImported.map(row)}</ul>
+        {(allImported ? imported.length > IMPORTED_SHOWN : shownImported.length < imported.length) && <button className="link-button" aria-expanded={allImported} onClick={() => setAllImported((current) => !current)}>{allImported ? "Show fewer" : `Show all ${imported.length}`}</button>}
+      </div>}
     </div>}
   </div>;
 }
