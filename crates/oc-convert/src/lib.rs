@@ -5,11 +5,15 @@
 //! ships as a sidecar later) and writes audio only: tags and cover are written afterwards by
 //! the importer, so nothing from the source's tag layout leaks through.
 
+pub mod process;
 pub mod spectrum;
+
+#[cfg(test)]
+mod process_tests;
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -143,7 +147,7 @@ pub fn convert(
     if output.symlink_metadata().is_ok() {
         return Err(Error::Failed("the output already exists".to_owned()));
     }
-    let result = Command::new(ffmpeg)
+    let result = process::command(ffmpeg)
         .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-n", "-i"])
         .arg(source)
         .args(["-map", "0:a:0", "-map_metadata", "-1", "-vn"])

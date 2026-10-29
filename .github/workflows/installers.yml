@@ -20,15 +20,22 @@ jobs:
             artifact: C:/t/release/bundle/nsis/*.exe
           - os: macos-latest
             bundles: app,dmg
-            target: ${{ github.workspace }}/target
-            artifact: ${{ github.workspace }}/target/release/bundle/dmg/*.dmg
+            # Relative to the checkout. The matrix is read before the runner has one, so
+            # github.workspace is empty here; the step below makes it absolute.
+            target: target
+            artifact: target/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
-    env:
-      # Absolute, because the Tauri CLI runs cargo from src-tauri and a relative path would land there.
-      CARGO_TARGET_DIR: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
+      - name: Choose the build folder
+        shell: bash
+        # Absolute, because the Tauri CLI runs cargo from src-tauri and a relative path would land there.
+        run: |
+          case "${{ matrix.target }}" in
+            /* | ?:/*) echo "CARGO_TARGET_DIR=${{ matrix.target }}" >> "$GITHUB_ENV" ;;
+            *) echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/${{ matrix.target }}" >> "$GITHUB_ENV" ;;
+          esac
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

@@ -574,7 +574,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 3.0.9",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2061,8 +2061,22 @@ checksum = "ca260c51a9c71f823fbfd2e6fbc8eb2ee09834b98c00763d877ca8bfa85cde3e"
 dependencies = [
  "byteorder",
  "data-encoding",
+ "lofty_attr 0.11.1",
+ "log",
+ "ogg_pager",
+ "paste",
+]
+
+[[package]]
+name = "lofty"
+version = "0.25.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb21dd79145b0781f2423fda92dd807fcd3911e44b66044d86db3b11ec7accf9"
+dependencies = [
+ "byteorder",
+ "data-encoding",
  "flate2",
- "lofty_attr",
+ "lofty_attr 0.13.0",
  "log",
  "ogg_pager",
  "paste",
@@ -2077,6 +2091,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "lofty_attr"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdbca1b60ba7cea959ffc84ac27f3dbdbacd6dfda168c7eabbc00e48654bb9fd"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -2677,7 +2702,7 @@ dependencies = [
 name = "oc-tag"
 version = "0.1.0"
 dependencies = [
- "lofty",
+ "lofty 0.25.4",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -3094,7 +3119,7 @@ dependencies = [
  "cipher",
  "dirs 5.0.1",
  "image",
- "lofty",
+ "lofty 0.22.4",
  "rbl-anlz",
  "rbl-core",
  "rusqlite",

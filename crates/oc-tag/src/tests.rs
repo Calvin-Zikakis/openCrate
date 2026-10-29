@@ -24,7 +24,10 @@ fn tag(path: &Path, kind: TagType) {
     tag.set_genre("Deep House".to_owned());
     tag.set_track(3);
     tag.set_disk(2);
-    tag.set_year(2019);
+    tag.set_date(lofty::tag::items::Timestamp {
+        year: 2019,
+        ..lofty::tag::items::Timestamp::default()
+    });
     tag.insert_text(ItemKey::AlbumArtist, "Various".to_owned());
     tag.insert_text(ItemKey::Label, "Synthetic Records".to_owned());
     tag.insert_text(ItemKey::InitialKey, "8A".to_owned());
