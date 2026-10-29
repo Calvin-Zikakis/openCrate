@@ -40,6 +40,8 @@ interface Props {
   within?: string;
   /** A column heading was clicked: sort by it. The heading already sorting the list reverses it. */
   onSort?: (sort: Sort) => void;
+  /** The open rekordbox playlist has no entries at all, so an empty list is not a missing folder. */
+  playlistEmpty?: boolean;
   /** The loaded track, marked in place of its number. */
   nowPlaying?: { id: number; playing: boolean } | null;
   /** Right-click, then "Play next" (`next`) or "Add to queue". */
@@ -90,7 +92,7 @@ function keyNote(item: LibraryItem): string | undefined {
   return item.rekordboxKey ? "From rekordbox" : "From the file's tags. rekordbox has no key for this track yet.";
 }
 
-export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, onRemoveFromCrate, onGoTo, crates = [], onAddToCrate, within, onSort, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
+export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, onRemoveFromCrate, onGoTo, crates = [], onAddToCrate, within, onSort, playlistEmpty = false, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
   const [drag, setDrag] = useState<{ source: number | null; insertAt: number | null } | null>(null);
@@ -292,7 +294,9 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"
       ? <div className="empty-state"><Icon name="tracks" size={36} /><h2>This crate is empty</h2><p>Drag tracks from your library onto the crate's name in the sidebar.</p></div>
       : query.playlistId !== null && !query.search && query.format === "all"
-        ? <div className="empty-state"><Icon name="queue" size={36} /><h2>None of this playlist is in your folders</h2><p>rekordbox has these tracks somewhere else. Add the folder they are in as a music folder in Settings to see them here.</p></div>
+        ? (playlistEmpty
+          ? <div className="empty-state"><Icon name="queue" size={36} /><h2>This playlist is empty in rekordbox</h2><p>Drag tracks onto its name in the sidebar to add them, with writing to rekordbox on.</p></div>
+          : <div className="empty-state"><Icon name="queue" size={36} /><h2>None of this playlist is in your folders</h2><p>rekordbox has these tracks somewhere else. Add the folder they are in as a music folder in Settings to see them here.</p></div>)
       : query.batchId !== null && !query.search
         ? <div className="empty-state"><Icon name="import" size={36} /><h2>Nothing from this import is in the library yet</h2><p>The files were copied, but the music folder has not been scanned since, or every file was left in the watch folder.</p>
           <div className="empty-actions">{onOpenImport && <button className="secondary-button" onClick={onOpenImport}>Go to Import</button>}</div></div>
