@@ -1,9 +1,9 @@
 //! Reading a title's version and credits: `Night Drive (Studio 001 Remix) (feat. Guest)`.
 //!
-//! The version is part of a track's identity (A13): no version means "Original Mix", and
+//! The version is part of a track's identity: no version means "Original Mix", and
 //! "Original Mix" and "Extended Mix" stay different. A remix credit is parsed into the
-//! remixer, and that field decides the folder (A12). Which kinds of credit move a track to
-//! the remixer's folder is a policy table below (A88); the plan only says "remixes".
+//! remixer, and that field decides the folder. Which kinds of credit move a track to
+//! the remixer's folder is a policy table below.
 
 use std::fmt::Write as _;
 
@@ -238,7 +238,7 @@ pub fn full_title(parsed: &ParsedTitle) -> String {
 }
 
 /// Compare versions without caring about case, spacing or Unicode form; no version is
-/// "Original Mix" (A13).
+/// "Original Mix".
 #[must_use]
 pub fn version_key(version: Option<&str>) -> String {
     let text = version
@@ -258,7 +258,7 @@ pub fn same_version(left: Option<&str>, right: Option<&str>) -> bool {
     version_key(left) == version_key(right)
 }
 
-/// The artist folder (A12): the remixer when the credit moves the folder, else the album
+/// The artist folder: the remixer when the credit moves the folder, else the album
 /// artist, else the artist. A compilation's "Various Artists" counts as no album artist, so
 /// each track is filed under the act that made it.
 #[must_use]

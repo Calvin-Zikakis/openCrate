@@ -3,7 +3,7 @@
 //!
 //! Tags fill what they have and the library layout (`Artist/Release/NN - Artist - Title`)
 //! fills the rest, so an untagged or unreadable file still shows up. Tempo and key are not
-//! taken from tags: rekordbox owns them and the read-back fills them (A21).
+//! taken from tags: rekordbox owns them and the read-back fills them.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;

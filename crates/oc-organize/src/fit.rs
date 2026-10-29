@@ -25,7 +25,7 @@ pub struct PathBudget {
 }
 
 impl PathBudget {
-    /// The default: classic limit with room for the temporary suffix (A15).
+    /// The default: classic limit with room for the temporary suffix.
     #[must_use]
     pub const fn classic() -> Self {
         Self {

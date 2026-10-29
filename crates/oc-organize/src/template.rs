@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::sanitize::{sanitize_component, sanitize_file_name};
 
-/// The owner's layout (A12): `title` already includes the version.
+/// The default layout: `title` already includes the version.
 pub const DEFAULT_TEMPLATE: &str = "{folder_artist}/{release}/{track:02} - {artist} - {title}";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

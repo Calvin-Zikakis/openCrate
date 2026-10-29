@@ -1,5 +1,5 @@
 //! Publishing a staged file into the library so that a crash at any moment loses nothing and
-//! duplicates nothing (review finding R1).
+//! duplicates nothing.
 //!
 //! The protocol, per file:
 //!

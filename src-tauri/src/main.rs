@@ -116,7 +116,7 @@ impl AppState {
 
     /// `OPENCRATE_DATA=<folder>` opens a persistent library there; `OPENCRATE_DEMO=<tracks>`
     /// opens a synthetic one in a temporary folder; otherwise the library lives in `default`, the
-    /// app's local data folder (A86). The first that is set wins.
+    /// app's local data folder. The first that is set wins.
     fn from_environment(default: Option<&Path>) -> Self {
         let data = std::env::var("OPENCRATE_DATA").ok();
         let demo = std::env::var("OPENCRATE_DEMO").ok();

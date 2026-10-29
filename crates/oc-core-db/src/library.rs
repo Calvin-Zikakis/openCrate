@@ -350,7 +350,7 @@ fn track_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
 
 fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     // `IN`, not a correlated `EXISTS`: SQLCipher's SQLite 3.51.3 applies OFFSET wrongly to the
-    // latter (decision 0015).
+    // latter.
     filter.always("r.id IN (SELECT b.release_id FROM track b)");
     tag_clauses(filter, "r", query);
     if let Search::Match(expression) = search {

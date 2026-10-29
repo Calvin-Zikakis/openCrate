@@ -1,4 +1,4 @@
--- The durable record of each publication from staging into the library (review finding R1).
+-- The durable record of each publication from staging into the library.
 -- One row per file, written before the external effect it announces, so a restart can finish
 -- or reject it from the row and the disk together. Paths are raw bytes, as everywhere else.
 CREATE TABLE publish_operation (

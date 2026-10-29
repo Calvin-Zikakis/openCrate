@@ -26,6 +26,11 @@
   },
   "bundle": {
     "active": true,
+    "license": "GPL-3.0-or-later",
+    "licenseFile": "../LICENSE",
+    "homepage": "https://github.com/Calvin-Zikakis/openCrate",
+    "shortDescription": "A DJ library manager",
+    "longDescription": "Brings downloads into a tidy music library, plays it with rekordbox's cues on a waveform, and works alongside rekordbox.",
     "targets": ["nsis", "app", "dmg"],
     "windows": {
       "nsis": { "installMode": "currentUser" }

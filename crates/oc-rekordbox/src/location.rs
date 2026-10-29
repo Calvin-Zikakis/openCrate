@@ -12,7 +12,7 @@ pub enum LocationError {
 }
 
 /// Bytes rekordbox leaves unencoded. Research 002 saw `,`, `#`, `+` and `$` raw and
-/// parentheses never encoded; the rest of the punctuation here is assumed (A108).
+/// parentheses never encoded; the rest of the punctuation here is assumed.
 fn kept(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"/:,#+$-._()!~;=@*".contains(&byte)
 }
@@ -24,7 +24,7 @@ fn drive_form(path: &[u8]) -> bool {
 }
 
 /// The `Location` rekordbox would write for an absolute path: `file://localhost/`, then the
-/// path with forward slashes, percent-encoded with lowercase hex as research 002 measured.
+/// path with forward slashes, percent-encoded with lowercase hex, as rekordbox's own exports show.
 /// Backslashes are separators only in a drive path; elsewhere they are part of a name.
 pub fn encode_location(path: &[u8]) -> String {
     use std::fmt::Write as _;

@@ -9,9 +9,11 @@ It runs on Windows and macOS, is built with Rust, Tauri 2 and React, and is lice
 **Status: early test version (0.1.0).** It works on real music, but only its developer has used it so far, and the
 installers are unsigned. Try it on a copy of a small folder before you point it at the library you play from.
 
+![The Tracks view of the demo library, with a track playing in the player bar](assets/library.png)
+
 Contents: [What it does](#what-it-does) · [What it changes](#what-it-changes-on-your-computer) ·
 [Get the app](#get-the-app) · [First start](#first-start) · [A tour](#a-tour) · [How it works](#how-it-works) ·
-[Development](#development)
+[Development](#development) · [Contributing](#contributing)
 
 ## What it does
 
@@ -55,12 +57,10 @@ Contents: [What it does](#what-it-does) · [What it changes](#what-it-changes-on
 
 ## Get the app
 
-There are no published releases yet. You build the installer on your own computer with one script, which checks
-for the tools it needs first, or ask the repository's owner for a test build.
-
-Anyone with write access can start the Installers workflow by hand (Actions tab, Installers, Run workflow). It
-builds both installers on GitHub and keeps them for 7 days, but it uses the account's paid Actions minutes, so a
-local build is the better choice.
+Test builds are on the [Releases page](https://github.com/Calvin-Zikakis/openCrate/releases): a macOS disk image
+for Apple silicon, built on the maintainer's Mac. For Windows, or for the newest code on either platform, build
+the installer yourself with one script, which checks for the tools it needs first. The scripts do what the
+Installers workflow does on GitHub, which collaborators can also start by hand from the Actions tab.
 
 ### Windows
 
@@ -75,8 +75,7 @@ You need a 64-bit (x64) PC with Windows 11. Windows 10 may work but has not been
    ```
 
    Skip the first line if Git is already installed. After installing it, open a new PowerShell window before you
-   clone. The repository is private, so the first clone opens a browser window to sign in to GitHub. Later, run
-   `git pull` in the same folder to get the newest code.
+   clone. Later, run `git pull` in the same folder to get the newest code.
 
 2. Build the installer:
 
@@ -329,6 +328,18 @@ import history, the undo journal and what rekordbox has. The audio stays in your
 the file system's own identity as well as its path, so a file moved or renamed outside openCrate can be found
 again. The database is backed up before its layout is upgraded.
 
+```mermaid
+flowchart LR
+    W[Watch folder] -->|files stop changing| G[Group into releases]
+    G --> P[Plan: tags, file names,<br>lookups, what you typed]
+    P -->|folder layout| S[Stage a copy]
+    S -->|ffmpeg, if a format was chosen| C[Convert]
+    C --> T[Write tags and cover]
+    T -->|hard link, never over a file| M[Music folder]
+    M --> L[(Library database)]
+    L -.->|writing on| R[rekordbox]
+```
+
 An import goes through these steps: a download folder is watched until its files stop changing; the files are
 grouped into releases; a plan is made from the tags, the file names, lookups and what you typed, with the folder
 layout giving each file's place; a copy is staged, converted with ffmpeg if you chose a format, and tagged; then it
@@ -409,7 +420,8 @@ cargo test --workspace --locked
 
 The browser tests need Playwright's browsers once:
 `npx -y -p node@24 -p npm@11 npm exec -- playwright install chromium webkit`. Without ffmpeg installed, the tests
-that need it pass without checking anything.
+that need it pass without checking anything. The screenshot above comes from `scripts/screenshots/take.mjs`, run
+against `npm run preview`.
 
 On GitHub, the Rust checks (Windows and macOS) and the frontend checks (Linux) run for a pull request into `main`,
 or when started by hand; pushes start nothing. The Installers workflow runs only by hand. To save Actions minutes,
@@ -421,8 +433,14 @@ run the checks locally before you push.
   from a real library, tokens or API keys.
 - Clippy runs with warnings as errors; keep it clean.
 - No emojis in documentation.
-- Planning notes, the work log and guides live in `docs/`, which git ignores. The tracked documentation is this
-  README, the crate READMEs, and the instructions for coding agents (`AGENTS.md`, `CLAUDE.md`).
+- The maintainer's planning notes and work log live in `docs/`, which git ignores. The tracked documentation is
+  this README, the crate READMEs, and the instructions for coding agents (`AGENTS.md`, `CLAUDE.md`).
+
+## Contributing
+
+Bug reports from your own library are the most useful thing right now; [CONTRIBUTING.md](CONTRIBUTING.md) says
+what to include and how a change should look. [SECURITY.md](SECURITY.md) covers what the app touches and how to
+report something privately.
 
 ## License
 

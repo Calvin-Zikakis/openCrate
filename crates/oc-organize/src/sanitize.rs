@@ -1,7 +1,7 @@
 //! File and folder names that are valid on Windows, macOS and Linux at once.
 //!
-//! Forbidden characters are replaced with `_`, never deleted, so words are not fused (A36).
-//! Names are NFC, a component is at most 100 characters and 240 bytes (A15), Windows device
+//! Forbidden characters are replaced with `_`, never deleted, so words are not fused.
+//! Names are NFC, a component is at most 100 characters and 240 bytes, Windows device
 //! names are defused, and nothing ends in a dot or a space. The functions are idempotent:
 //! sanitizing a sanitized name changes nothing.
 

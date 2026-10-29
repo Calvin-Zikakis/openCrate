@@ -1,6 +1,6 @@
 //! A fallback for files whose tags are missing: read the library's own layout.
 //! `Artist/Release/NN - Artist - Title.ext` is how the owner's tidier files look
-//! (research 002). This only reads names; it never touches the file.
+//! This only reads names; it never touches the file.
 
 use crate::TagInfo;
 

@@ -30,7 +30,7 @@ pub enum Format {
 }
 
 impl Format {
-    /// The extension a converted file gets (A35: `.aif`, as most of the owner's AIFF files use).
+    /// The extension a converted file gets (`.aif`, the commoner AIFF extension).
     #[must_use]
     pub const fn extension(self) -> &'static str {
         match self {

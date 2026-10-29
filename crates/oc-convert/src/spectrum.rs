@@ -191,7 +191,7 @@ mod tests {
     }
 
     /// Real encoders: noise kept lossless, and the same noise through MP3 at 128 and 320 kbps
-    /// and back to FLAC. Measured edges are recorded in research note 009.
+    /// and back to FLAC. The edges were measured with these encoders before the thresholds were chosen.
     #[test]
     fn mp3s_dressed_as_flac_are_caught_and_real_flac_is_not() {
         let Some(ffmpeg) = crate::find_ffmpeg() else {
