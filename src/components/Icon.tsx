@@ -5,6 +5,7 @@ const paths = {
   import: "M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5",
   clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 3",
   crate: "M3 9h18v11H3zM3 9l2.5-5h13L21 9M9 13h6",
+  reset: "M4 12a8 8 0 1 0 2.6-5.9M4 4v5h5",
   sync: "M20 7a9 9 0 0 0-15-2L2 8m0-6v6h6M4 17a9 9 0 0 0 15 2l3-3m0 6v-6h-6",
   settings: "M4 7h16M4 17h16M8 4v6M16 14v6",
   search: "M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",

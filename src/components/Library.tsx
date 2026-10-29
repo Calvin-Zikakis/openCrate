@@ -165,6 +165,13 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   const columnMenuRef = useRef<HTMLDivElement>(null);
   const columnDrag = useRef<{ id: TrackColumn; startX: number; start: ColumnSettings["widths"] } | null>(null);
   const visibleColumns = orderedColumns(columnPrefs.order).filter((column) => !columnPrefs.hidden.includes(column.id));
+  const columnsCustomized = columnPrefs.order.length > 0 || Object.keys(columnPrefs.widths).length > 0
+    || columnPrefs.hidden.length !== DEFAULT_HIDDEN_COLUMNS.length || columnPrefs.hidden.some((id) => !DEFAULT_HIDDEN_COLUMNS.includes(id));
+  const resetColumns = () => {
+    const next: ColumnSettings = { hidden: DEFAULT_HIDDEN_COLUMNS, widths: {}, order: [] };
+    setColumnPrefs(next);
+    try { localStorage.removeItem(COLUMNS_KEY); } catch { /* nothing to forget */ }
+  };
   /** A heading being dragged to a new place, and the heading it would land before or after. */
   const [columnDragging, setColumnDragging] = useState<TrackColumn | null>(null);
   const [columnDrop, setColumnDrop] = useState<{ id: TrackColumn; after: boolean } | null>(null);
@@ -411,6 +418,8 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       {reorderable && page.total > 1 && !brief && <span className="crate-hint">{reorder?.remove
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
         : " Drag a track onto a crate, a rekordbox playlist or the player, or within the list to arrange it (Custom order). Right-click for Play next and Add to queue."}</span>}
+      {/* Columns moved, hidden or resized: one click puts them back as they come. */}
+      {!isGrid && columnsCustomized && <button type="button" className="icon-button columns-reset" aria-label="Reset columns to default" title="Reset the columns to their usual order, widths and set" onClick={resetColumns}><Icon name="reset" size={13} /></button>}
     </div>
     {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column" title="Right-click to choose columns" style={{ gridTemplateColumns: columnTemplate }} onContextMenu={(event) => { event.preventDefault(); setColumnMenu({ x: event.clientX, y: event.clientY }); }}>
       {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels.
@@ -478,6 +487,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       <div className="column-menu-divider" />
       <button type="button" role="menuitem" onClick={() => { setColumnPrefs((before) => { const next = { ...before, widths: {} }; saveColumns(next); return next; }); setColumnMenu(null); }}>Reset column widths</button>
       <button type="button" role="menuitem" onClick={() => { setColumnPrefs((before) => { const next = { ...before, order: [] }; saveColumns(next); return next; }); setColumnMenu(null); }}>Reset column order</button>
+      <button type="button" role="menuitem" onClick={() => { resetColumns(); setColumnMenu(null); }}>Reset columns to default</button>
     </div>}
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"
