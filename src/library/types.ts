@@ -489,6 +489,9 @@ export interface MovedFile { fileId: number; title: string; artist: string; path
 /** Missing files, each with the file it most likely is now, or none found. */
 export interface MovedFiles { moved: { missing: MovedFile; found: MovedFile; sameFile: boolean }[]; unmatched: MovedFile[] }
 export interface Relinked { relinked: number; relocated: number; left: string[] }
+/** Missing files found below a folder the owner picked, by name. */
+export interface FolderSearch { folder: string; searched: number; found: { missing: MovedFile; path: string; sameSize: boolean; others: number }[]; notFound: number }
+export interface Restored { restored: number; left: string[] }
 /** A file whose place by the folder layout differs from where it is; paths are inside the music folder. */
 export interface RefileMove { fileId: number; rootLabel: string; from: string; to: string; inRekordbox: boolean }
 export interface RefilePlan { layout: string; moves: RefileMove[]; skipped: { path: string; why: string }[]; inPlace: number }
@@ -718,6 +721,10 @@ export interface LibraryAdmin {
   relink(pairs: [number, number][]): Promise<Relinked>;
   /** Relink a missing file to one picked with the system picker; null when cancelled. */
   relinkChosen(missingFileId: number): Promise<Relinked | null>;
+  /** Look for the missing files in a folder picked with the system dialog; null if cancelled. */
+  findMissingInFolder(): Promise<FolderSearch | null>;
+  /** Copy found files back to the places the library expects them. */
+  restoreMissing(pairs: [number, string][]): Promise<Restored>;
   /** Files whose place by the folder layout differs from where they are. Reads every file's tags. */
   refilePlan(): Promise<RefilePlan>;
   /** Move the chosen files to their places by the layout; rekordbox follows the ones it uses. */

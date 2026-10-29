@@ -590,6 +590,29 @@ impl LibraryService {
         crate::moved::missing(self.pool.lease().connection())
     }
 
+    /// Every missing file with its size and name, for looking elsewhere.
+    pub fn missing_file_details(&self) -> Result<Vec<crate::moved::MissingFile>> {
+        crate::moved::missing_details(self.pool.lease().connection())
+    }
+
+    /// Where a file is or was: its music folder's id and the full path, present or missing.
+    pub fn file_place(&self, file_id: i64) -> Result<Option<(i64, PathBuf)>> {
+        use rusqlite::OptionalExtension;
+        let lease = self.pool.lease();
+        let row: Option<(i64, Vec<u8>, Vec<u8>)> = lease
+            .connection()
+            .query_row(
+                "SELECT r.id, r.path_raw, f.path_raw FROM file f JOIN library_root r ON r.id = f.root_id \
+                 WHERE f.id = ?1 AND f.lifecycle = 'active'",
+                [file_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        Ok(row.and_then(|(root_id, root, relative)| {
+            crate::catalog::full_path(&root, &relative).map(|path| (root_id, path))
+        }))
+    }
+
     /// A missing file takes the place of a present one; see [`crate::Database::relink`].
     pub fn relink(&self, missing: i64, found: i64) -> Result<()> {
         self.writer

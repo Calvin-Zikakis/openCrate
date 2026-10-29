@@ -172,3 +172,82 @@ fn a_chosen_file_must_be_in_a_music_folder_and_is_read_in_when_new() {
         inside
     );
 }
+
+#[test]
+fn a_missing_file_found_in_another_folder_is_copied_back_into_place() {
+    let setup = setup();
+    // Keep a copy somewhere else (a backup drive, say), then lose the library's file.
+    let backup = tempfile::tempdir().unwrap();
+    let kept = backup.path().join("Old library/01 - Night Drive.aif");
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::copy(setup.music.join(NIGHT), &kept).unwrap();
+    // A file of the same name but another size is the weaker find.
+    let other = backup.path().join("Singles/01 - Night Drive.aif");
+    fs::create_dir_all(other.parent().unwrap()).unwrap();
+    fs::write(&other, aiff(1)).unwrap();
+    fs::remove_file(setup.music.join(NIGHT)).unwrap();
+    setup
+        .service
+        .scan_root(setup.root, &ScanOptions::default())
+        .unwrap();
+    assert_eq!(moved_files(&setup.service).unwrap().unmatched.len(), 1);
+
+    let search = crate::moved::find_in_folder(&setup.service, backup.path()).unwrap();
+    assert_eq!(
+        (search.searched, search.not_found, search.found.len()),
+        (2, 0, 1)
+    );
+    let found = &search.found[0];
+    assert_eq!(found.missing.title, "Night Drive");
+    assert_eq!(
+        PathBuf::from(&found.path),
+        kept,
+        "the copy of the same size is offered"
+    );
+    assert!(found.same_size);
+    assert_eq!(
+        found.others, 0,
+        "the other size does not count as another of the same"
+    );
+
+    let done = crate::moved::restore_from_folder(
+        &setup.service,
+        &[(found.missing.file_id, PathBuf::from(&found.path))],
+    )
+    .unwrap();
+    assert_eq!(
+        done,
+        crate::moved::RestoredDto {
+            restored: 1,
+            left: vec![]
+        }
+    );
+    assert_eq!(
+        fs::read(setup.music.join(NIGHT)).unwrap(),
+        fs::read(&kept).unwrap(),
+        "back where it was, byte for byte"
+    );
+    assert!(kept.exists(), "the found copy stays");
+    let after = moved_files(&setup.service).unwrap();
+    assert!(
+        after.moved.is_empty() && after.unmatched.is_empty(),
+        "{after:?}"
+    );
+    // Nothing is left to find: a second look says so, and a copy over a file back in place is refused.
+    assert_eq!(
+        crate::moved::find_in_folder(&setup.service, backup.path())
+            .unwrap()
+            .found
+            .len(),
+        0
+    );
+    let again = crate::moved::restore_from_folder(&setup.service, &[(found.missing.file_id, kept)])
+        .unwrap();
+    assert_eq!(again.restored, 0);
+    assert!(
+        again.left[0].contains("no longer in the library")
+            || again.left[0].contains("back at its place"),
+        "{:?}",
+        again.left
+    );
+}

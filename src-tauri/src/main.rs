@@ -546,6 +546,50 @@ async fn library_relink_chosen(
     .map_err(|error| error.to_string())?
 }
 
+/// Look for the missing files in a folder the owner picks (anywhere, a backup drive say);
+/// `None` when the picker was cancelled. Reads only.
+#[tauri::command]
+async fn library_find_missing_in_folder(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<moved::FolderSearchDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(picked) = app
+            .dialog()
+            .file()
+            .set_title("Look for the missing files in this folder")
+            .blocking_pick_folder()
+        else {
+            return Ok(None);
+        };
+        let path = picked.into_path().map_err(|error| error.to_string())?;
+        moved::find_in_folder(&service, &path).map(Some)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Copy found files back to the places the library expects them; see `moved::restore_from_folder`.
+#[tauri::command]
+async fn library_restore_missing(
+    state: State<'_, AppState>,
+    pairs: Vec<(i64, String)>,
+) -> Result<moved::RestoredDto, String> {
+    let service = state.library()?;
+    let hold = state.scan.hold_files("copying missing files back")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
+        let pairs: Vec<(i64, std::path::PathBuf)> = pairs
+            .into_iter()
+            .map(|(missing, path)| (missing, std::path::PathBuf::from(path)))
+            .collect();
+        moved::restore_from_folder(&service, &pairs)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Move a folder the library check names to its tidy name; rekordbox follows the files it uses.
 #[tauri::command]
 async fn library_tidy_folder(
@@ -1798,6 +1842,8 @@ fn main() -> Result<(), tauri::Error> {
             library_refile,
             library_relink,
             library_relink_chosen,
+            library_find_missing_in_folder,
+            library_restore_missing,
             library_pick_cover,
             library_set_tracks_art,
             library_track_names,

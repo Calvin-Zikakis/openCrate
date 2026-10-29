@@ -255,3 +255,200 @@ pub fn file_at_path(service: &LibraryService, path: &Path) -> Result<i64, String
             .into(),
     )
 }
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundInFolderDto {
+    pub missing: FileDto,
+    /// Where a copy was found, as a full path.
+    pub path: String,
+    /// The same size as the missing file, not only the same name.
+    pub same_size: bool,
+    /// Other files of that name in the folder, left out; the first is offered.
+    pub others: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderSearchDto {
+    pub folder: String,
+    /// Audio files looked at.
+    pub searched: usize,
+    pub found: Vec<FoundInFolderDto>,
+    /// Missing files with nothing of their name in the folder.
+    pub not_found: usize,
+}
+
+/// The most files looked at in one folder, so a whole drive does not hang the screen.
+const SEARCH_CAP: usize = 200_000;
+
+/// Every audio file below `folder`, by lower-cased name. Links are not followed; folders that
+/// cannot be read are skipped.
+fn audio_below(folder: &Path) -> HashMap<String, Vec<(PathBuf, u64)>> {
+    let mut by_name: HashMap<String, Vec<(PathBuf, u64)>> = HashMap::new();
+    let mut pending = vec![folder.to_path_buf()];
+    let mut seen = 0;
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_symlink() {
+                continue;
+            }
+            if kind.is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            let name = entry.file_name();
+            let bytes = oc_paths::os_str_to_bytes(&name);
+            if !matches!(oc_ingest::classify(&bytes), oc_ingest::EntryKind::Audio(_)) {
+                continue;
+            }
+            seen += 1;
+            if seen > SEARCH_CAP {
+                return by_name;
+            }
+            let size = entry.metadata().map_or(0, |metadata| metadata.len());
+            by_name
+                .entry(name.to_string_lossy().to_lowercase())
+                .or_default()
+                .push((entry.path(), size));
+        }
+    }
+    by_name
+}
+
+/// Look for every missing file below `folder`, by name, preferring the same size. Reads only.
+pub fn find_in_folder(service: &LibraryService, folder: &Path) -> Result<FolderSearchDto, String> {
+    let failed = |error: oc_core_db::Error| error.to_string();
+    let missing = service.missing_file_details().map_err(failed)?;
+    let ids: Vec<i64> = missing.iter().map(|file| file.file_id).collect();
+    let mut names = described(service, &ids)?;
+    let by_name = audio_below(folder);
+    let searched = by_name.values().map(Vec::len).sum();
+    let mut found = Vec::new();
+    let mut not_found = 0;
+    for file in missing {
+        let Some(candidates) = by_name.get(&file.name.to_lowercase()) else {
+            not_found += 1;
+            continue;
+        };
+        let Some(dto) = names.remove(&file.file_id) else {
+            continue;
+        };
+        let size = u64::try_from(file.size).unwrap_or(0);
+        let same: Vec<&(PathBuf, u64)> = candidates
+            .iter()
+            .filter(|(_, found)| *found == size)
+            .collect();
+        let (path, same_size, others) = match same.first() {
+            Some((path, _)) => (path.clone(), true, same.len() - 1),
+            None => (candidates[0].0.clone(), false, candidates.len() - 1),
+        };
+        found.push(FoundInFolderDto {
+            missing: dto,
+            path: path.to_string_lossy().into_owned(),
+            same_size,
+            others,
+        });
+    }
+    Ok(FolderSearchDto {
+        folder: folder.to_string_lossy().into_owned(),
+        searched,
+        found,
+        not_found,
+    })
+}
+
+#[derive(Debug, Serialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoredDto {
+    /// Files copied back to where the library expects them.
+    pub restored: usize,
+    /// Files left as they were, and why.
+    pub left: Vec<String>,
+}
+
+/// Copy each found file back to the place its missing file had, so the track, its crates, its
+/// fields and rekordbox's links all hold without a relink; then the music folders are read
+/// again. Nothing is ever written over, and the found file is left where it was.
+pub fn restore_from_folder(
+    service: &LibraryService,
+    pairs: &[(i64, PathBuf)],
+) -> Result<RestoredDto, String> {
+    let failed = |error: oc_core_db::Error| error.to_string();
+    let ids: Vec<i64> = pairs.iter().map(|(missing, _)| *missing).collect();
+    let names = described(service, &ids)?;
+    let roots: HashMap<i64, (String, PathBuf)> = service
+        .roots()
+        .map_err(failed)?
+        .into_iter()
+        .filter_map(|info| {
+            let path = oc_paths::bytes_to_os_string(&info.root.path_raw).ok()?;
+            Some((info.root.id, (info.root.label, PathBuf::from(path))))
+        })
+        .collect();
+    let mut done = RestoredDto::default();
+    let mut touched = Vec::new();
+    for (missing, source) in pairs {
+        let title = names
+            .get(missing)
+            .map_or_else(|| format!("File {missing}"), |file| file.title.clone());
+        let Some((root_id, destination)) = service.file_place(*missing).map_err(failed)? else {
+            done.left
+                .push(format!("{title}: it is no longer in the library."));
+            continue;
+        };
+        if destination.exists() {
+            done.left
+                .push(format!("{title}: a file is back at its place already."));
+            continue;
+        }
+        let Some((label, root_path)) = roots.get(&root_id) else {
+            done.left
+                .push(format!("{title}: its music folder is gone."));
+            continue;
+        };
+        let outcome = (|| -> Result<(), String> {
+            let staging = crate::import::staging_for(root_path, label)?;
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+            let staged = crate::import::staged_name(&staging, &destination);
+            oc_publish::stage_copy(source, &staged, &mut oc_publish::NoFaults)
+                .map_err(|error| error.to_string())?;
+            match service.publish_file(staged.clone(), destination.clone()) {
+                Ok(oc_publish::Outcome::Published) => Ok(()),
+                Ok(oc_publish::Outcome::Rejected(_)) => {
+                    let _ = std::fs::remove_file(&staged);
+                    Err("something changed at its place while copying".to_owned())
+                }
+                Err(error) => {
+                    if !destination.exists() {
+                        let _ = std::fs::remove_file(&staged);
+                    }
+                    Err(error.to_string())
+                }
+            }
+        })();
+        match outcome {
+            Ok(()) => {
+                done.restored += 1;
+                if !touched.contains(&root_id) {
+                    touched.push(root_id);
+                }
+            }
+            Err(why) => done.left.push(format!("{title}: {why}.")),
+        }
+    }
+    for root in touched {
+        service
+            .scan_root(root, &ScanOptions::default())
+            .map_err(failed)?;
+    }
+    Ok(done)
+}

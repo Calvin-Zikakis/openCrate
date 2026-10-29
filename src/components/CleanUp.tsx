@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onlyCasing, proposeFixes, type ProposedFix } from "../library/cleanup";
-import type { CrateComparison, CrateInfo, EditBatch, Genres, LibraryAdmin, MissingArt, MovedFiles, RefilePlan, Relinked, Sort } from "../library/types";
+import type { CrateComparison, CrateInfo, EditBatch, FolderSearch, Genres, LibraryAdmin, MissingArt, MovedFiles, RefilePlan, Relinked, Sort } from "../library/types";
 import { Icon } from "./Icon";
 import { PLAIN_TEXT } from "./plainText";
 
@@ -123,9 +123,46 @@ function MovedCard({ admin, onChanged }: Props) {
       setBusy(false);
     }
   };
+  /** The last look in a folder the owner picked, and the finds left out of the copy. */
+  const [search, setSearch] = useState<FolderSearch | null>(null);
+  const [searchUnticked, setSearchUnticked] = useState<Set<number>>(new Set());
+  const searchFolder = async () => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const next = await admin.findMissingInFolder();
+      if (!next) return;
+      setSearch(next);
+      setSearchUnticked(new Set(next.found.filter((item) => !item.sameSize).map((item) => item.missing.fileId)));
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const restore = async () => {
+    if (!search) return;
+    const chosen = search.found.filter((item) => !searchUnticked.has(item.missing.fileId));
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const done = await admin.restoreMissing(chosen.map((item) => [item.missing.fileId, item.path]));
+      setNote(`${plural(done.restored, "file was", "files were")} copied back into place.${done.left.length > 0 ? ` Left as ${done.left.length === 1 ? "it was" : "they were"}: ${done.left.join(" ")}` : ""}`);
+      if (done.restored > 0) onChanged();
+      setSearch(null);
+      await look();
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
   const total = found ? found.moved.length + found.unmatched.length : 0;
   const movedDrawn = useDrawn(found?.moved.length ?? 0);
   const unmatchedDrawn = useDrawn(found?.unmatched.length ?? 0);
+  const searchDrawn = useDrawn(search?.found.length ?? 0);
 
   return <section className="sync-card" role="region" aria-label="Moved files">
     <h2>Moved files</h2>
@@ -166,7 +203,33 @@ function MovedCard({ admin, onChanged }: Props) {
         })()}
       </>}
       {found.unmatched.length > 0 && <>
-        <p className="settings-copy">{`${plural(found.unmatched.length, "missing file was", "missing files were")} not found. If you know where one is now, choose it; it has to be in one of your music folders.`}</p>
+        <p className="settings-copy">{`${plural(found.unmatched.length, "missing file was", "missing files were")} not found in your music folders.`} Point at a folder that may hold them (a backup drive, an old library) and copies are put back where the library expects them, so the tracks keep everything. Or choose one file at a time; a chosen file has to be in one of your music folders.</p>
+        <div className="merge-actions">
+          <button className="secondary-button" disabled={busy} onClick={() => void searchFolder()}>{busy ? "Looking..." : "Look in a folder..."}</button>
+        </div>
+        {search && <div className="import-review" role="region" aria-label="Found in the folder">
+          <p className="settings-copy">{search.found.length === 0
+            ? `Nothing of theirs in ${search.folder} (${plural(search.searched, "audio file", "audio files")} looked at).`
+            : `${plural(search.found.length, "missing file has", "missing files have")} a copy in ${search.folder} (${plural(search.searched, "audio file", "audio files")} looked at${search.notFound > 0 ? `; ${search.notFound} not there` : ""}).`}
+            {search.found.some((item) => !item.sameSize) ? " A copy of the same name but a different size starts unticked: check it first." : ""}</p>
+          {search.found.length > 0 && <>
+            <ul className="folder-list" aria-label="Copies found">{search.found.slice(0, searchDrawn.shown).map((item) => <li key={item.missing.fileId} className="folder-row">
+              <label className="send-row">
+                <input type="checkbox" checked={!searchUnticked.has(item.missing.fileId)} onChange={() => setSearchUnticked((before) => { const next = new Set(before); if (!next.delete(item.missing.fileId)) next.add(item.missing.fileId); return next; })} />
+                <span className="folder-text">
+                  <strong>{`${item.missing.title || "Untitled"} - ${item.missing.artist}`}</strong>
+                  <small>{`Found: ${item.path} (${item.sameSize ? "same name and size" : "same name, different size"}${item.others > 0 ? `; ${plural(item.others, "other file", "other files")} of that name left out` : ""})`}</small>
+                  <small>{`Goes back to: ${item.missing.path}`}</small>
+                </span>
+              </label>
+            </li>)}</ul>
+            {searchDrawn.more}
+            <div className="review-actions">
+              <button className="import-button" disabled={busy || search.found.every((item) => searchUnticked.has(item.missing.fileId))} onClick={() => void restore()}>{busy ? "Copying..." : `Copy ${plural(search.found.filter((item) => !searchUnticked.has(item.missing.fileId)).length, "file", "files")} back into place`}</button>
+              <button className="secondary-button" disabled={busy} onClick={() => setSearch(null)}>Cancel</button>
+            </div>
+          </>}
+        </div>}
         <ul className="folder-list" aria-label="Not found">{found.unmatched.slice(0, unmatchedDrawn.shown).map((file) => <li key={file.fileId} className="folder-row">
           <div className="folder-text">
             <strong>{`${file.title || "Untitled"} - ${file.artist}`}</strong>

@@ -43,7 +43,7 @@ pub struct ImportDto {
 
 /// The staging folder for a music folder: its sibling, which must be on the same volume so the
 /// last step can be a hard link.
-fn staging_for(root: &Path, label: &str) -> Result<PathBuf, String> {
+pub(crate) fn staging_for(root: &Path, label: &str) -> Result<PathBuf, String> {
     let refused = || {
         format!(
             "openCrate prepares files in a folder next to {label} and cannot make one there, \
@@ -69,7 +69,7 @@ fn staging_for(root: &Path, label: &str) -> Result<PathBuf, String> {
     Ok(staging)
 }
 
-fn staged_name(staging: &Path, destination: &Path) -> PathBuf {
+pub(crate) fn staged_name(staging: &Path, destination: &Path) -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

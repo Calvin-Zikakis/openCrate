@@ -96,7 +96,7 @@ export function ImportAll({ admin, releases, rootId, options, acceptedFor, planO
   if (releases.length === 0 && stage.kind === "idle") return null;
   return <div className="import-all">
     {(stage.kind === "idle" || stage.kind === "finished") && releases.length > 0 &&
-      <button className="import-button" disabled={rootId === null} onClick={() => void check()}>{label ? label(releases.length) : `Import all ${plural(releases.length, "finished release", "finished releases")}...`}</button>}
+      <button className="import-button" disabled={rootId === null} onClick={() => void check()}>{label ? label(releases.length) : `Import all ${releases.length}...`}</button>}
     {stage.kind === "checking" && <p className="settings-copy" role="status">{`Reading the tags of release ${stage.done + 1} of ${stage.total}...`} <button className="link-button" onClick={stop}>Stop</button></p>}
     {stage.kind === "confirm" && <Confirm stage={stage} onCancel={() => setStage({ kind: "idle" })} onImport={() => void run(stage.plans, stage.failed)} />}
     {stage.kind === "importing" && <p className="settings-copy" role="status">{`Importing ${stage.done + 1} of ${stage.total}: ${stage.current}`} <button className="link-button" onClick={stop}>Stop after this one</button></p>}

@@ -883,6 +883,25 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       const value: unknown = await invoke("library_relink_chosen", { missing }).catch((error: unknown) => { throw failure(error); });
       return value === null ? null : toRelinked(value);
     },
+    findMissingInFolder: async () => {
+      const value: unknown = await invoke("library_find_missing_in_folder").catch((error: unknown) => { throw failure(error); });
+      if (value === null) return null;
+      const what = "folder search";
+      if (!isRecord(value) || !Array.isArray(value.found)) throw new Error(`The library returned an unreadable ${what}.`);
+      return {
+        folder: text(value.folder, what), searched: whole(value.searched, what), notFound: whole(value.notFound, what),
+        found: value.found.map((item: unknown) => {
+          if (!isRecord(item) || typeof item.sameSize !== "boolean") throw new Error(`The library returned an unreadable ${what}.`);
+          return { missing: toMovedFile(item.missing), path: text(item.path, what), sameSize: item.sameSize, others: whole(item.others, what) };
+        }),
+      };
+    },
+    restoreMissing: async (pairs) => {
+      const value: unknown = await invoke("library_restore_missing", { pairs }).catch((error: unknown) => { throw failure(error); });
+      const what = "restore";
+      if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
+      return { restored: whole(value.restored, what), left: value.left.map((item) => text(item, what)) };
+    },
     pickCover: async () => (await invoke("library_pick_cover").catch((error: unknown) => { throw failure(error); })) === true,
     setTracksArt: async (trackIds, art) => toArtChanged(await invoke("library_set_tracks_art", { trackIds, source: art }).catch((error: unknown) => { throw failure(error); })),
     editEach: async (edits) => toEdited(await invoke("library_edit_each", { edits }).catch((error: unknown) => { throw failure(error); })),

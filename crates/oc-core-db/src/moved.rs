@@ -28,6 +28,37 @@ pub fn missing(connection: &Connection) -> Result<Vec<(i64, i64)>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// A missing file as it was: enough to look for it somewhere else.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingFile {
+    pub file_id: i64,
+    pub root_id: i64,
+    /// Inside its music folder, as stored.
+    pub path_raw: Vec<u8>,
+    pub size: i64,
+    /// The last part of the path.
+    pub name: String,
+}
+
+/// Every missing file with its size and name, oldest row first.
+pub fn missing_details(connection: &Connection) -> Result<Vec<MissingFile>> {
+    let mut statement = connection.prepare(
+        "SELECT id, root_id, path_raw, size FROM file WHERE presence = 'missing' \
+         AND lifecycle = 'active' AND track_id IS NOT NULL ORDER BY id",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let path_raw: Vec<u8> = row.get(2)?;
+        Ok(MissingFile {
+            file_id: row.get(0)?,
+            root_id: row.get(1)?,
+            name: file_name(&path_raw),
+            path_raw,
+            size: row.get(3)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 fn file_name(path_raw: &[u8]) -> String {
     let last = path_raw
         .rsplit(|byte| *byte == 0)

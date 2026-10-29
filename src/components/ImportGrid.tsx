@@ -1,14 +1,17 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { RELEASE_FIELDS, TAG_NAMES, sharedValue, sourceOf, tagOf, type Edit, type GridField, type Source } from "../library/importEdits";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { RELEASE_FIELDS, TAG_NAMES, sourceOf, tagOf, type Edit, type GridField, type Source } from "../library/importEdits";
 import type { PlanFile, TagField } from "../library/types";
+import { Icon } from "./Icon";
 
-/** Every column, in order. Title cannot be hidden; the state column is always there. */
+/** Every column, in order. The icons and the file name are always there; Title cannot be hidden. */
 export const GRID_COLUMNS = [
-  { id: "state", label: "State", width: 30, fixed: true },
-  { id: "track", label: "#", width: 48, field: "track" },
-  { id: "title", label: "Title", width: 210, field: "title", fixed: true },
-  { id: "artist", label: "Artist", width: 150, field: "artist" },
-  { id: "album", label: "Album", width: 150, field: "album" },
+  { id: "state", label: "State and actions", width: 92, fixed: true },
+  { id: "file", label: "File", width: 170, fixed: true },
+  { id: "release", label: "Release", width: 140 },
+  { id: "track", label: "#", width: 44, field: "track" },
+  { id: "title", label: "Title", width: 190, field: "title", fixed: true },
+  { id: "artist", label: "Artist", width: 140, field: "artist" },
+  { id: "album", label: "Album", width: 140, field: "album" },
   { id: "albumArtist", label: "Album artist", width: 130, field: "albumArtist" },
   { id: "label", label: "Label", width: 110, field: "label" },
   { id: "genre", label: "Genre", width: 110, field: "genre" },
@@ -25,7 +28,7 @@ type Column = (typeof GRID_COLUMNS)[number];
 
 const MIN_WIDTH = 30;
 const MAX_WIDTH = 800;
-const DEFAULT_HIDDEN: GridColumn[] = ["albumArtist"];
+const DEFAULT_HIDDEN: GridColumn[] = ["release", "albumArtist"];
 const HIDDEN_KEY = "opencrate.importHiddenColumns";
 const WIDTHS_KEY = "opencrate.importColumnWidths";
 
@@ -93,12 +96,14 @@ interface CellProps {
   note?: string;
   disabled?: boolean;
   onCommit: (text: string) => void;
+  /** Right-click: offer the value to the whole release. */
+  onMenu?: (event: MouseEvent<HTMLInputElement>, text: string) => void;
 }
 
 /** One value the owner can type over. The text is theirs while the cell has focus; otherwise it
  * follows what the host last said. Enter keeps the value and moves down a row; Escape puts the
  * old value back. */
-function EditableCell({ column, label, value, source, placeholder, note, disabled = false, onCommit }: CellProps) {
+function EditableCell({ column, label, value, source, placeholder, note, disabled = false, onCommit, onMenu }: CellProps) {
   const [text, setText] = useState(value);
   const [focused, setFocused] = useState(false);
   /** Set by Escape: the blur that follows must not keep what was typed. */
@@ -130,11 +135,12 @@ function EditableCell({ column, label, value, source, placeholder, note, disable
       // A click into a cell takes the whole value, as a spreadsheet does, so typing replaces it;
       // the default would leave the caret where the click landed and keep the old text.
       onMouseDown={(event) => {
-        if (document.activeElement === event.currentTarget) return;
+        if (event.button !== 0 || document.activeElement === event.currentTarget) return;
         event.preventDefault();
         event.currentTarget.focus();
         event.currentTarget.select();
       }}
+      onContextMenu={onMenu ? (event) => { event.preventDefault(); onMenu(event, text); } : undefined}
       onFocus={(event) => { setFocused(true); event.target.select(); }}
       onBlur={() => { setFocused(false); if (dropped.current) { dropped.current = false; return; } commit(); }}
       onKeyDown={keys}
@@ -143,12 +149,25 @@ function EditableCell({ column, label, value, source, placeholder, note, disable
   </span>;
 }
 
-/** One release in the grid: a heading row, then a row per file. */
+/** What a release's rows can do, each as an icon at the start of every one of its rows. */
+export interface GridActions {
+  /** The release's state in a few words, for the icon's hover text. */
+  status: string;
+  lookUp?: { label: string; busy: boolean; onClick: () => void };
+  import?: { label: string; onClick: () => void };
+  remove?: { label: string; onClick: () => void };
+}
+
+/** One release in the grid: a row per file, each with the release's actions at its start. */
 export interface GridRelease {
   key: string;
   name: string;
-  header: ReactNode;
   files: PlanFile[];
+  /** Shown in place of the file rows while there are none: reading, downloading, blocked. */
+  placeholder: string;
+  actions: GridActions;
+  /** Something to say about the release (a lookup's answer, what an import did, an error). */
+  note: ReactNode;
   /** Values can be typed: the release is finished and not yet imported. */
   editable: boolean;
   /** What the owner typed, by file. */
@@ -161,25 +180,31 @@ interface Props {
   onEdit: (releaseKey: string, sources: string[], field: GridField, text: string) => void;
 }
 
-/** The import table: every file of every release, with its tags as they would be written. Click
- * a value to change it. Drag a heading's edge to resize, right-click a heading to choose columns;
- * both are remembered in this browser. A release's rows fold under its heading. */
+type CellMenu = { x: number; y: number; release: GridRelease; field: GridField; text: string };
+
+/** The import table: a row per file of every release, with its tags as they would be written.
+ * Click a value to change it; right-click one to put it on the whole release. Drag a heading's
+ * edge to resize, right-click a heading to choose columns; both are remembered in this browser. */
 export function ImportGrid({ releases, onEdit }: Props) {
   const allFiles = releases.flatMap((release) => release.files);
   const [hidden, setHidden] = useState<Set<GridColumn>>(() => new Set(load(HIDDEN_KEY, DEFAULT_HIDDEN, isIdList)));
   const [widths, setWidths] = useState<Partial<Record<GridColumn, number>>>(() => load(WIDTHS_KEY, {}, isWidths));
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [cellMenu, setCellMenu] = useState<CellMenu | null>(null);
+  /** Hover text for the icons, shown at once: the system's own tooltip takes a second to come. */
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const tipOf = (text: string) => ({
+    "data-tip": text,
+    onMouseEnter: (event: MouseEvent<HTMLElement>) => { const box = event.currentTarget.getBoundingClientRect(); setTip({ text, x: box.left, y: box.bottom + 4 }); },
+    onMouseLeave: () => setTip(null),
+    onFocus: (event: { currentTarget: HTMLElement }) => { const box = event.currentTarget.getBoundingClientRect(); setTip({ text, x: box.left, y: box.bottom + 4 }); },
+    onBlur: () => setTip(null),
+  });
   const menuRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: GridColumn; startX: number; startWidth: number } | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   /** Columns lie past the right edge: a fade and a hint say so, since a thin scrollbar hides itself. */
   const [moreRight, setMoreRight] = useState(false);
-  const [folded, setFolded] = useState<Set<string>>(new Set());
-  const fold = (key: string) => setFolded((before) => {
-    const next = new Set(before);
-    if (!next.delete(key)) next.add(key);
-    return next;
-  });
 
   // "Becomes" only matters when something would be converted.
   const converting = allFiles.some((file) => file.becomes !== null);
@@ -205,25 +230,27 @@ export function ImportGrid({ releases, onEdit }: Props) {
     });
   };
 
-  // Opened near the bottom or right edge, the menu moves so all of it stays in the window.
+  const anyMenu = menu ?? cellMenu;
+  // Opened near the bottom or right edge, a menu moves so all of it stays in the window.
   useLayoutEffect(() => {
     const element = menuRef.current;
-    if (!menu || !element) return;
+    if (!anyMenu || !element) return;
     const box = element.getBoundingClientRect();
     const margin = 8;
-    element.style.left = `${Math.max(margin, Math.min(menu.x, window.innerWidth - box.width - margin))}px`;
-    element.style.top = `${Math.max(margin, Math.min(menu.y, window.innerHeight - box.height - margin))}px`;
-  }, [menu]);
+    element.style.left = `${Math.max(margin, Math.min(anyMenu.x, window.innerWidth - box.width - margin))}px`;
+    element.style.top = `${Math.max(margin, Math.min(anyMenu.y, window.innerHeight - box.height - margin))}px`;
+  }, [anyMenu]);
 
   useEffect(() => {
-    if (!menu) return;
+    if (!anyMenu) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    menuRef.current?.querySelector<HTMLElement>("[role=menuitemcheckbox]:not([aria-disabled=true])")?.focus({ preventScroll: true });
+    menuRef.current?.querySelector<HTMLElement>("[role=menuitemcheckbox]:not([aria-disabled=true]), [role=menuitem]")?.focus({ preventScroll: true });
     const close = (event: Event) => {
       if (event instanceof MouseEvent && menuRef.current?.contains(event.target as Node)) return;
       setMenu(null);
+      setCellMenu(null);
     };
-    const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") setMenu(null); };
+    const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { setMenu(null); setCellMenu(null); } };
     window.addEventListener("mousedown", close);
     window.addEventListener("scroll", close, true);
     window.addEventListener("keydown", escape);
@@ -233,7 +260,7 @@ export function ImportGrid({ releases, onEdit }: Props) {
       window.removeEventListener("keydown", escape);
       requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) opener?.focus({ preventScroll: true }); });
     };
-  }, [menu]);
+  }, [anyMenu]);
 
   const openMenuFrom = (element: HTMLElement) => {
     const box = element.getBoundingClientRect();
@@ -272,13 +299,32 @@ export function ImportGrid({ releases, onEdit }: Props) {
     }
   };
 
-  /** The state mark at the start of a row: what stops the file, or what deserves a look. */
-  const stateMark = (file: PlanFile) => {
-    if (file.problem) return <span className="grid-state is-blocked" role="img" aria-label="Cannot be imported yet" title={file.problem}>!</span>;
+  /** What deserves a look about a file, for the state icon's hover text. */
+  const doubtsOf = (file: PlanFile | null) => {
+    if (!file) return [];
     const doubts = [...(file.tags?.warnings ?? []).filter((warning) => !warning.includes("came from the file name"))];
-    if (file.tags?.fields.some((field) => field.guessed)) doubts.push("Some values came from the file name.");
-    if (doubts.length > 0) return <span className="grid-state is-doubtful" role="img" aria-label="Worth a look" title={doubts.join(" ")}>?</span>;
-    return <span className="grid-state is-ready" role="img" aria-label="Ready" title="Ready to import as shown">{"✓"}</span>;
+    if (file.tags?.fields.some((field) => field.guessed)) doubts.push("Some values came from the file name (marked ?).");
+    if (file.shortened) doubts.push("Name shortened to fit Windows' path limit.");
+    return doubts;
+  };
+
+  /** The icons at the start of a row: the state, then the release's actions. */
+  const icons = (release: GridRelease, file: PlanFile | null) => {
+    const { actions } = release;
+    const doubts = doubtsOf(file);
+    const state = file?.problem
+      ? <span className="grid-state is-blocked" role="img" aria-label="Cannot be imported yet" tabIndex={0} {...tipOf(`${file.problem} ${actions.status}`.trim())}>!</span>
+      : file && doubts.length > 0
+        ? <span className="grid-state is-doubtful" role="img" aria-label="Worth a look" tabIndex={0} {...tipOf(doubts.join(" "))}>?</span>
+        : file
+          ? <span className="grid-state is-ready" role="img" aria-label="Ready" tabIndex={0} {...tipOf(`Ready to import as shown. ${actions.status}`.trim())}>{"✓"}</span>
+          : <span className="grid-state is-waiting" role="img" aria-label={actions.status} tabIndex={0} {...tipOf(actions.status)}><Icon name="clock" size={10} /></span>;
+    return <span className="grid-icons">
+      {state}
+      {actions.lookUp && <button type="button" className="grid-action" disabled={actions.lookUp.busy} aria-label={actions.lookUp.label} {...tipOf(actions.lookUp.label)} onClick={actions.lookUp.onClick}><Icon name="search" size={13} /></button>}
+      {actions.import && <button type="button" className="grid-action is-import" aria-label={actions.import.label} {...tipOf(actions.import.label)} onClick={actions.import.onClick}><Icon name="import" size={13} /></button>}
+      {actions.remove && <button type="button" className="grid-action" aria-label={actions.remove.label} {...tipOf(actions.remove.label)} onClick={actions.remove.onClick}><Icon name="close" size={12} /></button>}
+    </span>;
   };
 
   const cell = (column: Column, file: PlanFile, release: GridRelease) => {
@@ -291,67 +337,52 @@ export function ImportGrid({ releases, onEdit }: Props) {
       const source = sourceOf(tag, edit !== undefined);
       const note = source === "tidied" && tag ? `Tidied; was "${tag.tidiedFrom}". Click to change it.` : undefined;
       const canType = release.editable && tags !== null;
-      if (!canType) return tag?.value ?? (field === "title" ? <span title={file.source}>{fileName(file.source)}</span> : dash);
+      if (!canType) return <span className="grid-static">{tag?.value ?? dash}</span>;
+      const forRelease = RELEASE_FIELDS.includes(field) && release.files.length > 1;
       return <EditableCell column={column.id} label={`${column.label === "#" ? "Track" : column.label} of ${fileName(file.source)}`} value={shownText} source={source} note={note}
-        placeholder={field === "title" ? fileName(file.source) : field === "track" ? "-" : `Add ${TAG_NAMES[field].toLowerCase()}`}
-        onCommit={(text) => onEdit(release.key, [file.source], field, text)} />;
+        placeholder={field === "track" ? "-" : `Add ${TAG_NAMES[field].toLowerCase()}`}
+        onCommit={(text) => onEdit(release.key, [file.source], field, text)}
+        onMenu={forRelease ? (event, text) => setCellMenu({ x: event.clientX, y: event.clientY, release, field, text }) : undefined} />;
     }
-    switch (column.id) {
-      case "state": return stateMark(file);
-      case "key": return <Value of={tags?.fields.find((candidate) => candidate.name === "Key")} />;
-      case "bpm": return <Value of={tags?.fields.find((candidate) => candidate.name === "BPM")} />;
-      case "length": return tags?.length ?? dash;
-      case "format": return tags?.audio ?? dash;
-      case "becomes": return file.becomes ?? <span className="tag-missing" title="Goes in as it is">As is</span>;
-      case "destination": return file.destination ? <span title={file.destination}>{file.destination}</span> : file.problem ? <span className="tag-blocked" title={file.problem}>{file.problem}</span> : dash;
-      default: return dash;
-    }
+    const fixed = (() => {
+      switch (column.id) {
+        case "state": return icons(release, file);
+        case "file": return <span className="grid-file" title={file.source}>{fileName(file.source)}</span>;
+        case "release": return <span title={release.name}>{release.name}</span>;
+        case "key": return <Value of={tags?.fields.find((candidate) => candidate.name === "Key")} />;
+        case "bpm": return <Value of={tags?.fields.find((candidate) => candidate.name === "BPM")} />;
+        case "length": return tags?.length ?? dash;
+        case "format": return tags?.audio ?? dash;
+        case "becomes": return file.becomes ?? <span className="tag-missing" title="Goes in as it is">As is</span>;
+        case "destination": return file.destination ? <span title={file.destination}>{file.destination}</span> : file.problem ? <span className="tag-blocked" title={file.problem}>{file.problem}</span> : dash;
+        default: return dash;
+      }
+    })();
+    // The same height as a typed cell, so a row's values sit on one line.
+    return <span className="grid-static">{fixed}</span>;
   };
 
-  /** Values the whole release shares, typed once for every file. */
-  const releaseRow = (release: GridRelease) => {
-    if (!release.editable || release.files.length < 2) return null;
-    const sources = release.files.filter((file) => file.tags !== null).map((file) => file.source);
-    return <tr className="plan-row plan-release-row">
-      {visible.map((column) => {
-        const field = "field" in column ? column.field as GridField : null;
-        if (column.id === "title") return <td key={column.id} className="plan-cell plan-title"><span className="grid-whole" title="Typed here, a value goes on every file of the release">Whole release</span></td>;
-        if (!field || !RELEASE_FIELDS.includes(field)) return <td key={column.id} className={`plan-cell plan-${column.id}`} />;
-        const shared = sharedValue(release.files, field);
-        const typedForAll = sources.length > 0 && sources.every((source) => release.edits.get(source)?.[field] !== undefined);
-        const typed = typedForAll ? release.edits.get(sources[0]!)?.[field] : undefined;
-        const sameTyped = typed !== undefined && sources.every((source) => release.edits.get(source)?.[field] === typed);
-        const value = sameTyped ? typed : shared.value;
-        const source: Source = sameTyped ? "edited" : shared.mixed ? "missing" : shared.value === "" ? "missing" : "tags";
-        return <td key={column.id} className={`plan-cell plan-${column.id}`}>
-          <EditableCell column={column.id} label={`${column.label} of every file in ${release.name}`} value={value} source={source}
-            note={shared.mixed && !sameTyped ? "The files differ here. Type a value to put it on all of them." : "Goes on every file of the release."}
-            placeholder={shared.mixed ? "Mixed" : `Add ${TAG_NAMES[field].toLowerCase()}`}
-            onCommit={(text) => onEdit(release.key, sources, field, text)} />
-        </td>;
-      })}
-    </tr>;
-  };
-
-  const fileRows = (release: GridRelease) => release.files.map((file) => {
-    // Problems and real warnings get a line; the file-name one is said by the "?" marks already.
-    const notes = [...(file.shortened ? ["Name shortened to fit Windows' path limit."] : []), ...(file.tags?.warnings ?? []).filter((warning) => !warning.includes("came from the file name"))];
-    if (file.problem && !file.destination) notes.unshift(file.problem);
-    return <Fragment key={file.source}>
-      <tr className={`plan-row${file.problem ? " is-blocked" : ""}${notes.length > 0 ? " has-notes" : ""}`}>
+  const rows = (release: GridRelease) => {
+    if (release.files.length === 0) {
+      // Nothing to show yet: one line with the release's name and what it is waiting for.
+      return <tr key={release.key} className="plan-row plan-placeholder">
+        {visible.map((column) => <td key={column.id} className={`plan-cell plan-${column.id}`}>
+          {column.id === "state" ? icons(release, null) : column.id === "file" ? <span className="grid-static grid-file" title={release.name}>{release.name}</span> : column.id === "title" ? <span className="grid-static tag-missing">{release.placeholder}</span> : null}
+        </td>)}
+      </tr>;
+    }
+    return <Fragment key={release.key}>
+      {release.files.map((file) => <tr key={file.source} className={`plan-row${file.problem ? " is-blocked" : ""}`}>
         {visible.map((column) => <td key={column.id} className={`plan-cell plan-${column.id}`}>{cell(column, file, release)}</td>)}
-      </tr>
-      {notes.length > 0 && <tr className="plan-notes">
-        <td colSpan={visible.length}><ul className={file.problem ? "tag-warnings plan-blocked" : "tag-warnings"} aria-label={`Notes for ${file.source}`}>{notes.map((note) => <li key={note}>{note}</li>)}</ul></td>
-      </tr>}
+      </tr>)}
+      {release.note && <tr className="plan-notes"><td colSpan={visible.length}><div className="plan-release-note" role="status" aria-label={`About ${release.name}`}>{release.note}</div></td></tr>}
     </Fragment>;
-  });
+  };
   const tableStyle: CSSProperties = { width: total };
   const measure = () => {
     const element = wrap.current;
     if (!element) return;
     setMoreRight(element.scrollWidth - element.clientWidth - element.scrollLeft > 1);
-    // Release headings stay inside the visible part of the table, wrapping if they must.
     element.style.setProperty("--plan-visible", `${element.clientWidth}px`);
   };
   // The box and the table both change size: with the window, and as columns change or rows arrive.
@@ -364,7 +395,7 @@ export function ImportGrid({ releases, onEdit }: Props) {
     return () => observer.disconnect();
   }, []);
   return <>
-    {moreRight && <p className="plan-scroll-hint" role="note">More columns are off to the right: scroll sideways, drag a heading's edge to make a column narrower, or right-click a heading to hide some.</p>}
+    {moreRight && <p className="plan-scroll-hint" role="note">More columns to the right. Right-click a heading to choose columns.</p>}
     <div className="plan-table-frame" data-more-right={moreRight}>
     <div className="plan-table-wrap" ref={wrap} onScroll={measure}>
     <table className="analysis-table plan-table import-grid" style={tableStyle}>
@@ -390,14 +421,7 @@ export function ImportGrid({ releases, onEdit }: Props) {
           />}
         </th>)}</tr>
       </thead>
-      {releases.map((release) => <tbody key={release.key} className="plan-group">
-        <tr className="plan-group-row"><td colSpan={visible.length}><div className="plan-group-head">
-          <button type="button" className="plan-fold" aria-expanded={!folded.has(release.key)} aria-label={`${folded.has(release.key) ? "Show" : "Hide"} the files of ${release.name}`} title={folded.has(release.key) ? `Show the ${release.files.length} files` : "Hide the files"} onClick={() => fold(release.key)}><span aria-hidden="true">{folded.has(release.key) ? "▸" : "▾"}</span></button>
-          {release.header}
-        </div></td></tr>
-        {!folded.has(release.key) && releaseRow(release)}
-        {!folded.has(release.key) && fileRows(release)}
-      </tbody>)}
+      <tbody>{releases.map(rows)}</tbody>
     </table>
     </div>
     {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label="Columns" style={{ left: menu.x, top: menu.y }}>
@@ -411,10 +435,17 @@ export function ImportGrid({ releases, onEdit }: Props) {
       <div className="column-menu-divider" />
       <button type="button" role="menuitem" onClick={() => { setWidths({}); save(WIDTHS_KEY, {}); setMenu(null); }}>Reset column widths</button>
     </div>}
+    {cellMenu && <div ref={menuRef} className="column-menu" role="menu" aria-label="This value" style={{ left: cellMenu.x, top: cellMenu.y }}>
+      <button type="button" role="menuitem" onClick={() => {
+        const sources = cellMenu.release.files.filter((file) => file.tags !== null).map((file) => file.source);
+        onEdit(cellMenu.release.key, sources, cellMenu.field, cellMenu.text);
+        setCellMenu(null);
+      }}>{cellMenu.text.trim() === "" ? `Clear ${TAG_NAMES[cellMenu.field].toLowerCase()} you typed on every file of ${cellMenu.release.name}` : `Use "${cellMenu.text}" as the ${TAG_NAMES[cellMenu.field].toLowerCase()} of every file of ${cellMenu.release.name}`}</button>
+    </div>}
     </div>
-    <p className="grid-legend">
-      <span className="tag-guessed">?</span> from the file name, <span className="tag-tidied">*</span> tidied, <span className="tag-lookedUp">{"•"}</span> from a lookup, <span className="tag-edited">{"✎"}</span> typed by you.
-      Click any value to change it; Enter moves down a row, and the Whole release row puts a value on every file.
+    {tip && <div className="grid-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>}
+    <p className="grid-legend" title="Click any value to change it. Enter moves down a row. Right-click a value to put it on every file of the release.">
+      <span className="tag-guessed">?</span> file name <span className="legend-dot">&middot;</span> <span className="tag-tidied">*</span> tidied <span className="legend-dot">&middot;</span> <span className="tag-lookedUp">{"•"}</span> lookup <span className="legend-dot">&middot;</span> <span className="tag-edited">{"✎"}</span> typed <span className="legend-dot">&middot;</span> click a value to change it, right-click to apply it to the whole release
     </p>
   </>;
 }

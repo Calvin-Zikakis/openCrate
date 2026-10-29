@@ -37,6 +37,17 @@ pub fn search_url(artist: &str, release: &str) -> String {
     )
 }
 
+/// Search recordings by title and artist: a track, rather than a release. Each recording comes
+/// with the releases it is on, so the answer still names releases to fetch.
+#[must_use]
+pub fn recording_search_url(artist: &str, title: &str) -> String {
+    let query = format!("recording:{} AND artist:{}", phrase(title), phrase(artist));
+    format!(
+        "{BASE}/recording/?query={}&fmt=json&limit=10",
+        utf8_percent_encode(&query, QUERY)
+    )
+}
+
 /// The front cover the Cover Art Archive holds for a MusicBrainz release, 500 pixels across.
 /// No key is needed; the answer is a redirect to the image.
 #[must_use]
@@ -106,6 +117,58 @@ pub struct Candidate {
     pub artist: String,
     pub year: Option<i32>,
     pub tracks: usize,
+}
+
+#[derive(Deserialize)]
+struct RecordingReleaseJson {
+    id: String,
+    title: String,
+    date: Option<String>,
+    #[serde(rename = "track-count", default)]
+    track_count: usize,
+}
+
+#[derive(Deserialize)]
+struct RecordingJson {
+    #[serde(default)]
+    score: u32,
+    #[serde(rename = "artist-credit", default)]
+    artist_credit: Vec<Credit>,
+    #[serde(default)]
+    releases: Vec<RecordingReleaseJson>,
+}
+
+#[derive(Deserialize)]
+struct RecordingSearchJson {
+    recordings: Vec<RecordingJson>,
+}
+
+/// The releases a recording search names, one candidate per release, each with the recording's
+/// score and artist, in MusicBrainz's order. A recording on several releases gives several.
+///
+/// # Errors
+/// When the text is not a recording search answer.
+pub fn parse_recording_search(text: &str) -> Result<Vec<Candidate>, Error> {
+    let answer: RecordingSearchJson =
+        serde_json::from_str(text).map_err(|error| Error::Unreadable(error.to_string()))?;
+    let mut found = Vec::new();
+    for recording in answer.recordings {
+        let artist = credited(&recording.artist_credit);
+        for release in recording.releases {
+            if found.iter().any(|other: &Candidate| other.id == release.id) {
+                continue;
+            }
+            found.push(Candidate {
+                id: release.id,
+                score: recording.score,
+                title: release.title,
+                artist: artist.clone(),
+                year: year(release.date.as_deref()),
+                tracks: release.track_count,
+            });
+        }
+    }
+    Ok(found)
 }
 
 /// The candidate to fetch: a score of at least 80, preferring one with as many tracks as there
@@ -318,6 +381,37 @@ pub(crate) mod tests {
         assert_eq!((found[1].score, found[1].year), (0, None));
         assert!(parse_search("{}").is_err());
         assert!(parse_search("<html>").is_err());
+    }
+
+    #[test]
+    fn a_recording_search_names_the_releases_the_track_is_on() {
+        let url = recording_search_url("Oak", "Kite");
+        assert!(url.starts_with("https://musicbrainz.org/ws/2/recording/?query="));
+        assert!(
+            url.contains("recording%3A%22Kite%22%20AND%20artist%3A%22Oak%22"),
+            "{url}"
+        );
+        let answer = r#"{"created":"x","count":2,"offset":0,"recordings":[
+            {"id":"rec1","score":97,"title":"Kite","artist-credit":[{"name":"Oak","joinphrase":""}],
+             "releases":[{"id":"r1","title":"Bitterness","date":"2016-03-04","track-count":2},
+                         {"id":"r2","title":"Label Sampler","track-count":12}]},
+            {"id":"rec2","score":60,"title":"Kite (Edit)","artist-credit":[{"name":"Oak","joinphrase":""}],
+             "releases":[{"id":"r1","title":"Bitterness","date":"2016","track-count":2}]}
+        ]}"#;
+        let found = parse_recording_search(answer).unwrap();
+        assert_eq!(found.len(), 2, "a release named twice counts once");
+        assert_eq!(
+            (
+                found[0].id.as_str(),
+                found[0].score,
+                found[0].year,
+                found[0].tracks
+            ),
+            ("r1", 97, Some(2016), 2)
+        );
+        assert_eq!((found[1].id.as_str(), found[1].tracks), ("r2", 12));
+        assert_eq!(pick(&found, 1).unwrap().id, "r1");
+        assert!(parse_recording_search("{}").is_err());
     }
 
     #[test]

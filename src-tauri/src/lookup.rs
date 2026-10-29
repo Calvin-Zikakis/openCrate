@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use oc_core_db::service::LibraryService;
 use oc_lookup::{
     discogs_identity_url, discogs_release_url, discogs_search_url, parse_discogs_release,
-    parse_discogs_search, parse_release, parse_search, pick, release_url, search_url, suggest,
-    FileFacts, Release,
+    parse_discogs_search, parse_recording_search, parse_release, parse_search, pick,
+    recording_search_url, release_url, search_url, suggest, Candidate, FileFacts, Release,
 };
 use oc_tag::TagInfo;
 use serde::{Deserialize, Serialize};
@@ -275,6 +275,25 @@ pub struct LookupDto {
 }
 
 /// The most common value among the files, for naming the release in a search.
+/// The tracks to search for when the album finds nothing: each file's artist and title, the
+/// first three files, each pair once.
+pub fn track_queries(files: &[FileFacts]) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for file in files {
+        let (Some(artist), Some(title)) = (&file.tags.artist, &file.tags.title) else {
+            continue;
+        };
+        let pair = (artist.clone(), title.clone());
+        if !pairs.contains(&pair) {
+            pairs.push(pair);
+        }
+        if pairs.len() == 3 {
+            break;
+        }
+    }
+    pairs
+}
+
 fn most_common<'a>(values: impl Iterator<Item = Option<&'a String>>) -> Option<String> {
     let mut counts: HashMap<&String, usize> = HashMap::new();
     for value in values.flatten() {
@@ -441,20 +460,44 @@ pub fn lookup_release(
             .or(file.tags.artist.as_ref())
     }));
     let album = most_common(files.iter().map(|file| file.tags.album.as_ref()));
-    let (Some(artist), Some(album)) = (artist, album) else {
+    let tracks = track_queries(&files);
+    let Some(artist) = artist else {
         return Ok(nothing(
-            "A release is looked up by its artist and album name, and these files have none."
+            "A release is looked up by its artist and album name, or a track by its artist and \
+             title, and these files have no artist."
                 .to_owned(),
         ));
     };
+    if album.is_none() && tracks.is_empty() {
+        return Ok(nothing(
+            "A release is looked up by its artist and album name, or a track by its artist and \
+             title, and these files have neither."
+                .to_owned(),
+        ));
+    }
     let token = keys(service)?.discogs_token;
+    // The album first, when there is one; then the tracks themselves, which find a single or a
+    // file whose album tag is wrong or missing.
     let found = (|| -> Result<Option<Release>, String> {
-        let candidates = parse_search(
-            &lookups
-                .musicbrainz
-                .get(&search_url(&artist, &album), None)?,
-        )
-        .map_err(|error| error.to_string())?;
+        let mut candidates: Vec<Candidate> = Vec::new();
+        if let Some(album) = &album {
+            candidates = parse_search(&lookups.musicbrainz.get(&search_url(&artist, album), None)?)
+                .map_err(|error| error.to_string())?;
+        }
+        if pick(&candidates, files.len()).is_none() {
+            for (track_artist, title) in &tracks {
+                let more = parse_recording_search(
+                    &lookups
+                        .musicbrainz
+                        .get(&recording_search_url(track_artist, title), None)?,
+                )
+                .map_err(|error| error.to_string())?;
+                candidates.extend(more);
+                if pick(&candidates, files.len()).is_some() {
+                    break;
+                }
+            }
+        }
         let Some(best) = pick(&candidates, files.len()) else {
             return Ok(None);
         };
@@ -462,12 +505,21 @@ pub fn lookup_release(
             .map_err(|error| error.to_string())?;
         Ok(Some(release))
     })();
+    let album_text = album.clone().unwrap_or_default();
+    let asked = match (&album, tracks.first()) {
+        (Some(album), Some((_, title))) => {
+            format!("a release \"{album}\" or a track \"{title}\" by {artist}")
+        }
+        (Some(album), None) => format!("a release \"{album}\" by {artist}"),
+        (None, Some((_, title))) => format!("a track \"{title}\" by {artist}"),
+        (None, None) => format!("anything by {artist}"),
+    };
     match (found, token) {
         (Ok(Some(mut release)), token) => {
             if let Some(token) = token {
                 // The style is a nicety: a Discogs failure leaves MusicBrainz's answer as it is.
                 if let Ok(Some(more)) =
-                    discogs_find(&lookups.discogs, &token, &artist, &album, &files)
+                    discogs_find(&lookups.discogs, &token, &artist, &album_text, &files)
                 {
                     release.genre = more.genre;
                 }
@@ -475,17 +527,16 @@ pub fn lookup_release(
             Ok(compare("MusicBrainz", &release, &files))
         }
         (Ok(None) | Err(_), Some(token)) => {
-            match discogs_find(&lookups.discogs, &token, &artist, &album, &files)? {
+            match discogs_find(&lookups.discogs, &token, &artist, &album_text, &files)? {
                 Some(release) => Ok(compare("Discogs", &release, &files)),
                 None => Ok(nothing(format!(
-                    "Neither MusicBrainz nor Discogs has a release that matches \"{album}\" by \
-                     {artist} closely enough."
+                    "Neither MusicBrainz nor Discogs has {asked} closely enough."
                 ))),
             }
         }
         (Ok(None), None) => Ok(nothing(format!(
-            "MusicBrainz has no release that matches \"{album}\" by {artist} closely enough. \
-             With a Discogs token in Settings, Discogs is asked too."
+            "MusicBrainz has no match for {asked} closely enough. With a Discogs token in \
+             Settings, Discogs is asked too."
         ))),
         (Err(error), None) => Err(error),
     }
@@ -494,6 +545,35 @@ pub fn lookup_release(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tracks_asked_about_are_the_first_three_distinct_artist_and_title_pairs() {
+        let file = |artist: Option<&str>, title: Option<&str>| FileFacts {
+            source: String::new(),
+            tags: TagInfo {
+                artist: artist.map(Into::into),
+                title: title.map(Into::into),
+                ..TagInfo::default()
+            },
+            duration_ms: 0,
+        };
+        let files = [
+            file(Some("Oak"), Some("Kite")),
+            file(None, Some("Nameless")),
+            file(Some("Oak"), Some("Kite")),
+            file(Some("Oak"), Some("Escapist")),
+            file(Some("Oak"), Some("Firebird")),
+            file(Some("Oak"), Some("Fourth")),
+        ];
+        assert_eq!(
+            track_queries(&files),
+            [
+                ("Oak".to_owned(), "Kite".to_owned()),
+                ("Oak".to_owned(), "Escapist".to_owned()),
+                ("Oak".to_owned(), "Firebird".to_owned()),
+            ]
+        );
+    }
 
     const RELEASE: &str = r#"{
         "id": "0b1d1c3e-0000-4000-8000-000000000001", "title": "Between Spaces", "date": "2019-05-03",

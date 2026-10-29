@@ -331,6 +331,15 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return { relinked: (args?.pairs ?? []).length, relocated: 1, left: [] };
             case "library_relink_chosen":
               return null;
+            case "library_find_missing_in_folder":
+              if ((window as any).__noFolderPicked) return null;
+              return {
+                folder: "/Volumes/Backup/Music", searched: 240, notFound: 0,
+                found: [{ missing: { fileId: 21, title: "Late Train", artist: "Studio 001", path: "Music: Studio 001/No Light/03 Late Train.aif" }, path: "/Volumes/Backup/Music/No Light/03 Late Train.aif", sameSize: true, others: 1 }],
+              };
+            case "library_restore_missing":
+              (window as any).__restored = args?.pairs;
+              return { restored: (args?.pairs ?? []).length, left: [] };
             case "library_refile_plan": {
               const moved: number[] = (window as any).__refiled ?? [];
               const all = [
@@ -991,7 +1000,10 @@ test("the settings close button stays put while the settings scroll", async ({ p
 });
 
 /** The table group of one release, found by its heading (a file's destination may name another release). */
-const releaseGroup = (page: Page, name: string) => page.locator("tbody.plan-group").filter({ has: page.locator(".plan-group-name strong", { hasText: name }) });
+/** The table row of one file, found by its file name in the first column. */
+const rowOf = (page: Page, file: string) => page.locator("tr.plan-row").filter({ has: page.locator(".grid-file", { hasText: file }) });
+/** What the table says under a release's rows. */
+const noteOf = (page: Page, release: string) => page.getByRole("status", { name: `About ${release}` });
 
 /** Opens Import with a music and a watch folder. */
 async function openImportWithFolders(page: Page) {
@@ -1027,13 +1039,10 @@ test("import: every finished release's tags are read into one table, one row per
   // A wide table scrolls inside its card; the screen itself never scrolls sideways.
   expect(await screen.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 
+  // One row per file; a release with nothing to show yet has one line saying why.
   const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
-  const groups = fresh.locator("tbody.plan-group");
-  await expect(groups).toHaveCount(4);
-  const between = releaseGroup(page, "Between Spaces");
-  await expect(between.locator(".folder-badge")).toHaveText("1 file stays behind");
-  // Title and artist are columns of their own, each a value to type over.
-  const first = between.locator("tr.plan-row:not(.plan-release-row)").first();
+  await expect(fresh.locator("tr.plan-row")).toHaveCount(5);
+  const first = rowOf(page, "01.flac").first();
   await expect(first.getByRole("textbox", { name: "Title of 01.flac" })).toHaveValue("Studio 001 - Night Drive.mp3");
   await expect(first.getByRole("textbox", { name: "Artist of 01.flac" })).toHaveValue("Studio 001");
   await expect(first.getByRole("textbox", { name: "Track of 01.flac" })).toHaveValue("1");
@@ -1042,65 +1051,75 @@ test("import: every finished release's tags are read into one table, one row per
   await expect(first.getByRole("textbox", { name: "Label of 01.flac" })).toHaveAttribute("placeholder", "Add label");
   await expect(first.getByText("FLAC 16/44.1")).toBeVisible();
   await expect(first.getByText("3:45")).toBeVisible();
-  await expect(first.getByRole("img", { name: "Worth a look" })).toBeVisible();
-  // A file that cannot go in says why where its destination would be, and is marked.
-  const second = between.locator("tr.plan-row:not(.plan-release-row)").nth(1);
-  await expect(second.getByRole("img", { name: "Cannot be imported yet" })).toBeVisible();
+  // The icons at the start of a row: the state with its reasons on hover, then the actions.
+  await expect(first.getByRole("img", { name: "Worth a look" })).toHaveAttribute("data-tip", /The title ends with a file extension/);
+  // The hover text comes at once, not after the system's tooltip delay.
+  await first.getByRole("img", { name: "Worth a look" }).hover();
+  await expect(page.getByRole("tooltip")).toContainText("The title ends with a file extension.");
+  await expect(first.getByRole("button", { name: "Look up Between Spaces" })).toBeVisible();
+  await expect(first.getByRole("button", { name: "Import Between Spaces (1 file)" })).toBeVisible();
+  await expect(first.getByRole("button", { name: "Remove Between Spaces from the list" })).toBeVisible();
+  // A file that cannot go in says why on its mark and where its destination would be.
+  const second = rowOf(page, "02.flac").first();
+  await expect(second.getByRole("img", { name: "Cannot be imported yet" })).toHaveAttribute("data-tip", /No track number in the tags or file name/);
   await expect(second.getByText("No track number in the tags or file name.")).toBeVisible();
-  await expect(page.getByRole("list", { name: "Notes for Between Spaces/01.flac" })).toContainText("The title ends with a file extension.");
-  const clean = releaseGroup(page, "Clean Single");
-  await expect(clean.locator(".folder-badge")).toHaveText("Ready");
+  await expect(second.getByRole("button", { name: /^Import Between Spaces/ })).toBeVisible();
+  const clean = rowOf(page, "01.aif");
   await expect(clean.getByRole("img", { name: "Ready" })).toBeVisible();
   await expect(clean.getByRole("cell", { name: "Studio 001/Clean Single/01 - Studio 001 - Clean Single.aif" })).toBeVisible();
-  // Still downloading: listed with its state, nothing to import or look up yet.
-  const downloading = releaseGroup(page, "Night Drive EP");
-  await expect(downloading.locator(".folder-badge")).toHaveText("Still downloading");
+  // Still downloading: one line with its state, nothing to import or look up yet.
+  const downloading = rowOf(page, "Night Drive EP");
+  await expect(downloading).toContainText("Still downloading");
+  await expect(downloading.getByRole("img", { name: /Still downloading/ })).toBeVisible();
   await expect(downloading.getByRole("button", { name: /^Import / })).toHaveCount(0);
   await expect(downloading.getByRole("button", { name: /^Look up / })).toHaveCount(0);
-  // One heading row for the whole table; "Album artist" is off until chosen.
+  // One heading row for the whole table; "Release" and "Album artist" are off until chosen.
   await expect(fresh.getByRole("columnheader", { name: "Title", exact: true })).toHaveCount(1);
-  for (const heading of ["#", "Artist", "Album", "Label", "Genre", "Year", "Key", "BPM", "Length", "Format", "Goes to"]) {
+  for (const heading of ["File", "#", "Artist", "Album", "Label", "Genre", "Year", "Key", "BPM", "Length", "Format", "Goes to"]) {
     await expect(fresh.getByRole("columnheader", { name: heading, exact: true })).toBeVisible();
   }
   await expect(fresh.getByRole("columnheader", { name: "Album artist" })).toHaveCount(0);
+  await expect(fresh.getByRole("columnheader", { name: "Release" })).toHaveCount(0);
   const older = page.locator(".sync-card").filter({ hasText: "Already there when you added the folder" });
-  await expect(older.getByRole("button", { name: "Import Old Favourites" })).toBeVisible();
+  await expect(older.getByRole("button", { name: "Import Old Favourites (1 file)" }).first()).toBeVisible();
   const kept = { convert: { lossless: null, lossy: null }, tidy: true };
   expect((await calls(page)).filter((call) => call.command === "library_plan_release").map((call) => call.args)).toContainEqual({ folderId: 9, name: "Between Spaces", rootId: 7, options: kept });
 });
 
-test("import: typing over a value sends it with the plan and the import, and the whole-release row fills every file", async ({ page }) => {
+test("import: typing over a value sends it with the plan and the import, and a right-click puts it on the whole release", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.addInitScript(() => { (window as any).__twoReady = true; });
   await openImportWithFolders(page);
   const plansOf = async (name: string) => (await calls(page)).filter((call) => call.command === "library_plan_release" && call.args.name === name);
   await expect.poll(async () => (await plansOf("Second Light")).length).toBe(1);
-  const second = releaseGroup(page, "Second Light");
+  const one = rowOf(page, "01.mp3");
+  const two = rowOf(page, "02.mp3");
 
   // One file: the value goes to that file only and is marked as typed.
-  const title = second.getByRole("textbox", { name: "Title of 01.mp3" });
+  const title = one.getByRole("textbox", { name: "Title of 01.mp3" });
   await title.click();
   await title.fill("Opening Light");
   await title.press("Enter");
   // Enter moves down to the same column of the next row.
-  await expect(second.getByRole("textbox", { name: "Title of 02.mp3" })).toBeFocused();
+  await expect(two.getByRole("textbox", { name: "Title of 02.mp3" })).toBeFocused();
   await expect.poll(async () => (await plansOf("Second Light")).at(-1)?.args.options.accepted).toEqual([{ source: "Second Light/01.mp3", title: "Opening Light" }]);
   await expect(title).toHaveValue("Opening Light");
-  await expect(second.locator(".grid-cell.is-edited .grid-input")).toHaveValue("Opening Light");
-  await expect(second.getByText("1 value typed.")).toBeVisible();
+  await expect(one.locator(".grid-cell.is-edited .grid-input")).toHaveValue("Opening Light");
+  await expect(noteOf(page, "Second Light")).toContainText("1 value typed.");
 
-  // The albums differ, so the whole-release row says Mixed; a value typed there goes on both.
-  const whole = second.getByRole("textbox", { name: "Album of every file in Second Light" });
-  await expect(whole).toHaveAttribute("placeholder", "Mixed");
-  await whole.fill("Second Light EP");
-  await whole.press("Tab");
+  // A right-click on a release-level value offers it to every file of the release.
+  const album = one.getByRole("textbox", { name: "Album of 01.mp3" });
+  await album.click();
+  await album.fill("Second Light EP");
+  await album.click({ button: "right" });
+  await page.getByRole("menu", { name: "This value" }).getByRole("menuitem", { name: 'Use "Second Light EP" as the album of every file of Second Light' }).click();
   await expect.poll(async () => (await plansOf("Second Light")).at(-1)?.args.options.accepted).toEqual([
     { source: "Second Light/01.mp3", title: "Opening Light", album: "Second Light EP" },
     { source: "Second Light/02.mp3", album: "Second Light EP" },
   ]);
-  await expect(second.getByRole("textbox", { name: "Album of 02.mp3" })).toHaveValue("Second Light EP");
-  // A year that is not a whole number says nothing; blank takes a typed value back.
-  const year = second.getByRole("textbox", { name: "Year of 02.mp3" });
+  await expect(two.getByRole("textbox", { name: "Album of 02.mp3" })).toHaveValue("Second Light EP");
+  // A year that is not a whole number says nothing.
+  const year = two.getByRole("textbox", { name: "Year of 02.mp3" });
   await year.fill("20x");
   await year.press("Tab");
   await page.waitForTimeout(300);
@@ -1109,7 +1128,7 @@ test("import: typing over a value sends it with the plan and the import, and the
     { source: "Second Light/02.mp3", album: "Second Light EP" },
   ]);
   // Escape puts the old value back without sending anything.
-  const artist = second.getByRole("textbox", { name: "Artist of 01.mp3" });
+  const artist = one.getByRole("textbox", { name: "Artist of 01.mp3" });
   await artist.click();
   await artist.fill("Someone else");
   await artist.press("Escape");
@@ -1118,29 +1137,28 @@ test("import: typing over a value sends it with the plan and the import, and the
   expect((await plansOf("Between Spaces")).length).toBe(1);
 
   // The import carries the typed values, and the typing can be undone.
-  await second.getByRole("button", { name: "Import Second Light" }).click();
-  await expect(second.getByRole("status").filter({ hasText: "2 files are now in Music." })).toBeVisible();
+  await one.getByRole("button", { name: /^Import Second Light/ }).click();
+  await expect(noteOf(page, "Second Light")).toContainText("2 files are now in Music.");
   const sent = (await calls(page)).filter((call) => call.command === "library_import_release").at(-1)!;
   expect(sent.args.options.accepted).toEqual([
     { source: "Second Light/01.mp3", title: "Opening Light", album: "Second Light EP" },
     { source: "Second Light/02.mp3", album: "Second Light EP" },
   ]);
-  const between = releaseGroup(page, "Between Spaces");
+  const between = rowOf(page, "01.flac").first();
   await between.getByRole("textbox", { name: "Genre of 01.flac" }).fill("Techno");
   await between.getByRole("textbox", { name: "Genre of 01.flac" }).press("Tab");
-  await expect(between.getByText("1 value typed.")).toBeVisible();
-  await between.getByRole("button", { name: "Undo the typing" }).click();
-  await expect(between.getByText("1 value typed.")).toHaveCount(0);
+  await expect(noteOf(page, "Between Spaces")).toContainText("1 value typed.");
+  await noteOf(page, "Between Spaces").getByRole("button", { name: "Undo the typing" }).click();
+  await expect(noteOf(page, "Between Spaces")).toHaveCount(0);
   await expect(between.getByRole("textbox", { name: "Genre of 01.flac" })).toHaveValue("");
 });
 
 test("import: a release is copied in with one click, the library rescanned, and it moves to Imported", async ({ page }) => {
   await stubBridge(page, "managed");
   await openImportWithFolders(page);
-  const between = releaseGroup(page, "Between Spaces");
-  await between.getByRole("button", { name: "Import Between Spaces" }).click();
-  await expect(between.getByRole("status").filter({ hasText: "1 file is now in Music. Left where they are: Between Spaces/02.flac (No track number in the tags or file name.)." })).toBeVisible();
-  const imported = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: "Imported" }) });
+  await rowOf(page, "01.flac").first().getByRole("button", { name: /^Import Between Spaces/ }).click();
+  await expect(noteOf(page, "Between Spaces")).toContainText("1 file is now in Music. Left where they are: Between Spaces/02.flac (No track number in the tags or file name.).");
+  const imported = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: /^Imported/ }) });
   await expect(imported.getByText("Between Spaces", { exact: true })).toBeVisible();
   await expect(imported.locator(".folder-badge")).toHaveText("Imported");
   await imported.getByRole("button", { name: "What happened to Between Spaces" }).click();
@@ -1150,12 +1168,12 @@ test("import: a release is copied in with one click, the library rescanned, and 
   expect(sent.filter((call) => call.command === "library_import_release").map((call) => call.args)).toEqual([{ folderId: 9, name: "Between Spaces", rootId: 7, options: { convert: { lossless: null, lossy: null }, tidy: true } }]);
   const after = sent.slice(sent.findIndex((call) => call.command === "library_import_release"));
   expect(after.some((call) => call.command === "library_scan" && call.args?.rootId === 7)).toBe(true);
-  // The imported files are looked for in the library, so they can go on into a crate or playlist.
+  // With no crate or playlist chosen, the imported files are not looked for.
   expect(after.filter((call) => call.command === "library_imported_tracks")).toHaveLength(0);
   await expect(page.getByRole("button", { name: "Open Recently imported" })).toBeVisible();
 });
 
-test("import: after importing, the tracks go into the chosen crate and rekordbox playlist", async ({ page }) => {
+test("import: the destination menu picks the folder, a crate and a rekordbox playlist, and imports land in them", async ({ page }) => {
   await stubBridge(page, "managed");
   await page.addInitScript(() => {
     (window as any).__rbEnabled = true;
@@ -1167,23 +1185,32 @@ test("import: after importing, the tracks go into the chosen crate and rekordbox
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await page.getByRole("button", { name: "Choose export..." }).click();
   await page.getByRole("button", { name: "Import", exact: true }).first().click();
-  // The destination sits beside the Import button, with the music folder.
   const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
-  const target = fresh.getByRole("group", { name: "After importing, add the tracks to" });
-  await expect(fresh.locator(".import-actions").getByText("Into music folder")).toBeVisible();
-  await target.getByLabel("Crate for imported tracks").selectOption("new");
-  await target.getByLabel("Name for the new crate").fill("New this week");
-  await target.getByRole("button", { name: "Make it" }).click();
-  await expect(target.getByLabel("Crate for imported tracks")).toHaveValue("1");
-  await target.getByLabel("rekordbox playlist for imported tracks").selectOption("4");
+  const opener = fresh.getByRole("button", { name: /^Import destination/ });
+  await expect(opener).toContainText("Music");
+  await opener.click();
+  const menu = page.getByRole("menu", { name: "Import destination" });
+  // Two levels: the kinds on the left, the choices of the one under the pointer on the right.
+  await menu.getByRole("menuitem", { name: /^Music folder/ }).hover();
+  await expect(menu.getByRole("group", { name: "Music folder" }).getByRole("menuitemradio", { name: "Music" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitem", { name: /^Crate/ }).hover();
+  const crates = menu.getByRole("group", { name: "Crate" });
+  await crates.getByRole("menuitem", { name: "New crate..." }).click();
+  await crates.getByLabel("Name for the new crate").fill("New this week");
+  await crates.getByRole("button", { name: "Make it" }).click();
+  await expect(crates.getByRole("menuitemradio", { name: "New this week" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitem", { name: /^rekordbox playlist/ }).hover();
+  await menu.getByRole("group", { name: "rekordbox playlist" }).getByRole("menuitemradio", { name: "Closers" }).click();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(opener).toContainText("Music · crate New this week · playlist Closers");
   expect((await calls(page)).filter((call) => call.command === "library_set_import_target").at(-1)?.args.target).toEqual({ crateId: 1, playlistId: 4 });
   // The sidebar lists the new crate at once, and the other list shows the same choice.
   await expect(page.getByRole("complementary").getByRole("button", { name: /^New this week/ })).toBeVisible();
   const older = page.locator(".sync-card").filter({ hasText: "Already there when you added the folder" });
-  await expect(older.getByLabel("Crate for imported tracks")).toHaveValue("1");
+  await expect(older.getByRole("button", { name: /^Import destination/ })).toContainText("crate New this week");
 
-  const second = releaseGroup(page, "Second Light");
-  await second.getByRole("button", { name: "Import Second Light" }).click();
+  await rowOf(page, "01.mp3").getByRole("button", { name: /^Import Second Light/ }).click();
   await expect(page.getByRole("status").filter({ hasText: "Added 2 tracks to the crate New this week. Added 2 tracks to the rekordbox playlist Closers." })).toBeVisible();
   const sent = await calls(page);
   expect(sent.filter((call) => call.command === "library_imported_tracks").map((call) => call.args)).toEqual([{ fileIds: [1, 2] }]);
@@ -1198,30 +1225,32 @@ test("import: a release can be taken off the list and put back, and those alread
   await page.addInitScript(() => { (window as any).__cleanReady = true; (window as any).__fileNothing = true; });
   await openImportWithFolders(page);
   const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
-  await expect(fresh.locator("tbody.plan-group")).toHaveCount(4);
-  // Without writing to rekordbox, the playlist picker says why it is off.
-  await expect(fresh.getByLabel("rekordbox playlist for imported tracks")).toBeDisabled();
-  await fresh.getByRole("button", { name: "Remove Night Drive EP from the list" }).click();
-  await expect(fresh.locator("tbody.plan-group")).toHaveCount(3);
+  await expect(fresh.locator("tr.plan-row")).toHaveCount(5);
+  // Without writing to rekordbox, the destination menu says why the playlist is off.
+  await fresh.getByRole("button", { name: /^Import destination/ }).click();
+  await expect(page.getByRole("menu", { name: "Import destination" }).getByRole("menuitem", { name: /^rekordbox playlist/ })).toContainText("Writing is off");
+  await page.keyboard.press("Escape");
+  await rowOf(page, "Night Drive EP").getByRole("button", { name: "Remove Night Drive EP from the list" }).click();
+  await expect(fresh.locator("tr.plan-row")).toHaveCount(4);
   expect((await calls(page)).filter((call) => call.command === "library_set_release_dismissed").map((call) => call.args)).toEqual([{ folderId: 9, name: "Night Drive EP", dismissed: true }]);
   // It survives the next look at the folder, and comes back on request.
   await page.waitForTimeout(3500);
-  await expect(fresh.locator("tbody.plan-group")).toHaveCount(3);
+  await expect(fresh.locator("tr.plan-row")).toHaveCount(4);
   const removed = page.locator(".sync-card").filter({ hasText: "Removed from the list" });
   await expect(removed).toContainText("1 release you took off the list without importing.");
   await removed.getByRole("button", { name: "Show it" }).click();
   await removed.getByRole("button", { name: "Put back Night Drive EP" }).click();
-  await expect(fresh.locator("tbody.plan-group")).toHaveCount(4);
+  await expect(fresh.locator("tr.plan-row")).toHaveCount(5);
   await expect(removed).toHaveCount(0);
   // A release whose every file is already in the music folder can be cleared with the others
   // like it in one click. (Between Spaces has a file blocked for another reason, so it stays.)
-  await expect(fresh.getByRole("button", { name: /already in your library/ })).toHaveCount(0);
+  await expect(fresh.getByRole("button", { name: /already in library/ })).toHaveCount(0);
   await page.evaluate(() => { (window as any).__alreadyThere = true; });
   await page.locator(".import-setup").getByRole("button", { name: "Change..." }).click();
   await page.getByRole("checkbox", { name: /Tidy names/ }).click();
-  await fresh.getByRole("button", { name: "Remove the 1 release already in your library" }).click();
-  await expect(fresh.locator("tbody.plan-group")).toHaveCount(3);
-  await expect(fresh.locator("tbody.plan-group").filter({ hasText: "Clean Single" })).toHaveCount(0);
+  await fresh.getByRole("button", { name: "Remove 1 already in library" }).click();
+  await expect(fresh.locator("tr.plan-row")).toHaveCount(4);
+  await expect(rowOf(page, "01.aif")).toHaveCount(0);
   expect((await calls(page)).filter((call) => call.command === "library_set_release_dismissed").at(-1)?.args).toEqual({ folderId: 9, name: "Clean Single", dismissed: true });
 });
 
@@ -1233,7 +1262,7 @@ test("import: with writing to rekordbox on, imported tracks go into its Imported
     (window as any).__newTracks = [{ fileId: 31, title: "Night Drive", artist: "Studio 001", album: "Between Spaces", durationMs: 225_000, container: "FLAC", filedMs: 1, offeredMs: null, hidden: false }];
   });
   await openImportWithFolders(page);
-  await releaseGroup(page, "Between Spaces").getByRole("button", { name: "Import Between Spaces" }).click();
+  await rowOf(page, "01.flac").first().getByRole("button", { name: /^Import Between Spaces/ }).click();
   await expect(page.getByText("Added 1 track to rekordbox's Imported playlist.")).toBeVisible();
   expect(await page.evaluate(() => (window as any).__rbSentNew)).toBe(1);
 });
@@ -1246,7 +1275,7 @@ test("import: with rekordbox open, imported tracks wait for it and the note says
     (window as any).__rbRunning = true;
   });
   await openImportWithFolders(page);
-  await releaseGroup(page, "Between Spaces").getByRole("button", { name: "Import Between Spaces" }).click();
+  await rowOf(page, "01.flac").first().getByRole("button", { name: /^Import Between Spaces/ }).click();
   await expect(page.getByText(/Not added to rekordbox yet: rekordbox is running/)).toBeVisible();
   expect(await page.evaluate(() => (window as any).__rbSentNew ?? 0)).toBe(0);
 });
@@ -1281,7 +1310,7 @@ test("import choices: conversion and tidying are sent with the plan and shown in
   await page.addInitScript(() => { localStorage.setItem("opencrate.importSetupOpen", "true"); });
   await openImportWithFolders(page);
   await page.getByLabel("Convert lossless files to").selectOption("aiff");
-  const between = releaseGroup(page, "Between Spaces");
+  const between = rowOf(page, "01.flac").first();
   await expect(between.getByRole("cell", { name: "AIFF", exact: true })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Becomes" }).first()).toBeVisible();
   await expect(between.getByText("Studio 001/Between Spaces/01 - Studio 001 - Night Drive.aif")).toBeVisible();
@@ -1310,7 +1339,7 @@ test("import choices: without ffmpeg converting cannot be chosen and is not sent
   await openImportWithFolders(page);
   await expect(page.getByLabel("Convert lossless files to")).toBeDisabled();
   await expect(page.getByText("Converting needs ffmpeg, which was not found on this computer, so files go in as they are.")).toBeVisible();
-  await expect(releaseGroup(page, "Between Spaces").getByText("Studio 001/Between Spaces/01 - Studio 001 - Night Drive.flac")).toBeVisible();
+  await expect(rowOf(page, "01.flac").first().getByText("Studio 001/Between Spaces/01 - Studio 001 - Night Drive.flac")).toBeVisible();
   const sent = (await calls(page)).filter((call) => call.command === "library_plan_release").at(-1)!;
   expect(sent.args.options).toEqual({ convert: { lossless: null, lossy: null }, tidy: true });
 });
@@ -1321,10 +1350,9 @@ test("import: a refused import says so, can be tried again, and choices are read
   await page.addInitScript(() => { (window as any).__cleanReady = true; (window as any).__fileNothing = true; localStorage.setItem("opencrate.importSetupOpen", "true"); });
   await openImportWithFolders(page);
   const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
-  const clean = releaseGroup(page, "Clean Single");
-  const button = clean.getByRole("button", { name: "Import Clean Single" });
+  const button = rowOf(page, "01.aif").getByRole("button", { name: /^Import Clean Single/ });
   await expect(button).toBeVisible();
-  // The heading stays in view while the table scrolls sideways.
+  // The actions stay in view while the table scrolls sideways.
   const wrap = fresh.locator(".plan-table-wrap");
   await button.scrollIntoViewIfNeeded();
   await wrap.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
@@ -1333,7 +1361,7 @@ test("import: a refused import says so, can be tried again, and choices are read
   expect(buttonBox && wrapBox && buttonBox.x >= wrapBox.x && buttonBox.x + buttonBox.width <= wrapBox.x + wrapBox.width).toBe(true);
 
   await button.click();
-  await expect(clean.getByRole("status")).toContainText("Nothing was imported. Left where they are: Clean Single/01.aif (A file is already there.).");
+  await expect(noteOf(page, "Clean Single")).toContainText("Nothing was imported. Left where they are: Clean Single/01.aif (A file is already there.).");
   // Nothing went in, so it can be tried again once the cause is dealt with.
   await expect(button).toBeEnabled();
 
@@ -1352,11 +1380,18 @@ test("import: a long list of imported releases waits behind Show all", async ({ 
   await stubBridge(page, "managed");
   await page.addInitScript(() => { (window as any).__manyImported = 8; });
   await openImportWithFolders(page);
-  const done = page.locator(".sync-card").filter({ hasText: "Already copied into your music folder" });
+  const done = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: /^Imported/ }) });
   await expect(done.locator("li.folder-row")).toHaveCount(5);
   await done.getByRole("button", { name: "Show all 8" }).click();
   await expect(done.locator("li.folder-row")).toHaveCount(8);
   await done.getByRole("button", { name: "Show fewer" }).click();
+  await expect(done.locator("li.folder-row")).toHaveCount(5);
+  // The whole card folds to its heading, and stays folded across a visit.
+  await done.getByRole("button", { name: "Hide", exact: true }).click();
+  await expect(done.locator("li.folder-row")).toHaveCount(0);
+  await expect(done.getByRole("heading", { name: "Imported (8)" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("opencrate.importedFolded"))).toBe("true");
+  await done.getByRole("button", { name: "Show", exact: true }).click();
   await expect(done.locator("li.folder-row")).toHaveCount(5);
 });
 
@@ -1365,7 +1400,7 @@ test("import all: one look at the totals, then every finished release is importe
   await page.addInitScript(() => { (window as any).__twoReady = true; });
   await openImportWithFolders(page);
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_plan_release").length).toBe(3);
-  await page.getByRole("button", { name: "Import all 2 finished releases..." }).click();
+  await page.getByRole("button", { name: "Import all 2..." }).click();
   const review = page.getByRole("region", { name: "Before importing" });
   await expect(review).toContainText("3 files from 2 releases will be copied into Music, with the tags as the table shows them. 1 file stays in the watch folder; the ! rows say why. 1 file has values taken from the file name (marked ?).");
   await review.getByRole("button", { name: "Cancel" }).click();
@@ -1376,14 +1411,14 @@ test("import all: one look at the totals, then every finished release is importe
   expect(before.filter((call) => call.command === "library_plan_release")).toHaveLength(3);
 
   const scansBefore = before.filter((call) => call.command === "library_scan").length;
-  await page.getByRole("button", { name: "Import all 2 finished releases..." }).click();
+  await page.getByRole("button", { name: "Import all 2..." }).click();
   await page.getByRole("region", { name: "Before importing" }).getByRole("button", { name: "Import 3 files" }).click();
   await expect(page.getByText("3 files are now in your music folder. 1 file was left in the watch folder")).toBeVisible();
   const all = await calls(page);
   expect(all.filter((call) => call.command === "library_import_release").map((call) => call.args.name)).toEqual(["Between Spaces", "Second Light"]);
   // One scan for the whole run (the music folder was also scanned once when it was added).
   expect(all.filter((call) => call.command === "library_scan")).toHaveLength(scansBefore + 1);
-  const imported = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: "Imported" }) });
+  const imported = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: /^Imported/ }) });
   await expect(imported.getByText("Second Light", { exact: true })).toBeVisible();
 });
 
@@ -1391,7 +1426,7 @@ test("import all: releases already there are brought in together", async ({ page
   await stubBridge(page, "managed");
   await openImportWithFolders(page);
   const older = page.locator(".sync-card").filter({ has: page.getByRole("heading", { name: "Already there when you added the folder" }) });
-  await older.getByRole("button", { name: "Import all 1 release already there..." }).click();
+  await older.getByRole("button", { name: "Import all 1..." }).click();
   await older.getByRole("region", { name: "Before importing" }).getByRole("button", { name: /^Import \d+ files?$/ }).click();
   await expect(older.getByText(/now in your music folder/)).toBeVisible();
   const imports = (await calls(page)).filter((call) => call.command === "library_import_release").map((call) => call.args.name);
@@ -1406,14 +1441,14 @@ test("import: any release can be looked up, all at once too, and the answer fill
   const lookupsOf = async () => (await calls(page)).filter((call) => call.command === "library_lookup_release").map((call) => call.args.name);
   expect(await lookupsOf()).toEqual([]);
   const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
-  // Clean tags or not, every finished release has a Look up button.
-  const between = releaseGroup(page, "Between Spaces");
-  const second = releaseGroup(page, "Second Light");
+  // Clean tags or not, every finished release has a Look up icon on its rows.
+  const between = rowOf(page, "01.flac").first();
+  const second = rowOf(page, "01.mp3");
   await expect(between.getByRole("button", { name: "Look up Between Spaces" })).toBeVisible();
   await expect(second.getByRole("button", { name: "Look up Second Light" })).toBeVisible();
-  await fresh.getByRole("button", { name: "Look up all 2" }).click();
-  await expect(between.getByRole("status").filter({ hasText: 'Found on MusicBrainz: "Between Spaces" by Studio 001 (2019, Test Label), 2 tracks.' })).toBeVisible();
-  await expect(second.getByRole("alert")).toContainText("MusicBrainz is busy right now");
+  await fresh.getByRole("button", { name: "Look up all" }).click();
+  await expect(noteOf(page, "Between Spaces")).toContainText('Found on MusicBrainz: "Between Spaces" by Studio 001 (2019, Test Label), 2 tracks.');
+  await expect(noteOf(page, "Second Light")).toContainText("MusicBrainz is busy right now");
   expect(await lookupsOf()).toEqual(["Between Spaces", "Second Light"]);
   // What it found is in the table, marked as from a lookup, and the plan was read with it.
   await expect(between.getByRole("textbox", { name: "Title of 01.flac" })).toHaveValue("Night Drive");
@@ -1422,19 +1457,19 @@ test("import: any release can be looked up, all at once too, and the answer fill
   const plans = (await calls(page)).filter((call) => call.command === "library_plan_release" && call.args.name === "Between Spaces");
   expect(plans.at(-1)?.args.options.accepted).toEqual([{ source: "Between Spaces/01.flac", title: "Night Drive", year: 2019 }, { source: "Between Spaces/03.flac", label: "Test Label" }]);
   // A failed lookup can be asked again, one release at a time.
-  await second.getByRole("button", { name: "Try again" }).click();
+  await noteOf(page, "Second Light").getByRole("button", { name: "Try again" }).click();
   await expect.poll(lookupsOf).toEqual(["Between Spaces", "Second Light", "Second Light"]);
   // Typing wins over the lookup, and the lookup can be undone.
   await between.getByRole("textbox", { name: "Year of 01.flac" }).fill("2020");
   await between.getByRole("textbox", { name: "Year of 01.flac" }).press("Tab");
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_plan_release" && call.args.name === "Between Spaces").at(-1)?.args.options.accepted)
     .toEqual([{ source: "Between Spaces/01.flac", title: "Night Drive", year: 2020 }, { source: "Between Spaces/03.flac", label: "Test Label" }]);
-  await between.getByRole("button", { name: "Undo the lookup" }).click();
+  await noteOf(page, "Between Spaces").getByRole("button", { name: "Undo the lookup" }).click();
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_plan_release" && call.args.name === "Between Spaces").at(-1)?.args.options.accepted)
     .toEqual([{ source: "Between Spaces/01.flac", year: 2020 }]);
   await expect(between.getByRole("textbox", { name: "Title of 01.flac" })).toHaveValue("Studio 001 - Night Drive.mp3");
   // Import all carries what the table shows.
-  await fresh.getByRole("button", { name: "Import all 2 finished releases..." }).click();
+  await fresh.getByRole("button", { name: "Import all 2..." }).click();
   await page.getByRole("region", { name: "Before importing" }).getByRole("button", { name: "Import 3 files" }).click();
   await expect(page.getByText("3 files are now in your music folder.")).toBeVisible();
   const sent = (await calls(page)).filter((call) => call.command === "library_import_release");
@@ -1450,7 +1485,7 @@ test("recently imported: the last batch is listed, another can be chosen, and an
   await expect(page.getByRole("heading", { name: "Recently imported" })).toBeVisible();
   await expect(page.getByText("Nothing has been imported with openCrate yet.")).toBeVisible();
   await page.getByRole("button", { name: "Import", exact: true }).first().click();
-  await releaseGroup(page, "Second Light").getByRole("button", { name: "Import Second Light" }).click();
+  await rowOf(page, "01.mp3").getByRole("button", { name: /^Import Second Light/ }).click();
   await expect(page.getByRole("status").filter({ hasText: "2 files are now in Music." })).toBeVisible();
   await page.getByRole("button", { name: "Recently imported", exact: true }).click();
   await expect(page.locator(".library-hero .eyebrow")).toHaveText("IMPORT BATCH");
@@ -2154,7 +2189,7 @@ test("import: columns past the edge of a narrow table are pointed out, and the h
   const table = page.locator(".plan-table-wrap").first();
   await expect(table).toBeVisible();
   expect(await table.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-  const hint = page.getByRole("note").filter({ hasText: "More columns are off to the right" }).first();
+  const hint = page.getByRole("note").filter({ hasText: "More columns to the right" }).first();
   await expect(hint).toBeVisible();
   await expect(page.locator(".plan-table-frame").first()).toHaveAttribute("data-more-right", "true");
   // Scrolled to the far end, nothing is left to find.
@@ -2309,6 +2344,16 @@ test("clean up: a file moved outside openCrate is found and relinked; one not fo
   // Choosing is cancelled: nothing happens.
   await card.getByRole("button", { name: "Choose the file for Late Train" }).click();
   await expect(card.getByRole("status")).toHaveCount(0);
+  // A folder the owner points at is searched, and a copy of the same size goes back into place.
+  await card.getByRole("button", { name: "Look in a folder..." }).click();
+  const search = card.getByRole("region", { name: "Found in the folder" });
+  await expect(search).toContainText("1 missing file has a copy in /Volumes/Backup/Music (240 audio files looked at).");
+  await expect(search.getByRole("list", { name: "Copies found" })).toContainText("Found: /Volumes/Backup/Music/No Light/03 Late Train.aif (same name and size; 1 other file of that name left out)");
+  await expect(search.getByRole("list", { name: "Copies found" })).toContainText("Goes back to: Music: Studio 001/No Light/03 Late Train.aif");
+  await search.getByRole("button", { name: "Copy 1 file back into place" }).click();
+  await expect(card.getByRole("status")).toHaveText("1 file was copied back into place.");
+  expect(await page.evaluate(() => (window as any).__restored)).toEqual([[21, "/Volumes/Backup/Music/No Light/03 Late Train.aif"]]);
+  await expect(search).toHaveCount(0);
   await expect(card.getByRole("checkbox", { name: "Relink Night Drive" })).toBeChecked();
   await card.getByRole("button", { name: "Relink 1 track" }).click();
   await expect(card.getByRole("status")).toHaveText("1 track was relinked; rekordbox was told the new place of 1 file.");
@@ -2673,12 +2718,13 @@ test("the Import screen shows what has finished downloading and what was already
   await page.keyboard.press("Escape");
 
   await expect(page.getByText("1 of 3 releases have finished downloading.")).toBeVisible();
-  const group = (name: string) => releaseGroup(page, name);
-  await expect(group("Between Spaces")).toContainText("8 tracks");
-  await expect(group("Night Drive EP")).toContainText("Still downloading");
-  await expect(group("Bought online.zip")).toContainText("1 archive");
+  // No music folder yet, so nothing is read: one line per release with its state.
+  await expect(rowOf(page, "Between Spaces")).toContainText("Ready");
+  await expect(rowOf(page, "Between Spaces").getByRole("img")).toHaveAttribute("data-tip", /8 tracks, in Downloads/);
+  await expect(rowOf(page, "Night Drive EP")).toContainText("Still downloading");
+  await expect(rowOf(page, "Bought online.zip").getByRole("img")).toHaveAttribute("data-tip", /1 archive/);
   await expect(page.getByRole("heading", { name: "Already there when you added the folder" })).toBeVisible();
-  await expect(group("Old Favourites")).toContainText("12 tracks");
+  await expect(rowOf(page, "Old Favourites").getByRole("img")).toHaveAttribute("data-tip", /12 tracks/);
 
   await page.evaluate(() => { (window as any).__watchState = "offline"; });
   await expect(page.getByText("Downloads cannot be reached right now.")).toBeVisible({ timeout: 6000 });
@@ -3334,19 +3380,6 @@ test("clean up: every genre group is merged at once, and Recent changes names th
   await expect(genres.getByRole("status")).toContainText("2 groups merged; 4 files have a new genre.");
   const merges = (await calls(page)).filter((call) => call.command === "library_rename_genres").map((call) => call.args);
   expect(merges).toEqual([{ from: ["deep-house"], to: "Deep House" }, { from: ["TECHNO"], to: "Techno" }]);
-});
-
-test("import: a release's rows fold away under its heading", async ({ page }) => {
-  await stubBridge(page, "managed");
-  await openImportWithFolders(page);
-  const table = page.getByRole("table").first();
-  const before = await table.locator(".plan-row").count();
-  expect(before).toBeGreaterThan(0);
-  await page.getByRole("button", { name: "Hide the files of Between Spaces" }).click();
-  expect(await table.locator(".plan-row").count()).toBeLessThan(before);
-  await expect(page.getByRole("button", { name: "Show the files of Between Spaces" })).toHaveAttribute("aria-expanded", "false");
-  await page.getByRole("button", { name: "Show the files of Between Spaces" }).click();
-  expect(await table.locator(".plan-row").count()).toBe(before);
 });
 
 test("select all from the track menu asks the library for every id, and a reversed sort is sent", async ({ page }) => {
