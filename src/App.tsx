@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ArtistArtwork, Artwork } from "./components/Artwork";
 import { Icon, type IconName } from "./components/Icon";
 import { Analysis } from "./components/Analysis";
@@ -79,6 +79,14 @@ const PAGE_NOTES = {
   releases: "All your releases live here, one card per album or EP.",
   artists: "All your artists live here, with the releases they are on.",
 } as const;
+
+type SettingsGroup = "appearance" | "library" | "import" | "rekordbox";
+const SETTINGS_GROUPS: { id: SettingsGroup; name: string }[] = [
+  { id: "appearance", name: "Appearance" },
+  { id: "library", name: "Library" },
+  { id: "import", name: "Import" },
+  { id: "rekordbox", name: "rekordbox" },
+];
 
 /** The formats offered when the backend cannot say which it holds (the demo). */
 const DEMO_FORMATS = ["AIFF", "WAV", "MP3", "FLAC"];
@@ -188,6 +196,55 @@ export function App({ api }: { api: LibraryApi }) {
   const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
   const [settingsError, setSettingsError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Settings: the words typed into its search, the group in view, and how many rows match. */
+  const [settingsQuery, setSettingsQuery] = useState("");
+  const [settingsGroup, setSettingsGroup] = useState<SettingsGroup>("appearance");
+  const [settingsMatches, setSettingsMatches] = useState(0);
+  const settingsBody = useRef<HTMLDivElement>(null);
+  const trackSettingsGroup = () => {
+    const body = settingsBody.current;
+    if (!body) return;
+    const top = body.getBoundingClientRect().top + 40;
+    let current: SettingsGroup = "appearance";
+    for (const group of body.querySelectorAll<HTMLElement>("[data-group]")) {
+      if (group.getBoundingClientRect().top <= top) current = group.dataset.group as SettingsGroup;
+    }
+    setSettingsGroup(current);
+  };
+  // The search hides every row and section whose words do not match; headings of a matching
+  // section stay, so a hit keeps its context.
+  useLayoutEffect(() => {
+    const body = settingsBody.current;
+    if (!body) return;
+    const query = settingsQuery.trim().toLowerCase();
+    let matches = 0;
+    for (const section of body.querySelectorAll<HTMLElement>(".settings-section")) {
+      const rows = [...section.querySelectorAll<HTMLElement>(".setting-row, .theme-choice, .settings-row")];
+      let shown = 0;
+      if (query === "") {
+        for (const row of rows) row.hidden = false;
+        section.hidden = false;
+        continue;
+      }
+      const heading = section.querySelector("h3")?.textContent?.toLowerCase() ?? "";
+      const headingHit = heading.includes(query);
+      for (const row of rows) {
+        const hit = headingHit || (row.textContent ?? "").toLowerCase().includes(query);
+        row.hidden = !hit;
+        if (hit) shown += 1;
+      }
+      // A section without rows (folders, lookup keys) matches on its labels, not its prose, so
+      // "rekordbox" in a sentence does not drag every section in.
+      const labels = [...section.querySelectorAll<HTMLElement>("strong, button, label, legend, summary")].map((item) => item.textContent?.toLowerCase() ?? "").join(" ");
+      section.hidden = !(headingHit || shown > 0 || (rows.length === 0 && labels.includes(query)));
+      if (!section.hidden) matches += rows.length === 0 ? 1 : shown;
+    }
+    for (const group of body.querySelectorAll<HTMLElement>(".settings-group")) {
+      group.hidden = query !== "" && [...group.querySelectorAll<HTMLElement>(".settings-section")].every((section) => section.hidden);
+    }
+    setSettingsMatches(matches);
+    if (query !== "") body.scrollTo({ top: 0 });
+  }, [settingsQuery, settingsOpen, api.admin]);
   // Cmd+, (Ctrl+, on Windows) opens Settings, as does the macOS app menu, which sends this event.
   useEffect(() => {
     const open = () => setSettingsOpen(true);
@@ -464,7 +521,8 @@ export function App({ api }: { api: LibraryApi }) {
       {api.admin ? <Playlists admin={api.admin} version={libraryVersion} activeId={playlist?.id ?? null} onOpen={(next) => openPlaylist(next)} onChanged={refreshLibrary} browsing={screen === "playlists"} onBrowse={() => { navigate("playlists"); setBrowseFolder(null); }} askFirst={preferences.askBeforePlaylistAdd} onStopAsking={() => updatePreferences({ ...preferences, askBeforePlaylistAdd: false })} /> : <div className="playlist-note"><div className="nav-caption">PLAYLISTS</div><p>From your rekordbox export.</p><span>Needs a library on disk.</span></div>}
       </div>
       <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} />
-      <div className="sidebar-bottom"><div className="demo-dot" /><div><strong>{api.admin ? (api.admin.persistent ? "Local library" : "Demo database") : "Demo workspace"}</strong><small>{api.admin ? "Changes only what you choose" : "No files connected"}</small></div></div>
+      {/* Only the demos need saying: the real library is the normal case. */}
+      {!api.admin?.persistent && <div className="sidebar-bottom"><div className="demo-dot" /><div><strong>{api.admin ? "Demo database" : "Demo workspace"}</strong><small>{api.admin ? "A throwaway library; nothing of yours is touched" : "No files connected"}</small></div></div>}
     </aside>
     <div className="workspace">
       <header className="topbar">
@@ -527,11 +585,36 @@ export function App({ api }: { api: LibraryApi }) {
     </dialog>
     <dialog ref={dialog} className="settings-dialog" {...closesOutside(() => setSettingsOpen(false))} aria-labelledby="settings-title" onCancel={() => setSettingsOpen(false)} onClose={(event) => { if (closedByBrowser(event.currentTarget)) setSettingsOpen(false); }}>
       <div className="dialog-heading"><div><h2 id="settings-title">Settings</h2></div><button autoFocus className="icon-button" aria-label="Close settings" onClick={() => setSettingsOpen(false)}><Icon name="close" /></button></div>
-      <div className="dialog-body">
-      <h3>Appearance</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><fieldset className="theme-choice"><legend>Key notation</legend>{(["rekordbox", "camelot", "openKey", "musical"] as const).map((notation) => <label key={notation}><input type="radio" name="keyNotation" value={notation} checked={preferences.keyNotation === notation} onChange={() => updatePreferences({ ...preferences, keyNotation: notation })} />{notation === "rekordbox" ? "As rekordbox wrote it" : notation === "camelot" ? "Camelot (8A)" : notation === "openKey" ? "Open Key (1m)" : "Musical (Am)"}</label>)}</fieldset><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the page header</strong><small>One line for the title, so more rows fit. Also from Hide header above any list.</small></span><input type="checkbox" checked={preferences.headerFolded} onChange={(event) => updatePreferences({ ...preferences, headerFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the navigation</strong><small>Tracks, Import and the rest as a row of icons, so crates and playlists get the sidebar. Also from the arrow beside YOUR LIBRARY.</small></span><input type="checkbox" checked={preferences.navFolded} onChange={(event) => updatePreferences({ ...preferences, navFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label>
-      {settingsError && <p role="alert" className="inline-error">{settingsError}</p>}
-      {api.admin ? <><Folders admin={api.admin} open={settingsOpen} onChanged={refreshLibrary} /><Downloads admin={api.admin} open={settingsOpen} /><FolderLayout admin={api.admin} open={settingsOpen} /><LibraryCheck admin={api.admin} onChanged={refreshLibrary} /><LookupKeys admin={api.admin} open={settingsOpen} /><RekordboxDatabase admin={api.admin} open={settingsOpen} askFirst={preferences.askBeforePlaylistAdd} onAskFirst={(ask) => updatePreferences({ ...preferences, askBeforePlaylistAdd: ask })} /></> : <><h3>Music folders</h3><p className="settings-copy">Download and library folders will be chosen with the system folder picker. Folder selection is not connected in this demo.</p><h3>rekordbox</h3><p className="settings-copy">XML export will be the default read-back. Reading rekordbox's own library will be off by default and read a backup copy only. Neither is enabled here.</p></>}
+      <div className="dialog-body settings-layout">
+      <aside className="settings-side">
+        <label className="settings-search"><Icon name="search" size={14} /><input {...PLAIN_TEXT} type="search" aria-label="Search settings" placeholder="Search settings" value={settingsQuery} onChange={(event) => setSettingsQuery(event.target.value)} /></label>
+        <nav className="settings-groups" aria-label="Settings groups">{SETTINGS_GROUPS.map((group) => <button key={group.id} type="button" aria-current={settingsGroup === group.id ? "true" : undefined} onClick={() => { setSettingsQuery(""); setSettingsGroup(group.id); requestAnimationFrame(() => settingsBody.current?.querySelector<HTMLElement>(`[data-group="${group.id}"]`)?.scrollIntoView({ block: "start" })); }}>{group.name}</button>)}</nav>
+      </aside>
+      <div className="settings-main" ref={settingsBody} onScroll={trackSettingsGroup}>
+      {settingsQuery.trim() !== "" && <p className="settings-copy settings-match" role="status">{settingsMatches === 0 ? `Nothing in Settings matches "${settingsQuery.trim()}".` : `${settingsMatches} ${settingsMatches === 1 ? "setting matches" : "settings match"} "${settingsQuery.trim()}".`}</p>}
+      <div className="settings-group" data-group="appearance"><h2 className="settings-group-title">Appearance</h2>
+        <section className="settings-section"><h3>Looks</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><fieldset className="theme-choice"><legend>Key notation</legend>{(["rekordbox", "camelot", "openKey", "musical"] as const).map((notation) => <label key={notation}><input type="radio" name="keyNotation" value={notation} checked={preferences.keyNotation === notation} onChange={() => updatePreferences({ ...preferences, keyNotation: notation })} />{notation === "rekordbox" ? "As rekordbox wrote it" : notation === "camelot" ? "Camelot (8A)" : notation === "openKey" ? "Open Key (1m)" : "Musical (Am)"}</label>)}</fieldset></section>
+        <section className="settings-section"><h3>Layout</h3><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the page header</strong><small>One line for the title, so more rows fit. Also from Hide header above any list.</small></span><input type="checkbox" checked={preferences.headerFolded} onChange={(event) => updatePreferences({ ...preferences, headerFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the navigation</strong><small>Tracks, Import and the rest as a row of icons, so crates and playlists get the sidebar. Also from the arrow beside YOUR LIBRARY.</small></span><input type="checkbox" checked={preferences.navFolded} onChange={(event) => updatePreferences({ ...preferences, navFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label></section>
+      </div>
+      {api.admin ? <>
+        <div className="settings-group" data-group="library"><h2 className="settings-group-title">Library</h2>
+          <section className="settings-section"><Folders admin={api.admin} open={settingsOpen} onChanged={refreshLibrary} /></section>
+          <section className="settings-section"><LibraryCheck admin={api.admin} onChanged={refreshLibrary} /></section>
+        </div>
+        <div className="settings-group" data-group="import"><h2 className="settings-group-title">Import</h2>
+          <section className="settings-section"><Downloads admin={api.admin} open={settingsOpen} /></section>
+          <section className="settings-section"><FolderLayout admin={api.admin} open={settingsOpen} /></section>
+          <section className="settings-section"><LookupKeys admin={api.admin} open={settingsOpen} /></section>
+        </div>
+        <div className="settings-group" data-group="rekordbox"><h2 className="settings-group-title">rekordbox</h2>
+          <section className="settings-section"><RekordboxDatabase admin={api.admin} open={settingsOpen} askFirst={preferences.askBeforePlaylistAdd} onAskFirst={(ask) => updatePreferences({ ...preferences, askBeforePlaylistAdd: ask })} /></section>
+        </div>
+      </> : <>
+        <div className="settings-group" data-group="library"><h2 className="settings-group-title">Library</h2><section className="settings-section"><h3>Music folders</h3><p className="settings-copy">Download and library folders will be chosen with the system folder picker. Folder selection is not connected in this demo.</p></section></div>
+        <div className="settings-group" data-group="rekordbox"><h2 className="settings-group-title">rekordbox</h2><section className="settings-section"><h3>rekordbox</h3><p className="settings-copy">XML export will be the default read-back. Reading rekordbox's own library will be off by default and read a backup copy only. Neither is enabled here.</p></section></div>
+      </>}
       <div className="settings-footnote">{api.admin ? "Nothing is uploaded. Files and rekordbox change only when you choose a change." : "100,000 synthetic tracks. No music, credentials or personal data."}</div>
+      </div>
       </div>
     </dialog>
   </div>;

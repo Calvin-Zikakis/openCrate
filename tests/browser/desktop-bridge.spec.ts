@@ -989,7 +989,7 @@ test("the settings close button stays put while the settings scroll", async ({ p
   await dialog.getByRole("button", { name: "Add watch folder..." }).click();
   await expect(dialog.getByText("/Users/dj/Downloads")).toBeVisible();
 
-  const body = dialog.locator(".dialog-body");
+  const body = dialog.locator(".settings-main");
   expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect(dialog.getByText("Nothing is uploaded.", { exact: false })).toBeInViewport();
@@ -3468,4 +3468,31 @@ test("sidebar: crates and playlists fold to their captions and stay folded; CRAT
   await browser.getByRole("button", { name: /^Warm-up/ }).click();
   await expect(page.getByRole("heading", { name: "Warm-up" })).toBeVisible();
   await expect(page.locator(".library-hero .eyebrow")).toHaveText("CRATE");
+});
+
+test("settings: grouped with a jump list, and a search that hides what does not match", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  const groups = dialog.getByRole("navigation", { name: "Settings groups" });
+  await expect(groups.getByRole("button")).toHaveText(["Appearance", "Library", "Import", "rekordbox"]);
+  for (const title of ["Appearance", "Library", "Import", "rekordbox"]) {
+    await expect(dialog.getByRole("heading", { name: title, level: 2 })).toBeVisible();
+  }
+  // Jumping to a group scrolls it into view and marks it.
+  await groups.getByRole("button", { name: "Import" }).click();
+  await expect(dialog.getByRole("heading", { name: "Watch folders" })).toBeInViewport();
+  await expect(groups.getByRole("button", { name: "Import" })).toHaveAttribute("aria-current", "true");
+  // Searching keeps only matching rows and sections, and says how many.
+  await dialog.getByLabel("Search settings").fill("compact");
+  await expect(dialog.getByRole("status").filter({ hasText: /match/ })).toHaveText('1 setting matches "compact".');
+  await expect(dialog.getByText("Compact track rows")).toBeVisible();
+  await expect(dialog.getByText("Reduce motion")).toBeHidden();
+  await expect(dialog.getByRole("heading", { name: "Music folders" })).toBeHidden();
+  await dialog.getByLabel("Search settings").fill("zzzz");
+  await expect(dialog.getByRole("status").filter({ hasText: /match/ })).toHaveText('Nothing in Settings matches "zzzz".');
+  await dialog.getByLabel("Search settings").fill("");
+  await expect(dialog.getByText("Reduce motion")).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Music folders" })).toBeVisible();
 });

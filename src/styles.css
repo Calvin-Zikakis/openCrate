@@ -221,7 +221,24 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .empty-actions { display: flex; justify-content: center; gap: 12px; margin-top: 16px; }
 .inline-error { color: var(--warn); background: #ffc8570c; padding: 10px; border-radius: 5px; font-size: 12px; }
 .inline-error button { text-decoration: underline; }
-.settings-dialog { color: var(--text); background: var(--panel); border: 1px solid rgb(var(--ink) / 0.102); border-radius: 16px; width: 510px; max-width: calc(100vw - 40px); max-height: calc(100vh - 50px); padding: 28px 0 0; box-shadow: 0 30px 100px #000a; }
+.settings-dialog { color: var(--text); background: var(--panel); border: 1px solid rgb(var(--ink) / 0.102); border-radius: 16px; width: 760px; max-width: calc(100vw - 40px); max-height: calc(100vh - 50px); padding: 28px 0 0; box-shadow: 0 30px 100px #000a; }
+/* Settings: a jump list and search on the left, the groups on the right, all on one scroll. */
+.settings-layout { display: flex; gap: 0; min-height: 0; padding: 0 !important; }
+.settings-side { flex: none; width: 190px; padding: 4px 16px 20px 20px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; }
+.settings-search { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; background: var(--raised); border: 1px solid var(--line); color: var(--secondary); }
+.settings-search input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); font-size: 12px; }
+.settings-search input::-webkit-search-cancel-button { filter: grayscale(1); }
+.settings-groups { display: grid; gap: 2px; }
+.settings-groups button { text-align: left; padding: 8px 10px; border-radius: 6px; font-size: 12px; color: var(--secondary); }
+.settings-groups button:hover { color: var(--text); background: var(--hover); }
+.settings-groups button[aria-current="true"] { color: var(--accent-text); background: var(--raised); }
+.settings-main { flex: 1; min-width: 0; overflow-y: auto; padding: 0 28px 28px 24px; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
+.settings-group + .settings-group { margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--line); }
+.settings-group-title { margin: 6px 0 0; font-size: 11px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: var(--faint); }
+.settings-main .settings-section h3 { margin: 22px 0 10px; }
+.settings-match { margin: 6px 0 0; }
+.settings-main [hidden] { display: none !important; }
+.settings-main .settings-footnote { margin-top: 28px; }
 .settings-dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
 .settings-dialog .dialog-heading { flex: none; padding: 0 28px 14px; }
 .dialog-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 28px 28px; scrollbar-color: var(--scroll) transparent; scrollbar-width: thin; }
