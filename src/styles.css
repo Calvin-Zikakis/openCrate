@@ -658,7 +658,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .import-target { display: contents; }
 .import-target .plan-root select { min-width: 150px; }
 .import-target .inline-error { flex-basis: 100%; }
-.plan-remove { flex-basis: 100%; align-self: flex-start; padding-left: 0; color: var(--secondary); }
+.plan-remove { color: var(--secondary); font-size: 11px; }
 .lookup-note { display: block; flex-basis: 100%; color: var(--secondary); font-size: 11px; }
 .import-grid td.plan-cell { padding-top: 2px; padding-bottom: 2px; }
 .import-grid .plan-row td { white-space: nowrap; }
