@@ -9,17 +9,28 @@ export function QuickTips() {
   const [tip, setTip] = useState<{ text: string; x: number; y: number; above: boolean } | null>(null);
   useEffect(() => {
     let current: HTMLElement | null = null;
+    // A title set again while lifted (a button that says "Looking up..." and then not) replaces
+    // the text shown and the one put back; without this the tip and the element kept the old one.
+    const retitled = new MutationObserver(() => {
+      const text = current?.getAttribute("title");
+      if (!current || text === null || text === undefined) return;
+      current.dataset.quickTitle = text;
+      current.removeAttribute("title");
+      setTip((before) => (before && text ? { ...before, text } : null));
+    });
     const show = (element: HTMLElement) => {
       const text = element.getAttribute("title");
       if (!text) return;
       current = element;
       element.dataset.quickTitle = text;
       element.removeAttribute("title");
+      retitled.observe(element, { attributes: true, attributeFilter: ["title"] });
       const box = element.getBoundingClientRect();
       const above = box.bottom + 60 > window.innerHeight;
       setTip({ text, x: Math.max(8, Math.min(box.left, window.innerWidth - 360)), y: above ? box.top - 4 : box.bottom + 4, above });
     };
     const hide = () => {
+      retitled.disconnect();
       if (current?.dataset.quickTitle !== undefined) {
         current.setAttribute("title", current.dataset.quickTitle);
         delete current.dataset.quickTitle;

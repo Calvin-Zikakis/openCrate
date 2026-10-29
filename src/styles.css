@@ -813,8 +813,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .reorganize-settings .send-row { font-size: 12px; }
 .reorganize-step { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .reorganize-step h3 { margin: 0 0 6px; font-size: 13px; }
-.reorganize-grid { width: 100%; }
-.reorganize-grid th, .reorganize-grid td { max-width: 180px; }
-.reorganize-grid td.plan-state { width: 36px; }
+.reorganize-grid { table-layout: fixed; width: 1500px; min-width: 100%; }
+.reorganize-grid col.is-state { width: 36px; }
+.reorganize-grid col.is-file { width: 160px; }
+.reorganize-grid col.is-track { width: 44px; }
+.reorganize-grid col.is-title, .reorganize-grid col.is-album { width: 200px; }
+.reorganize-grid col.is-artist, .reorganize-grid col.is-albumArtist { width: 150px; }
+.reorganize-grid col.is-genre, .reorganize-grid col.is-label { width: 120px; }
+.reorganize-grid col.is-year { width: 60px; }
+.reorganize-grid col.is-found { width: 260px; }
+.reorganize-grid td.plan-destination { white-space: normal; }
 .reorganize-grid .grid-action { width: 26px; height: 26px; }
 .reorganize-progress { display: flex; align-items: center; gap: 8px; }

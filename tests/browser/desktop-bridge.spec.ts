@@ -2415,6 +2415,15 @@ test("clean up: reorganize fills in tags with a lookup, moves files in a sitting
   const grid = card.getByRole("table", { name: "Tracks to tag" });
   await expect(grid.getByRole("row")).toHaveCount(3);
   await expect(grid.getByLabel("Label of track 7")).toHaveValue("");
+  // Hover text follows a title that changes under the pointer, and the new title is what stays.
+  const look = grid.getByRole("button", { name: "Look up track 8" });
+  await look.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Look this track up on MusicBrainz");
+  await look.evaluate((element) => element.setAttribute("title", "Looking up..."));
+  await expect(page.getByRole("tooltip")).toHaveText("Looking up...");
+  await page.mouse.move(2, 2);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  expect(await look.getAttribute("title")).toBe("Looking up...");
   await card.getByRole("button", { name: "Look up all 2" }).click();
   await expect(card.getByRole("status")).toHaveText("2 tracks were looked up. Suggestions are marked; type over any you do not want, then apply.");
   await expect(grid.getByLabel("Label of track 7")).toHaveValue("Test Label");

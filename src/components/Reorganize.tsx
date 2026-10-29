@@ -113,6 +113,8 @@ export function Reorganize({ admin, onChanged }: Props) {
   const [progress, setProgress] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  /** Which step the note, error and progress belong under, so they show where the eye is. */
+  const [where, setWhere] = useState<"tags" | "moves" | "undo">("tags");
   const stop = useRef(false);
 
   const loadSitting = useCallback(async () => {
@@ -129,7 +131,13 @@ export function Reorganize({ admin, onChanged }: Props) {
     try { localStorage.setItem(FOLDED_KEY, String(next)); } catch { /* not remembered */ }
   };
   const update = (next: ReorganizeSettings) => { setSettings(next); saveSettings(next); };
-  const begin = (what: typeof busy) => { setBusy(what); setError(""); setNote(""); setProgress(""); stop.current = false; };
+  const stepOf = (what: typeof busy): typeof where => (what === "checking" || what === "moving" ? "moves" : what === "undoing" ? "undo" : "tags");
+  const begin = (what: typeof busy) => { setBusy(what); setWhere(stepOf(what)); setError(""); setNote(""); setProgress(""); stop.current = false; };
+  const said = (step: typeof where) => (where !== step ? null : <>
+    {error && <p role="alert" className="inline-error">{error}</p>}
+    {note && <p role="status" className="settings-copy">{note}</p>}
+    {progress && <p className="settings-copy reorganize-progress" aria-live="polite">{progress} <button className="link-button" onClick={() => { stop.current = true; }}>Stop</button></p>}
+  </>);
 
   const updateRow = (trackId: number, change: (row: Row) => Row) =>
     setRows((before) => before && before.map((row) => (row.tags.trackId === trackId ? change(row) : row)));
@@ -173,6 +181,7 @@ export function Reorganize({ admin, onChanged }: Props) {
   };
   const lookUpOne = async (trackId: number) => {
     setError("");
+    setWhere("tags");
     try {
       await lookUp([trackId]);
     } catch (reason) {
@@ -315,9 +324,7 @@ export function Reorganize({ admin, onChanged }: Props) {
         <label className="send-row"><input type="checkbox" checked={settings.skipTags} onChange={(event) => update({ ...settings, skipTags: event.target.checked })} /><span>Skip the tag step and move files with the tags they have</span></label>
         <small className="settings-copy">The layout files each track by its tags. A thin tag means a thin folder name, so filling them in first is the sane order.</small>
       </div>}
-      {error && <p role="alert" className="inline-error">{error}</p>}
-      {note && <p role="status" className="settings-copy">{note}</p>}
-      {progress && <p className="settings-copy reorganize-progress" aria-live="polite">{progress} <button className="link-button" onClick={() => { stop.current = true; }}>Stop</button></p>}
+      {where === "tags" && settings.skipTags && said("tags")}
 
       {!settings.skipTags && <div className="reorganize-step">
         <h3>1. Tags</h3>
@@ -327,9 +334,11 @@ export function Reorganize({ admin, onChanged }: Props) {
           {rows && rows.length > 0 && <button className="secondary-button" disabled={busy !== null} onClick={() => void lookUpAll()}>{busy === "looking" ? "Looking up..." : `Look up all ${rows.length}`}</button>}
           {rows && rows.length > 0 && <button className="import-button" disabled={busy !== null || pending.length === 0} onClick={() => void apply()}>{busy === "applying" ? "Writing..." : `Apply changes to ${plural(pending.length, "track", "tracks")}`}</button>}
         </div>
+        {said("tags")}
         {rows && rows.length > 0 && <div className="plan-table-wrap">
           <table className="analysis-table plan-table import-grid reorganize-grid" aria-label="Tracks to tag">
-            <thead><tr><th aria-label="Actions" className="reorganize-action-head" /><th>File</th>{FIELDS.map((field) => <th key={field.id}>{field.label}</th>)}<th>Found</th></tr></thead>
+            <colgroup><col className="is-state" /><col className="is-file" />{FIELDS.map((field) => <col key={field.id} className={`is-${field.id}`} />)}<col className="is-found" /></colgroup>
+            <thead><tr><th aria-label="Actions" className="reorganize-action-head" /><th>Track</th>{FIELDS.map((field) => <th key={field.id}>{field.label}</th>)}<th>Found</th></tr></thead>
             <tbody>
               {rows.slice(0, rowsShown).map((row) => <tr key={row.tags.trackId} className="plan-row">
                 <td className="plan-state">
@@ -365,6 +374,7 @@ export function Reorganize({ admin, onChanged }: Props) {
         <div className="merge-actions">
           <button className="secondary-button" disabled={busy !== null} onClick={() => void check()}>{busy === "checking" ? "Reading tags..." : plan ? "Check again" : "Check the folder layout"}</button>
         </div>
+        {said("moves")}
         {plan && <p className="settings-copy">{`Layout: ${plan.layout}. ${plural(plan.inPlace, "file is", "files are")} already in place; ${plural(offered.length, "file is", "files are")} offered${leftOutUnknown > 0 ? `; ${plural(leftOutUnknown, "file", "files")} rekordbox does not know ${leftOutUnknown === 1 ? "is" : "are"} left out (see the settings above)` : ""}${plan.skipped.length > 0 ? `; ${plural(plan.skipped.length, "file", "files")} cannot be placed from ${plan.skipped.length === 1 ? "its" : "their"} tags` : ""}.`}</p>}
         {plan && offered.length > 0 && <>
           <div className="merge-actions">
@@ -388,6 +398,7 @@ export function Reorganize({ admin, onChanged }: Props) {
 
       <div className="reorganize-step">
         <h3>{settings.skipTags ? "2. Put back" : "3. Put back"}</h3>
+        {said("undo")}
         {sitting === null
           ? <p className="settings-copy">No sitting yet. After a sitting, its moves can be put back here until the next sitting starts.</p>
           : sitting.undone
