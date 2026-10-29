@@ -3519,19 +3519,31 @@ test("tracks: columns are chosen and resized from the heading row, Added sits la
   await expect(header.getByText("Release")).toHaveCount(0);
   await expect(first.locator(".track-genre")).toHaveText("Techno");
   await expect(first.locator(".track-year")).toHaveText("2000");
-  // Drag a heading's edge; the arrow keys work too; both survive a reload.
+  // Drag the line after a heading: it follows the pointer, so that column grows and its right
+  // neighbour shrinks by the same amount; the line after the title does the same to Genre. The
+  // arrow keys work too, and the widths survive a reload.
   const bpm = header.locator(".track-heading-bpm");
-  const before = (await bpm.boundingBox())!.width;
+  const key = header.locator(".track-heading-key");
+  const before = { bpm: (await bpm.boundingBox())!.width, key: (await key.boundingBox())!.width, line: (await bpm.boundingBox())!.x + (await bpm.boundingBox())!.width };
   const handle = (await page.getByRole("separator", { name: "Resize BPM" }).boundingBox())!;
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
   await page.mouse.down();
-  await page.mouse.move(handle.x + handle.width / 2 + 40, handle.y + handle.height / 2, { steps: 4 });
+  await page.mouse.move(handle.x + handle.width / 2 + 10, handle.y + handle.height / 2, { steps: 4 });
   await page.mouse.up();
-  expect(Math.abs((await bpm.boundingBox())!.width - before - 40)).toBeLessThanOrEqual(2);
+  const afterBpm = (await bpm.boundingBox())!;
+  expect(Math.abs(afterBpm.width - before.bpm - 10)).toBeLessThanOrEqual(2);
+  expect(Math.abs((await key.boundingBox())!.width - before.key + 10)).toBeLessThanOrEqual(2);
+  expect(Math.abs(afterBpm.x + afterBpm.width - before.line - 10)).toBeLessThanOrEqual(2);
+  const genre = header.locator(".track-heading-genre");
+  const genreBefore = (await genre.boundingBox())!.width;
+  await page.getByRole("separator", { name: "Resize Title / Artist" }).focus();
+  await page.keyboard.press("ArrowRight");
+  expect(Math.round(genreBefore - (await genre.boundingBox())!.width)).toBe(10);
   await page.reload();
   await expect(header.getByText("Genre")).toBeVisible();
   await expect(header.getByText("Release")).toHaveCount(0);
-  expect(Math.abs((await bpm.boundingBox())!.width - before - 40)).toBeLessThanOrEqual(2);
+  expect(Math.abs((await bpm.boundingBox())!.width - before.bpm - 10)).toBeLessThanOrEqual(2);
+  expect(Math.round(genreBefore - (await genre.boundingBox())!.width)).toBe(10);
   expect(JSON.parse(await page.evaluate(() => localStorage.getItem("opencrate.trackColumns") ?? "null"))).toMatchObject({ hidden: ["label", "release"] });
 
   // The filter: genre, a year range and a span of dates, sent with the query and counted on the pill.

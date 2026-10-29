@@ -152,7 +152,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   const [columnPrefs, setColumnPrefs] = useState<ColumnSettings>(loadColumns);
   const [columnMenu, setColumnMenu] = useState<{ x: number; y: number } | null>(null);
   const columnMenuRef = useRef<HTMLDivElement>(null);
-  const columnDrag = useRef<{ id: TrackColumn; startX: number; startWidth: number } | null>(null);
+  const columnDrag = useRef<{ id: TrackColumn; startX: number; start: ColumnSettings["widths"] } | null>(null);
   const visibleColumns = TRACK_COLUMNS.filter((column) => !columnPrefs.hidden.includes(column.id));
   const widthOf = (id: TrackColumn) => Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, columnPrefs.widths[id] ?? TRACK_COLUMNS.find((column) => column.id === id)?.width ?? 60)));
   /** The grid both the heading row and every track row follow: the title takes what is left. */
@@ -162,9 +162,28 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     saveColumns(next);
     return next;
   });
-  const setColumnWidth = (id: TrackColumn, width: number | null, remember: boolean) => setColumnPrefs((before) => {
+  const clampWidth = (width: number) => Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, width)));
+  /** The boundary after `id` moves by `delta`: this column grows by it and the next one shrinks, so
+   * the line under the pointer follows the pointer. With the title taking what is left, only the
+   * neighbour changes. `null` puts both back to their usual widths. */
+  const moveBoundary = (id: TrackColumn, delta: number | null, remember: boolean) => setColumnPrefs((before) => {
+    const index = visibleColumns.findIndex((column) => column.id === id);
+    const right = visibleColumns[index + 1];
+    if (!right) return before;
     const widths = { ...before.widths };
-    if (width === null) delete widths[id]; else widths[id] = Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, width)));
+    if (delta === null) {
+      delete widths[id];
+      delete widths[right.id];
+    } else {
+      const usual = (column: TrackColumn) => before.widths[column] ?? TRACK_COLUMNS.find((item) => item.id === column)?.width ?? 60;
+      // How far the line can go: right until the neighbour is at its narrowest, left until this
+      // column is (the title has no width of its own and sets no limit).
+      let move = delta;
+      if (right.id !== "title") move = Math.min(move, usual(right.id) - COLUMN_MIN);
+      if (id !== "title") move = Math.max(move, COLUMN_MIN - usual(id));
+      if (id !== "title") widths[id] = clampWidth(usual(id) + move);
+      if (right.id !== "title") widths[right.id] = clampWidth(usual(right.id) - move);
+    }
     const next = { ...before, widths };
     if (remember) saveColumns(next);
     return next;
@@ -363,23 +382,29 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column" title="Right-click to choose columns" style={{ gridTemplateColumns: columnTemplate }} onContextMenu={(event) => { event.preventDefault(); setColumnMenu({ x: event.clientX, y: event.clientY }); }}>
       {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels.
           Every heading but the last carries a handle to drag its width. */}
-      {visibleColumns.map((column) => <span key={column.id} className={`track-heading track-heading-${column.id}`}>
+      {visibleColumns.map((column, index) => <span key={column.id} className={`track-heading track-heading-${column.id}`}>
         {column.id === "number" ? heading("#", "recent", "Sort by recently added")
           : column.id === "title" ? <span className="heading-pair">{heading("Title", "title", "Sort by title")}<span aria-hidden="true"> / </span>{heading("Artist", "artist", "Sort by artist")}</span>
           : column.id === "bpm" ? heading("BPM", "bpm", "Sort by BPM")
           : column.id === "format" ? heading("Format", "format", "Sort by format")
           : column.id === "added" ? heading("Added", "recent", "Sort by date added")
           : <span>{column.label}</span>}
-        {column.id !== "title" && <span className="col-resizer" role="separator" aria-orientation="vertical" aria-label={`Resize ${column.label}`} aria-valuemin={COLUMN_MIN} aria-valuemax={COLUMN_MAX} aria-valuenow={widthOf(column.id)} tabIndex={0}
-          onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); columnDrag.current = { id: column.id, startX: event.clientX, startWidth: widthOf(column.id) }; }}
-          onPointerMove={(event) => { const active = columnDrag.current; if (active) setColumnWidth(active.id, active.startWidth + event.clientX - active.startX, false); }}
+        {index < visibleColumns.length - 1 && <span className="col-resizer" role="separator" aria-orientation="vertical" aria-label={`Resize ${column.label}`} aria-valuemin={COLUMN_MIN} aria-valuemax={COLUMN_MAX} aria-valuenow={column.id === "title" ? widthOf(visibleColumns[index + 1]!.id) : widthOf(column.id)} tabIndex={0}
+          onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); columnDrag.current = { id: column.id, startX: event.clientX, start: { ...columnPrefs.widths } }; }}
+          onPointerMove={(event) => {
+            const active = columnDrag.current;
+            if (!active) return;
+            // From the widths at the start of the drag, so the pointer and the line stay together.
+            setColumnPrefs((before) => ({ ...before, widths: active.start }));
+            moveBoundary(active.id, event.clientX - active.startX, false);
+          }}
           onPointerUp={() => { if (!columnDrag.current) return; columnDrag.current = null; setColumnPrefs((current) => { saveColumns(current); return current; }); }}
           onPointerCancel={() => { columnDrag.current = null; }}
-          onDoubleClick={() => setColumnWidth(column.id, null, true)}
+          onDoubleClick={() => moveBoundary(column.id, null, true)}
           onKeyDown={(event) => {
             const step = event.shiftKey ? 50 : 10;
-            if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setColumnWidth(column.id, widthOf(column.id) + (event.key === "ArrowRight" ? step : -step), true); }
-            else if (event.key === "Home") { event.preventDefault(); setColumnWidth(column.id, null, true); }
+            if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); moveBoundary(column.id, event.key === "ArrowRight" ? step : -step, true); }
+            else if (event.key === "Home") { event.preventDefault(); moveBoundary(column.id, null, true); }
           }} />}
       </span>)}
     </div>}
