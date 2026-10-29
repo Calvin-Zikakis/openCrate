@@ -134,7 +134,10 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .track-columns { display: grid; grid-template-columns: 28px minmax(180px,1.6fr) minmax(100px,1fr) 44px 40px 42px 48px; align-items: center; gap: 12px; padding: 0 10px; }
 .track-header .track-heading { position: relative; display: flex; align-items: center; min-width: 0; padding-right: 10px; }
 .track-header .track-heading > span:first-child, .track-header .track-heading > button:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.track-header .col-resizer { right: -6px; width: 10px; }
+/* The grip between columns: wider than it looks, with a line that shows on hover. */
+.track-header .col-resizer { right: -9px; width: 16px; cursor: col-resize; }
+.track-header .col-resizer::after { right: 7px; top: 15%; bottom: 15%; }
+.track-header .col-resizer:hover::after, .track-header .col-resizer:focus-visible::after { background: var(--accent); width: 2px; }
 /* Headings move by drag: a grab cursor, a faded one on the move, a line where it would land. */
 .track-header .track-heading.is-movable { cursor: grab; }
 .track-header .track-heading.is-dragging { opacity: .4; }
@@ -279,6 +282,8 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .setting-row strong { display: block; font-size: 12px; font-weight: 500; }
 .setting-row small { display: block; font-size: 11px; margin-top: 5px; color: var(--secondary); }
 .setting-row input { accent-color: var(--accent); width: 17px; height: 17px; }
+.setting-buttons { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.setting-buttons .secondary-button { padding: 8px 12px; font-size: 12px; white-space: nowrap; }
 .settings-copy { font-size: 12px; line-height: 1.8; color: var(--secondary); }
 .settings-footnote { font-size: 10px; color: var(--faint); margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); }
 @media (max-width: 1100px) {
@@ -745,6 +750,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .destination-hint { margin: 2px 8px 8px; font-size: 11px; line-height: 1.6; color: var(--secondary); }
 .grid-tip { position: fixed; z-index: 60; max-width: 340px; padding: 7px 10px; border-radius: 6px; font-size: 11px; line-height: 1.5; color: var(--text); background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 24px #0008; pointer-events: none; white-space: normal; }
 .grid-state:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.quick-tip.is-above { transform: translateY(-100%); }
 .destination-choices .target-new-crate { padding: 6px 8px; }
 .grid-icons { display: inline-flex; align-items: center; gap: 2px; }
 .grid-action { display: inline-grid; place-content: center; width: 22px; height: 22px; border-radius: 5px; color: var(--secondary); }

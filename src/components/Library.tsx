@@ -2,64 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { carriesTracks, draggedTracks, setDraggedTracks } from "../library/drag";
 import { showKey, type KeyNotation } from "../library/keys";
+import { COLUMN_MAX, COLUMN_MIN, TRACK_COLUMNS, defaultColumns, loadColumns, orderedColumns, sameColumns, saveColumns, saveDefaultColumns, type ColumnSettings, type TrackColumn } from "../library/columns";
 import type { CrateInfo, LibraryApi, LibraryItem, LibraryPage, LibraryQuery, Sort } from "../library/types";
 import { ArtistArtwork, Artwork } from "./Artwork";
 import { Icon } from "./Icon";
+import { Tip, useTip } from "./Tip";
 
 const EMPTY_PAGE: LibraryPage = { total: 0, start: 0, items: [] };
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-
-/** The track list's columns, in order. The number and the title are always there; the rest can
- * be hidden or resized by the owner, and both are remembered in this browser. */
-export const TRACK_COLUMNS = [
-  { id: "number", label: "#", width: 28, fixed: true },
-  { id: "title", label: "Title / Artist", width: 0, fixed: true },
-  { id: "release", label: "Release", width: 180 },
-  { id: "genre", label: "Genre", width: 110 },
-  { id: "label", label: "Label", width: 110 },
-  { id: "year", label: "Year", width: 48 },
-  { id: "bpm", label: "BPM", width: 44 },
-  { id: "key", label: "Key", width: 40 },
-  { id: "time", label: "Time", width: 42 },
-  { id: "format", label: "Format", width: 48 },
-  { id: "added", label: "Added", width: 92 },
-] as const;
-export type TrackColumn = (typeof TRACK_COLUMNS)[number]["id"];
-const DEFAULT_HIDDEN_COLUMNS: TrackColumn[] = ["genre", "label", "year"];
-const COLUMNS_KEY = "opencrate.trackColumns";
-const COLUMN_MIN = 30;
-const COLUMN_MAX = 600;
-
-interface ColumnSettings { hidden: TrackColumn[]; widths: Partial<Record<TrackColumn, number>>; order: TrackColumn[] }
-/** The columns in the owner's order, with any column the saved order does not know (new since)
- * in its usual place. Every column can move; only the number and the title cannot be hidden. */
-function orderedColumns(order: TrackColumn[]): typeof TRACK_COLUMNS[number][] {
-  const known = order.filter((id) => TRACK_COLUMNS.some((column) => column.id === id));
-  return [...TRACK_COLUMNS].sort((a, b) => {
-    const at = (id: TrackColumn) => { const index = known.indexOf(id); return index === -1 ? TRACK_COLUMNS.findIndex((column) => column.id === id) + known.length : index; };
-    return at(a.id) - at(b.id);
-  });
-}
-function loadColumns(): ColumnSettings {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? "null");
-    if (typeof saved === "object" && saved !== null) {
-      const { hidden, widths } = saved as Partial<ColumnSettings>;
-      const ids = TRACK_COLUMNS.map((column) => column.id as string);
-      const { order } = saved as Partial<ColumnSettings>;
-      return {
-        hidden: Array.isArray(hidden) ? hidden.filter((id): id is TrackColumn => ids.includes(id) && !("fixed" in (TRACK_COLUMNS.find((column) => column.id === id) ?? {}))) : DEFAULT_HIDDEN_COLUMNS,
-        widths: typeof widths === "object" && widths !== null ? Object.fromEntries(Object.entries(widths).filter(([id, width]) => ids.includes(id) && typeof width === "number" && Number.isFinite(width))) as ColumnSettings["widths"] : {},
-        order: Array.isArray(order) ? order.filter((id): id is TrackColumn => ids.includes(id)) : [],
-      };
-    }
-  } catch { /* storage unavailable or unreadable: the defaults */ }
-  return { hidden: DEFAULT_HIDDEN_COLUMNS, widths: {}, order: [] };
-}
-function saveColumns(settings: ColumnSettings) {
-  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(settings)); } catch { /* applied, not remembered */ }
-}
 
 /** A date in the list: today's time, else the day. */
 function addedText(ms: number): string {
@@ -165,13 +116,15 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   const columnMenuRef = useRef<HTMLDivElement>(null);
   const columnDrag = useRef<{ id: TrackColumn; startX: number; start: ColumnSettings["widths"] } | null>(null);
   const visibleColumns = orderedColumns(columnPrefs.order).filter((column) => !columnPrefs.hidden.includes(column.id));
-  const columnsCustomized = columnPrefs.order.length > 0 || Object.keys(columnPrefs.widths).length > 0
-    || columnPrefs.hidden.length !== DEFAULT_HIDDEN_COLUMNS.length || columnPrefs.hidden.some((id) => !DEFAULT_HIDDEN_COLUMNS.includes(id));
+  // Reset goes back to the owner's own default when one is saved, else to the built-in one.
+  const columnsCustomized = !sameColumns(columnPrefs, defaultColumns());
+  const { tip, tipOf } = useTip();
   const resetColumns = () => {
-    const next: ColumnSettings = { hidden: DEFAULT_HIDDEN_COLUMNS, widths: {}, order: [] };
+    const next = defaultColumns();
     setColumnPrefs(next);
-    try { localStorage.removeItem(COLUMNS_KEY); } catch { /* nothing to forget */ }
+    saveColumns(next);
   };
+  const keepAsDefault = () => { saveDefaultColumns(columnPrefs); setColumnPrefs({ ...columnPrefs }); };
   /** A heading being dragged to a new place, and the heading it would land before or after. */
   const [columnDragging, setColumnDragging] = useState<TrackColumn | null>(null);
   const [columnDrop, setColumnDrop] = useState<{ id: TrackColumn; after: boolean } | null>(null);
@@ -419,15 +372,20 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
         : " Drag a track onto a crate, a rekordbox playlist or the player, or within the list to arrange it (Custom order). Right-click for Play next and Add to queue."}</span>}
       {/* Columns moved, hidden or resized: one click puts them back as they come. */}
-      {!isGrid && columnsCustomized && <button type="button" className="icon-button columns-reset" aria-label="Reset columns to default" title="Reset the columns to their usual order, widths and set" onClick={resetColumns}><Icon name="reset" size={13} /></button>}
+      {!isGrid && columnsCustomized && <button type="button" className="icon-button columns-reset" aria-label="Reset columns to default" {...tipOf("Reset the columns to your default order, widths and set")} onClick={resetColumns}><Icon name="reset" size={13} /></button>}
     </div>
+    <Tip tip={tip} />
     {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column" title="Right-click to choose columns" style={{ gridTemplateColumns: columnTemplate }} onContextMenu={(event) => { event.preventDefault(); setColumnMenu({ x: event.clientX, y: event.clientY }); }}>
       {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels.
           Every heading but the last carries a handle to drag its width. */}
       {visibleColumns.map((column, index) => <span key={column.id} className={`track-heading track-heading-${column.id} is-movable${columnDragging === column.id ? " is-dragging" : ""}${columnDrop?.id === column.id ? (columnDrop.after ? " is-drop-after" : " is-drop-before") : ""}`}
         draggable
         title="Drag to move this column; right-click to choose columns"
-        onDragStart={(event) => { event.dataTransfer.setData("text/x-opencrate-column", column.id); event.dataTransfer.effectAllowed = "move"; setColumnDragging(column.id); }}
+        onDragStart={(event) => {
+          // The grip at the edge resizes; only the heading itself moves the column.
+          if ((event.target as HTMLElement).closest(".col-resizer")) { event.preventDefault(); return; }
+          event.dataTransfer.setData("text/x-opencrate-column", column.id); event.dataTransfer.effectAllowed = "move"; setColumnDragging(column.id);
+        }}
         onDragEnd={() => { setColumnDragging(null); setColumnDrop(null); }}
         onDragOver={(event) => {
           if (!columnDragging || columnDragging === column.id) return;
@@ -458,6 +416,9 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
           : column.id === "added" ? heading("Added", "recent", "Sort by date added")
           : <span tabIndex={0} className="column-label">{column.label}</span>}
         {index < visibleColumns.length - 1 && <span className="col-resizer" role="separator" aria-orientation="vertical" aria-label={`Resize ${column.label}`} aria-valuemin={COLUMN_MIN} aria-valuemax={COLUMN_MAX} aria-valuenow={column.id === "title" ? widthOf(visibleColumns[index + 1]!.id) : widthOf(column.id)} tabIndex={0}
+          draggable={false}
+          onDragStart={(event) => { event.preventDefault(); event.stopPropagation(); }}
+          onMouseDown={(event) => event.stopPropagation()}
           onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); columnDrag.current = { id: column.id, startX: event.clientX, start: { ...columnPrefs.widths } }; }}
           onPointerMove={(event) => {
             const active = columnDrag.current;
@@ -488,6 +449,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       <button type="button" role="menuitem" onClick={() => { setColumnPrefs((before) => { const next = { ...before, widths: {} }; saveColumns(next); return next; }); setColumnMenu(null); }}>Reset column widths</button>
       <button type="button" role="menuitem" onClick={() => { setColumnPrefs((before) => { const next = { ...before, order: [] }; saveColumns(next); return next; }); setColumnMenu(null); }}>Reset column order</button>
       <button type="button" role="menuitem" onClick={() => { resetColumns(); setColumnMenu(null); }}>Reset columns to default</button>
+      <button type="button" role="menuitem" onClick={() => { keepAsDefault(); setColumnMenu(null); }}>Save these columns as my default</button>
     </div>}
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"

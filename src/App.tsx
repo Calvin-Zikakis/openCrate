@@ -22,9 +22,11 @@ import { useAutoImport } from "./components/AutoImport";
 import { PlayerBar, type PlayRequest } from "./components/PlayerBar";
 import { Sync } from "./components/Sync";
 import { DEMO_GENRES } from "./library/catalog";
+import { defaultColumns, describeColumns, hasOwnDefault, loadColumns, saveDefaultColumns } from "./library/columns";
 import { DEFAULT_QUERY, type Format, type FormatCount, type ImportBatch, type LibraryApi, type LibraryItem, type CrateInfo, type PlaylistInfo, type Sort, type View } from "./library/types";
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from "./preferences";
 import { PLAIN_TEXT } from "./components/plainText";
+import { QuickTips } from "./components/QuickTips";
 
 /** Open or close a dialog to match the state. A close made here is marked, because its "close"
  * event arrives a moment later and must not undo an open that came in between. */
@@ -239,6 +241,9 @@ export function App({ api }: { api: LibraryApi }) {
   const [settingsQuery, setSettingsQuery] = useState("");
   const [settingsGroup, setSettingsGroup] = useState<SettingsGroup>("appearance");
   const [settingsMatches, setSettingsMatches] = useState(0);
+  /** Bumped when the owner's default columns change, so the row above reads them again. */
+  const [columnsVersion, setColumnsVersion] = useState(0);
+  void columnsVersion;
   const settingsBody = useRef<HTMLDivElement>(null);
   const trackSettingsGroup = () => {
     const body = settingsBody.current;
@@ -562,6 +567,7 @@ export function App({ api }: { api: LibraryApi }) {
     : batch ? `${batch.tracks === batch.files ? `${batch.tracks} ${batch.tracks === 1 ? "track" : "tracks"}` : `${batch.tracks} of ${batch.files} files`} imported ${describeBatch(batch)}${batch.tracks < batch.files ? ". The rest are not in the library yet: the music folder has not been scanned since, or they were left in the watch folder" : ""}.` : "";
 
   return <div className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+    <QuickTips />
     <a className="skip-link" href="#main">Skip to library</a>
     <aside className={`sidebar${preferences.navFolded ? " nav-folded" : ""}`}>
       <a className="brand" href="#main" onClick={() => navigate("tracks")} aria-label="openCrate home"><span className="brand-mark">oc</span><span>openCrate<span className="brand-period">.</span></span></a>
@@ -658,7 +664,7 @@ export function App({ api }: { api: LibraryApi }) {
       {settingsQuery.trim() !== "" && <p className="settings-copy settings-match" role="status">{settingsMatches === 0 ? `Nothing in Settings matches "${settingsQuery.trim()}".` : `${settingsMatches} ${settingsMatches === 1 ? "setting matches" : "settings match"} "${settingsQuery.trim()}".`}</p>}
       <div className="settings-group" data-group="appearance"><h2 className="settings-group-title">Appearance</h2>
         <section className="settings-section"><h3>Looks</h3><fieldset className="theme-choice"><legend>Theme</legend>{(["system", "dark", "light"] as const).map((theme) => <label key={theme}><input type="radio" name="theme" value={theme} checked={preferences.theme === theme} onChange={() => updatePreferences({ ...preferences, theme })} />{theme === "system" ? "Match this computer" : theme === "dark" ? "Dark" : "Light"}</label>)}</fieldset><fieldset className="theme-choice"><legend>Key notation</legend>{(["rekordbox", "camelot", "openKey", "musical"] as const).map((notation) => <label key={notation}><input type="radio" name="keyNotation" value={notation} checked={preferences.keyNotation === notation} onChange={() => updatePreferences({ ...preferences, keyNotation: notation })} />{notation === "rekordbox" ? "As rekordbox wrote it" : notation === "camelot" ? "Camelot (8A)" : notation === "openKey" ? "Open Key (1m)" : "Musical (Am)"}</label>)}</fieldset></section>
-        <section className="settings-section"><h3>Layout</h3><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the page header</strong><small>One line for the title, so more rows fit. Also from Hide header above any list.</small></span><input type="checkbox" checked={preferences.headerFolded} onChange={(event) => updatePreferences({ ...preferences, headerFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the navigation</strong><small>Tracks, Import and the rest as a row of icons, so crates and playlists get the sidebar. Also from the arrow beside YOUR LIBRARY.</small></span><input type="checkbox" checked={preferences.navFolded} onChange={(event) => updatePreferences({ ...preferences, navFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label></section>
+        <section className="settings-section"><h3>Layout</h3><div className="setting-row"><span><strong>Track columns</strong><small>{hasOwnDefault() ? `Reset puts the columns back to your default: ${describeColumns(defaultColumns())}.` : `Reset puts the columns back to the built-in set: ${describeColumns(defaultColumns())}. Arrange the list as you like it, then keep that as your default here.`}</small></span><span className="setting-buttons"><button className="secondary-button" onClick={() => { saveDefaultColumns(loadColumns()); setColumnsVersion((value) => value + 1); }}>Keep the columns shown now as my default</button>{hasOwnDefault() && <button className="link-button" onClick={() => { saveDefaultColumns(null); setColumnsVersion((value) => value + 1); }}>Back to the built-in default</button>}</span></div><label className="setting-row"><span><strong>Compact track rows</strong><small>More music in the same space.</small></span><input type="checkbox" checked={preferences.compact} onChange={(event) => updatePreferences({ ...preferences, compact: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the page header</strong><small>One line for the title, so more rows fit. Also from Hide header above any list.</small></span><input type="checkbox" checked={preferences.headerFolded} onChange={(event) => updatePreferences({ ...preferences, headerFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Hide the navigation</strong><small>Tracks, Import and the rest as a row of icons, so crates and playlists get the sidebar. Also from the arrow beside YOUR LIBRARY.</small></span><input type="checkbox" checked={preferences.navFolded} onChange={(event) => updatePreferences({ ...preferences, navFolded: event.target.checked })} /></label><label className="setting-row"><span><strong>Reduce motion</strong><small>System reduced-motion preference is also respected.</small></span><input type="checkbox" checked={preferences.reducedMotion} onChange={(event) => updatePreferences({ ...preferences, reducedMotion: event.target.checked })} /></label></section>
       </div>
       {api.admin ? <>
         <div className="settings-group" data-group="library"><h2 className="settings-group-title">Library</h2>

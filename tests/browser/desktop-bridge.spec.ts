@@ -3563,12 +3563,34 @@ test("tracks: columns are chosen and resized from the heading row, Added sits la
   await header.click({ button: "right" });
   await page.getByRole("menu", { name: "Columns" }).getByRole("menuitem", { name: "Reset column order" }).click();
   expect(await labels()).toEqual(["#", "Title / Artist", "Genre", "Year", "BPM", "Key", "Time", "Format", "Added"]);
-  // One icon on the summary line puts everything back as it comes, and then goes away.
+  // One icon on the summary line puts everything back as it comes, and then goes away; its hover
+  // text comes at once.
+  await page.getByRole("button", { name: "Reset columns to default" }).hover();
+  await expect(page.getByRole("tooltip")).toContainText("Reset the columns");
   await page.getByRole("button", { name: "Reset columns to default" }).click();
   expect(await labels()).toEqual(["#", "Title / Artist", "Release", "BPM", "Key", "Time", "Format", "Added"]);
   expect(Math.abs((await bpm.boundingBox())!.width - before.bpm)).toBeLessThanOrEqual(2);
-  expect(await page.evaluate(() => localStorage.getItem("opencrate.trackColumns"))).toBeNull();
   await expect(page.getByRole("button", { name: "Reset columns to default" })).toHaveCount(0);
+  // The default is the owner's to set: hide Release, keep that as the default from the menu, and
+  // Reset goes back to it; Settings says so and can drop it again.
+  await header.click({ button: "right" });
+  await page.getByRole("menu", { name: "Columns" }).getByRole("menuitemcheckbox", { name: "Release" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Reset columns to default" })).toBeVisible();
+  await header.click({ button: "right" });
+  await page.getByRole("menu", { name: "Columns" }).getByRole("menuitem", { name: "Save these columns as my default" }).click();
+  await expect(page.getByRole("button", { name: "Reset columns to default" })).toHaveCount(0);
+  await header.locator(".track-heading-key .column-label").focus();
+  await page.keyboard.press("Alt+ArrowLeft");
+  await page.getByRole("button", { name: "Reset columns to default" }).click();
+  expect(await labels()).toEqual(["#", "Title / Artist", "BPM", "Key", "Time", "Format", "Added"]);
+  await page.getByRole("button", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(dialog.getByText("Reset puts the columns back to your default: #, Title / Artist, BPM, Key, Time, Format, Added.")).toBeVisible();
+  await dialog.getByRole("button", { name: "Back to the built-in default" }).click();
+  await expect(dialog.getByText(/Reset puts the columns back to the built-in set/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Reset columns to default" })).toBeVisible();
 
   // The filter: genre, a year range and a span of dates, sent with the query and counted on the pill.
   const filters = page.getByRole("group", { name: "Format filters" });
