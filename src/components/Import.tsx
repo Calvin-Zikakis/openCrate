@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { AutoImportCard, type AutoImport } from "./AutoImport";
 import { ImportAll } from "./ImportAll";
 import { ImportChoices, loadOptions } from "./ImportChoices";
-import { ImportTargetCard } from "./ImportTarget";
+import { ImportTargetPickers } from "./ImportTarget";
 import type { Accepted, DownloadFolderState, DownloadRelease, DownloadsSnapshot, FolderInfo, ImportOptions, ImportPlan, ImportTarget, LibraryAdmin, ReleaseImport, ReleaseLookup } from "../library/types";
 
 const POLL_MS = 3000;
@@ -100,12 +100,24 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const [setupOpen, setSetupOpen] = useState(loadSetupOpen);
   const [target, setTarget] = useState<ImportTarget>({ crateId: null, playlistId: null });
-  /** The names behind the target, for the settings summary. */
-  const [targetNames, setTargetNames] = useState<{ crate: string | null; playlist: string | null }>({ crate: null, playlist: null });
   const [rekordboxWriting, setRekordboxWriting] = useState(false);
   /** What was typed into the table, by release and then by file. */
   const [edits, setEdits] = useState<Map<string, Map<string, Edit>>>(new Map());
   const [lookups, setLookups] = useState<Map<string, Lookup>>(new Map());
+  const [showDismissed, setShowDismissed] = useState(false);
+  /** Bumped when a crate is made from a destination picker, so every picker lists it. */
+  const [targetVersion, setTargetVersion] = useState(0);
+  const [dismissError, setDismissError] = useState("");
+  /** Take releases off the list, or put them back; the next look at the folder shows it. */
+  const dismiss = async (list: DownloadRelease[], dismissed: boolean) => {
+    setDismissError("");
+    try {
+      for (const release of list) await admin.setReleaseDismissed(release.folderId, release.name, dismissed);
+      setSnapshot((current) => current && { ...current, releases: current.releases.map((release) => (list.some((item) => keyOf(item) === keyOf(release)) ? { ...release, dismissed } : release)) });
+    } catch (reason) {
+      setDismissError(message(reason));
+    }
+  };
   const [lookingUp, setLookingUp] = useState(false);
   const stopLookups = useRef(false);
 
@@ -128,16 +140,6 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
     admin.rekordboxDatabase().then((state) => { if (!stopped) setRekordboxWriting(state.writeEnabled && !state.writeNeedsConfirmation && state.writeTested); }, () => undefined);
     return () => { stopped = true; };
   }, [admin]);
-
-  useEffect(() => {
-    let stopped = false;
-    void (async () => {
-      const crate = target.crateId === null ? null : (await admin.crates().catch(() => [])).find((found) => found.id === target.crateId)?.name ?? null;
-      const playlist = target.playlistId === null ? null : (await admin.playlists().catch(() => [])).find((found) => found.id === target.playlistId)?.name ?? null;
-      if (!stopped) setTargetNames({ crate, playlist });
-    })();
-    return () => { stopped = true; };
-  }, [admin, target]);
 
   // Converting needs ffmpeg; without it the choice is shown but not sent.
   const sent: ImportOptions = canConvert ? options : { ...options, convert: { lossless: null, lossy: null } };
@@ -236,7 +238,9 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
     POLL_MS,
   ), [admin]);
 
-  const releases = snapshot?.releases ?? [];
+  const everything = snapshot?.releases ?? [];
+  const dismissed = everything.filter((release) => release.dismissed && !release.imported);
+  const releases = everything.filter((release) => !release.dismissed || release.imported);
   const fresh = releases.filter((release) => !release.imported && !release.alreadyThere && release.state !== "nothing");
   const older = releases.filter((release) => !release.imported && release.alreadyThere && release.state !== "nothing");
   const imported = releases.filter((release) => release.imported);
@@ -298,7 +302,7 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
   const noFolder = <p role="alert" className="inline-error">{roots.length > 0
     ? `${roots.map((folder) => folder.label).join(", ")} cannot be reached right now, so there is nowhere to put it. Connect the drive; this screen notices when it is back.`
     : "Add a music folder in Settings first, so there is somewhere to put it."} <button className="link-button" onClick={onOpenSettings}>Settings...</button></p>;
-  const rootChoice = available.length > 1 && <label className="plan-root">Music folder <select value={rootId ?? ""} onChange={(event) => setRootId(Number(event.target.value))}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>;
+  const rootChoice = available.length > 0 && <label className="plan-root">Into music folder <select value={rootId ?? ""} disabled={available.length === 1} onChange={(event) => setRootId(Number(event.target.value))}>{available.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>;
   const planOf = (release: DownloadRelease) => planned(release)?.plan ?? null;
 
   /** Every release in a list as one table: a heading row each, with Look up and Import. */
@@ -335,6 +339,7 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
           {lookup?.state === "done" && <small className="lookup-note" role="status">{lookupLine(lookup.result)} {lookup.result.found && <button className="link-button" onClick={() => forgetLookup(key)}>Undo the lookup</button>}</small>}
           {lookup?.state === "failed" && <small role="alert" className="inline-error">{lookup.error} <button className="link-button" disabled={lookingUp} onClick={() => void lookUp([release])}>Try again</button></small>}
           {typed > 0 && <small className="lookup-note">{`${plural(typed, "value", "values")} typed.`} <button className="link-button" onClick={() => forgetEdits(key)}>Undo the typing</button></small>}
+          {!release.imported && !step && <button className="link-button plan-remove" aria-label={`Remove ${release.name} from the list`} title="Takes it off this list without importing it. The files stay in the watch folder; Put back brings it back." onClick={() => void dismiss([release], true)}>Remove from the list</button>}
         </>,
       };
     });
@@ -371,22 +376,28 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
     const ready = readyIn(list).filter((release) => planOf(release) !== null);
     return ready.length > 1 && <button className="secondary-button" disabled={lookingUp || rootId === null} onClick={() => void lookUp(ready)}>{lookingUp ? "Looking them up..." : `Look up all ${ready.length}`}</button>;
   };
+  /** Releases whose every file is already in the music folder: nothing to import, only to clear. */
+  const alreadyIn = (list: DownloadRelease[]) => list.filter((release) => {
+    const plan = planOf(release);
+    return plan !== null && plan.ready === 0 && plan.files.length > 0 && plan.files.every((file) => file.problem === "A file is already there.");
+  });
   const section = (list: DownloadRelease[], label?: (count: number) => string) => <>
     <div className="import-actions">
       <ImportAll admin={admin} releases={readyIn(list)} rootId={rootId} options={sent} acceptedFor={acceptedFor} planOf={planOf} rescan={rescan} onFinished={readAgain} label={label} />
       {lookUpAll(list)}
       {lookingUp && <button className="link-button" onClick={() => { stopLookups.current = true; }}>Stop looking up</button>}
-      {rootChoice}
+      {alreadyIn(list).length > 0 && <button className="secondary-button" title="Every file of these is already in your music folder. This takes them off the list; the files stay in the watch folder." onClick={() => void dismiss(alreadyIn(list), true)}>{`Remove ${alreadyIn(list).length === 1 ? "the 1 release" : `the ${alreadyIn(list).length} releases`} already in your library`}</button>}
+      <span className="import-destinations">
+        {rootChoice}
+        <ImportTargetPickers admin={admin} target={target} onChange={setTarget} rekordboxWriting={rekordboxWriting} version={targetVersion} onCratesChanged={() => { setTargetVersion((value) => value + 1); onCratesChanged?.(); }} />
+      </span>
     </div>
+    {dismissError && <p role="alert" className="inline-error">{dismissError}</p>}
     {table(list)}
   </>;
   const setupSummary = [
     sent.convert.lossless || sent.convert.lossy ? `converting ${[sent.convert.lossless && `lossless to ${sent.convert.lossless.toUpperCase()}`, sent.convert.lossy && `lossy to ${sent.convert.lossy.toUpperCase()}`].filter(Boolean).join(" and ")}` : "nothing converted",
     sent.tidy ? "names tidied" : "names as they are",
-    (() => {
-      const places = [targetNames.crate && `the crate ${targetNames.crate}`, rekordboxWriting && targetNames.playlist && `the rekordbox playlist ${targetNames.playlist}`].filter(Boolean);
-      return places.length > 0 ? `tracks go on into ${places.join(" and ")}` : "tracks only go into the library";
-    })(),
     auto?.settings.on ? "importing on its own is on" : "importing on its own is off",
   ].join(", ");
 
@@ -413,7 +424,6 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
       {!setupOpen && <p className="settings-copy">{setupSummary.charAt(0).toUpperCase() + setupSummary.slice(1)}.</p>}
       {setupOpen && <>
         <ImportChoices options={options} canConvert={canConvert} onChange={setOptions} />
-        <ImportTargetCard admin={admin} target={target} onChange={setTarget} rekordboxWriting={rekordboxWriting} onCratesChanged={onCratesChanged} />
         {auto && <AutoImportCard settings={auto.settings} onChange={auto.change} outcome={auto.outcome} problem={auto.problem} lastLookMs={auto.lastLookMs} onClear={auto.clear} roots={roots} releases={releases} />}
       </>}
     </div>}
@@ -436,6 +446,14 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
       <h2>Already there when you added the folder</h2>
       <p className="settings-copy">These are not picked up on their own. They stay out of the way until you bring them in, one at a time or all together.</p>
       {section(older, (count) => `Import all ${plural(count, "release", "releases")} already there...`)}
+    </div>}
+    {dismissed.length > 0 && <div className="sync-card">
+      <h2>Removed from the list</h2>
+      <p className="settings-copy">{`${plural(dismissed.length, "release", "releases")} you took off the list without importing. The files are still in the watch folder.`} <button className="link-button" aria-expanded={showDismissed} onClick={() => setShowDismissed(!showDismissed)}>{showDismissed ? "Hide them" : dismissed.length === 1 ? "Show it" : `Show all ${dismissed.length}`}</button></p>
+      {showDismissed && <ul className="folder-list" aria-label="Removed from the list">{dismissed.map((release) => <li key={keyOf(release)} className="folder-row">
+        <div className="folder-text"><strong>{release.name}</strong><small>{contents(release)} - in {release.folderLabel}</small></div>
+        <button className="secondary-button" aria-label={`Put back ${release.name}`} onClick={() => void dismiss([release], false)}>Put back</button>
+      </li>)}</ul>}
     </div>}
   </div>;
 }

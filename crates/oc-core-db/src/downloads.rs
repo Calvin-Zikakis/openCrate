@@ -163,6 +163,10 @@ impl Database {
             "DELETE FROM imported_release WHERE watch_folder_id = ?1",
             [id],
         )?;
+        transaction.execute(
+            "DELETE FROM dismissed_release WHERE watch_folder_id = ?1",
+            [id],
+        )?;
         let changed = transaction.execute("DELETE FROM watch_folder WHERE id = ?1", [id])?;
         transaction.commit()?;
         if changed == 1 {
@@ -192,6 +196,42 @@ impl Database {
         )?;
         Ok(())
     }
+}
+
+impl Database {
+    /// Take a release off the Import list, or put it back. Nothing on disk changes.
+    pub fn set_release_dismissed(
+        &mut self,
+        id: i64,
+        name: &[u8],
+        dismissed: bool,
+        now_ms: i64,
+    ) -> Result<()> {
+        if dismissed {
+            self.connection.execute(
+                "INSERT INTO dismissed_release (watch_folder_id, name, dismissed_ms) \
+                 VALUES (?1, ?2, ?3) ON CONFLICT(watch_folder_id, name) DO UPDATE SET \
+                 dismissed_ms = excluded.dismissed_ms",
+                params![id, name, now_ms],
+            )?;
+        } else {
+            self.connection.execute(
+                "DELETE FROM dismissed_release WHERE watch_folder_id = ?1 AND name = ?2",
+                params![id, name],
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// The top-level names the owner took off the Import list of a watch folder.
+pub fn dismissed_names(connection: &Connection, id: i64) -> Result<HashSet<Vec<u8>>> {
+    let mut statement =
+        connection.prepare("SELECT name FROM dismissed_release WHERE watch_folder_id = ?1")?;
+    let names = statement
+        .query_map([id], |row| row.get::<_, Vec<u8>>(0))?
+        .collect::<rusqlite::Result<HashSet<_>>>()?;
+    Ok(names)
 }
 
 /// The top-level names imported from a watch folder.

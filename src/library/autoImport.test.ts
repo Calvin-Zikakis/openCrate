@@ -4,7 +4,7 @@ import type { DownloadRelease, ImportPlan, LibraryAdmin } from "./types";
 
 const release = (name: string, extra: Partial<DownloadRelease> = {}): DownloadRelease => ({
   folderId: 9, folderLabel: "Downloads", name, loose: false, state: "ready", quietSeconds: null, audioFiles: 1, archives: 0,
-  alreadyThere: false, imported: false, newestModifiedMs: 1, ...extra,
+  alreadyThere: false, imported: false, dismissed: false, newestModifiedMs: 1, ...extra,
 });
 
 const plan = (name: string, guessed: boolean): ImportPlan => ({

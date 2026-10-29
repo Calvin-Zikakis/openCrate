@@ -409,7 +409,7 @@ function toDownloads(value: unknown): DownloadsSnapshot {
       name: text(release.name, "download"), loose: release.loose, state: release.state as DownloadState,
       quietSeconds: release.quietSeconds === null ? null : whole(release.quietSeconds, "download"),
       audioFiles: whole(release.audioFiles, "download"), archives: whole(release.archives, "download"),
-      alreadyThere: release.alreadyThere, imported: release.imported,
+      alreadyThere: release.alreadyThere, imported: release.imported, dismissed: release.dismissed === true,
       newestModifiedMs: typeof release.newestModifiedMs === "number" ? release.newestModifiedMs : 0,
     };
   });
@@ -780,6 +780,9 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       toPlan(await invoke("library_plan_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
     importRelease: async (folderId, name, rootId, options) =>
       toReleaseImport(await invoke("library_import_release", { folderId, name, rootId, options: options ?? null }).catch((error: unknown) => { throw failure(error); })),
+    setReleaseDismissed: async (folderId, name, dismissed) => {
+      await invoke("library_set_release_dismissed", { folderId, name, dismissed }).catch((error: unknown) => { throw failure(error); });
+    },
     importBatches: async () => {
       const response = await invoke("library_import_batches").catch((error: unknown) => { throw failure(error); });
       if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of import batches.");

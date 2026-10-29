@@ -308,6 +308,8 @@ export interface DownloadRelease {
   alreadyThere: boolean;
   /** Imported with openCrate. The originals are still in the watch folder. */
   imported: boolean;
+  /** Taken off the Import list by hand; Put back clears it. */
+  dismissed: boolean;
   newestModifiedMs: number;
 }
 
@@ -643,6 +645,8 @@ export interface LibraryAdmin {
   planRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ImportPlan>;
   /** Copies the ready files of a release into a music folder. The originals stay where they are. */
   importRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseImport>;
+  /** Take a release off the Import list, or put it back. Nothing on disk changes. */
+  setReleaseDismissed(folderId: number, name: string, dismissed: boolean): Promise<void>;
   /** Import batches, newest first. */
   importBatches(): Promise<ImportBatch[]>;
   /** The tracks behind an import's `imported` ids, once the music folder has been scanned. */

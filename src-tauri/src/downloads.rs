@@ -34,6 +34,7 @@ impl DownloadWatch {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)] // flags the page shows, not a state machine
 pub struct ReleaseDto {
     pub folder_id: i64,
     pub folder_label: String,
@@ -51,6 +52,8 @@ pub struct ReleaseDto {
     pub already_there: bool,
     /// Imported with openCrate. The originals are still in the watch folder.
     pub imported: bool,
+    /// Taken off the Import list by the owner; "Put back" clears it.
+    pub dismissed: bool,
     pub newest_modified_ms: i64,
 }
 
@@ -80,6 +83,7 @@ fn describe(
     folder: &WatchFolder,
     baseline: Option<&HashSet<Vec<u8>>>,
     imported: &HashSet<Vec<u8>>,
+    dismissed: &HashSet<Vec<u8>>,
     status: &oc_ingest::ReleaseStatus,
 ) -> ReleaseDto {
     let (name, loose) = match &status.key {
@@ -107,8 +111,25 @@ fn describe(
         // its old modified time. Without a list nothing is assumed old.
         already_there: baseline.is_some_and(|names| names.contains(name)),
         imported: imported.contains(name),
+        dismissed: dismissed.contains(name),
         newest_modified_ms: status.newest_modified_ms,
     }
+}
+
+/// Take a release off the Import list, or put it back. The name must be one plain entry of the
+/// folder, as every release name is. Nothing on disk changes.
+pub fn set_dismissed(
+    service: &LibraryService,
+    folder_id: i64,
+    name: &str,
+    dismissed: bool,
+) -> Result<(), String> {
+    if name.is_empty() || name.contains(['/', '\\', '\0']) {
+        return Err("That is not a release in the watch folder.".to_owned());
+    }
+    service
+        .set_release_dismissed(folder_id, name.as_bytes().to_vec(), dismissed)
+        .map_err(|error| error.to_string())
 }
 
 /// List the watch folders and evaluate their releases at `now_ms`. Newest first.
@@ -150,6 +171,9 @@ pub fn poll(
             let imported = service
                 .imported_releases(folder.id)
                 .map_err(|error| error.to_string())?;
+            let dismissed = service
+                .dismissed_releases(folder.id)
+                .map_err(|error| error.to_string())?;
             match list_folder(&path) {
                 Ok(listing) => {
                     state.unreadable_dirs = listing.unreadable_dirs;
@@ -157,11 +181,9 @@ pub fn poll(
                     let tracker = trackers
                         .entry(folder.id)
                         .or_insert_with(|| StabilityTracker::new(watch.config));
-                    releases.extend(
-                        evaluate(tracker, &listing.entries, now_ms)
-                            .iter()
-                            .map(|status| describe(folder, baseline.as_ref(), &imported, status)),
-                    );
+                    releases.extend(evaluate(tracker, &listing.entries, now_ms).iter().map(
+                        |status| describe(folder, baseline.as_ref(), &imported, &dismissed, status),
+                    ));
                 }
                 Err(_) => state.state = "unreadable",
             }
@@ -241,6 +263,26 @@ mod tests {
         assert!(
             downloads.join("Done/01.flac").exists(),
             "nothing was touched"
+        );
+    }
+
+    #[test]
+    fn a_release_taken_off_the_list_is_flagged_until_put_back() {
+        let (_data, service, area) = setup();
+        let downloads = area.path().join("Downloads");
+        fs::create_dir_all(downloads.join("Old")).unwrap();
+        fs::write(downloads.join("Old/01.flac"), b"abc").unwrap();
+        let id = service.add_watch_folder(&downloads, "Downloads").unwrap();
+        let watch = quick();
+        assert!(!state_of(&poll(&service, &watch, 1).unwrap(), "Old").dismissed);
+        set_dismissed(&service, id, "Old", true).unwrap();
+        assert!(state_of(&poll(&service, &watch, 2).unwrap(), "Old").dismissed);
+        set_dismissed(&service, id, "Old", false).unwrap();
+        assert!(!state_of(&poll(&service, &watch, 3).unwrap(), "Old").dismissed);
+        assert!(set_dismissed(&service, id, "../Old", true).is_err());
+        assert!(
+            downloads.join("Old/01.flac").exists(),
+            "nothing on disk changed"
         );
     }
 

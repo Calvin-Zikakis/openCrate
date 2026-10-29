@@ -15,6 +15,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
       const crateList: { id: number; name: string; order: number[] }[] = [];
       let libraryOrder: number[] | null = null;
       const imported = new Set<string>();
+      const dismissed = new Set<string>();
       let importedFiles = 0;
       const batches: Record<string, any>[] = [];
       let importTarget: { crateId: number | null; playlistId: number | null } = { crateId: null, playlistId: null };
@@ -179,7 +180,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_download_releases": {
               const rel = (name: string, state: string, extra: Record<string, any> = {}) => ({
                 folderId: 9, folderLabel: "Downloads", name, loose: false, state, quietSeconds: null, audioFiles: 8, archives: 0,
-                alreadyThere: false, newestModifiedMs: 5, imported: imported.has(name), ...extra,
+                alreadyThere: false, newestModifiedMs: 5, imported: imported.has(name), dismissed: dismissed.has(name), ...extra,
               });
               return {
                 folders: downloads.map((folder) => ({ folderId: folder.id, label: folder.label, state: (window as any).__watchState ?? "watching", unreadableDirs: 0, truncated: false })),
@@ -429,10 +430,11 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             case "library_plan_release":
               if (args?.name === "Night Drive EP") throw "That release is no longer in the watch folder.";
               if (args?.name === "Clean Single") {
+                const taken = Boolean((window as any).__alreadyThere);
                 return {
-                  release: args?.name, rootLabel: "Music", ready: 1, blocked: 0,
+                  release: args?.name, rootLabel: "Music", ready: taken ? 0 : 1, blocked: taken ? 1 : 0,
                   files: [{
-                    source: "Clean Single/01.aif", destination: "Studio 001/Clean Single/01 - Studio 001 - Clean Single.aif", shortened: false, problem: null, becomes: null,
+                    source: "Clean Single/01.aif", destination: "Studio 001/Clean Single/01 - Studio 001 - Clean Single.aif", shortened: false, problem: taken ? "A file is already there." : null, becomes: null,
                     tags: { fields: [{ name: "Title", value: "Clean Single", guessed: false, tidiedFrom: null }], audio: "AIFF 16/44.1", length: "3:00", readError: null, warnings: [] },
                   }],
                 };
@@ -488,6 +490,9 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               if (filed === 2) return { rootId: 7, rootLabel: "Music", filed, skipped: [], batchId: 1, imported: ids };
               return { rootId: 7, rootLabel: "Music", filed, skipped: [{ source: `${args?.name}/02.flac`, problem: "No track number in the tags or file name." }], batchId: 1, imported: ids };
             }
+            case "library_set_release_dismissed":
+              if (args?.dismissed) dismissed.add(String(args?.name)); else dismissed.delete(String(args?.name));
+              return null;
             case "library_import_batches":
               return (window as any).__batches ?? batches;
             case "library_imported_tracks":
@@ -1162,21 +1167,20 @@ test("import: after importing, the tracks go into the chosen crate and rekordbox
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await page.getByRole("button", { name: "Choose export..." }).click();
   await page.getByRole("button", { name: "Import", exact: true }).first().click();
-  const setup = page.locator(".import-setup");
-  await expect(setup).toContainText("tracks only go into the library");
-  await setup.getByRole("button", { name: "Change..." }).click();
-  const target = page.getByRole("group", { name: "After importing" });
+  // The destination sits beside the Import button, with the music folder.
+  const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
+  const target = fresh.getByRole("group", { name: "After importing, add the tracks to" });
+  await expect(fresh.locator(".import-actions").getByText("Into music folder")).toBeVisible();
   await target.getByLabel("Crate for imported tracks").selectOption("new");
   await target.getByLabel("Name for the new crate").fill("New this week");
   await target.getByRole("button", { name: "Make it" }).click();
   await expect(target.getByLabel("Crate for imported tracks")).toHaveValue("1");
   await target.getByLabel("rekordbox playlist for imported tracks").selectOption("4");
-  await expect(target.getByRole("status")).toHaveText("Imported tracks go into the crate New this week and the rekordbox playlist Closers.");
   expect((await calls(page)).filter((call) => call.command === "library_set_import_target").at(-1)?.args.target).toEqual({ crateId: 1, playlistId: 4 });
-  // The sidebar lists the new crate at once.
+  // The sidebar lists the new crate at once, and the other list shows the same choice.
   await expect(page.getByRole("complementary").getByRole("button", { name: /^New this week/ })).toBeVisible();
-  await setup.getByRole("button", { name: "Hide" }).click();
-  await expect(setup).toContainText("tracks go on into the crate New this week and the rekordbox playlist Closers");
+  const older = page.locator(".sync-card").filter({ hasText: "Already there when you added the folder" });
+  await expect(older.getByLabel("Crate for imported tracks")).toHaveValue("1");
 
   const second = releaseGroup(page, "Second Light");
   await second.getByRole("button", { name: "Import Second Light" }).click();
@@ -1187,6 +1191,38 @@ test("import: after importing, the tracks go into the chosen crate and rekordbox
   expect(await page.evaluate(() => (window as any).__rbAdded)).toEqual([{ playlistId: 4, trackIds: [101, 102] }]);
   await page.getByRole("button", { name: "See what came in" }).click();
   await expect(page.getByRole("heading", { name: "Recently imported" })).toBeVisible();
+});
+
+test("import: a release can be taken off the list and put back, and those already in the library go in one click", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__cleanReady = true; (window as any).__fileNothing = true; });
+  await openImportWithFolders(page);
+  const fresh = page.locator(".sync-card").filter({ hasText: "New since you added the folder" });
+  await expect(fresh.locator("tbody.plan-group")).toHaveCount(4);
+  // Without writing to rekordbox, the playlist picker says why it is off.
+  await expect(fresh.getByLabel("rekordbox playlist for imported tracks")).toBeDisabled();
+  await fresh.getByRole("button", { name: "Remove Night Drive EP from the list" }).click();
+  await expect(fresh.locator("tbody.plan-group")).toHaveCount(3);
+  expect((await calls(page)).filter((call) => call.command === "library_set_release_dismissed").map((call) => call.args)).toEqual([{ folderId: 9, name: "Night Drive EP", dismissed: true }]);
+  // It survives the next look at the folder, and comes back on request.
+  await page.waitForTimeout(3500);
+  await expect(fresh.locator("tbody.plan-group")).toHaveCount(3);
+  const removed = page.locator(".sync-card").filter({ hasText: "Removed from the list" });
+  await expect(removed).toContainText("1 release you took off the list without importing.");
+  await removed.getByRole("button", { name: "Show it" }).click();
+  await removed.getByRole("button", { name: "Put back Night Drive EP" }).click();
+  await expect(fresh.locator("tbody.plan-group")).toHaveCount(4);
+  await expect(removed).toHaveCount(0);
+  // A release whose every file is already in the music folder can be cleared with the others
+  // like it in one click. (Between Spaces has a file blocked for another reason, so it stays.)
+  await expect(fresh.getByRole("button", { name: /already in your library/ })).toHaveCount(0);
+  await page.evaluate(() => { (window as any).__alreadyThere = true; });
+  await page.locator(".import-setup").getByRole("button", { name: "Change..." }).click();
+  await page.getByRole("checkbox", { name: /Tidy names/ }).click();
+  await fresh.getByRole("button", { name: "Remove the 1 release already in your library" }).click();
+  await expect(fresh.locator("tbody.plan-group")).toHaveCount(3);
+  await expect(fresh.locator("tbody.plan-group").filter({ hasText: "Clean Single" })).toHaveCount(0);
+  expect((await calls(page)).filter((call) => call.command === "library_set_release_dismissed").at(-1)?.args).toEqual({ folderId: 9, name: "Clean Single", dismissed: true });
 });
 
 test("import: with writing to rekordbox on, imported tracks go into its Imported playlist", async ({ page }) => {
@@ -1261,7 +1297,7 @@ test("import choices: conversion and tidying are sent with the plan and shown in
   expect(JSON.parse(await page.evaluate(() => localStorage.getItem("opencrate.importOptions") ?? "null"))).toEqual({ convert: { lossless: "aiff", lossy: null }, tidy: false });
   // Folded, the settings card says what is chosen in a line.
   await page.locator(".import-setup").getByRole("button", { name: "Hide" }).click();
-  await expect(page.locator(".import-setup")).toContainText("Converting lossless to AIFF, names as they are, tracks only go into the library, importing on its own is off.");
+  await expect(page.locator(".import-setup")).toContainText("Converting lossless to AIFF, names as they are, importing on its own is off.");
 });
 
 test("import choices: without ffmpeg converting cannot be chosen and is not sent", async ({ page }) => {

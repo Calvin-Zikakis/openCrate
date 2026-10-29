@@ -260,7 +260,7 @@ describe("managing folders", () => {
   it("reads the downloads snapshot and refuses an unreadable one", async () => {
     const release = {
       folderId: 9, folderLabel: "Downloads", name: "Between Spaces", loose: false, state: "ready", quietSeconds: null,
-      audioFiles: 8, archives: 0, alreadyThere: false, imported: true, newestModifiedMs: 5,
+      audioFiles: 8, archives: 0, alreadyThere: false, imported: true, dismissed: false, newestModifiedMs: 5,
     };
     const folder = { folderId: 9, label: "Downloads", state: "watching", unreadableDirs: 0, truncated: false };
     const good = new TauriLibraryApi(vi.fn().mockResolvedValue({ folders: [folder], releases: [release] }), manage).admin!;

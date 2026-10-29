@@ -133,6 +133,35 @@ fn imported_releases_are_remembered_and_forgotten_with_their_folder() {
 }
 
 #[test]
+fn dismissed_releases_are_remembered_put_back_and_forgotten_with_their_folder() {
+    let (_data, service) = service();
+    let area = tempdir().unwrap();
+    let downloads = folder(area.path(), "Downloads");
+    let id = service.add_watch_folder(&downloads, "Downloads").unwrap();
+    service
+        .set_release_dismissed(id, b"Old Favourites".to_vec(), true)
+        .unwrap();
+    service
+        .set_release_dismissed(id, b"Old Favourites".to_vec(), true)
+        .unwrap();
+    service
+        .set_release_dismissed(id, b"Kept".to_vec(), true)
+        .unwrap();
+    let names = service.dismissed_releases(id).unwrap();
+    assert_eq!(names.len(), 2, "dismissing twice is one record");
+    service
+        .set_release_dismissed(id, b"Kept".to_vec(), false)
+        .unwrap();
+    assert!(!service
+        .dismissed_releases(id)
+        .unwrap()
+        .contains(b"Kept".as_slice()));
+    service.remove_watch_folder(id).unwrap();
+    let again = service.add_watch_folder(&downloads, "Downloads").unwrap();
+    assert_eq!(service.dismissed_releases(again).unwrap().len(), 0);
+}
+
+#[test]
 fn settings_are_kept_replaced_and_removed() {
     let (data, service) = service();
     assert_eq!(service.setting("folder_layout").unwrap(), None);

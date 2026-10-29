@@ -345,6 +345,22 @@ async fn library_download_releases(
         .map_err(|error| error.to_string())?
 }
 
+/// Take a release off the Import list, or put it back. Nothing on disk changes.
+#[tauri::command]
+async fn library_set_release_dismissed(
+    state: State<'_, AppState>,
+    folder_id: i64,
+    name: String,
+    dismissed: bool,
+) -> Result<(), String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        downloads::set_dismissed(&service, folder_id, &name, dismissed)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// A dry run of importing one release: where each file would go. Reads only.
 #[tauri::command]
 async fn library_plan_release(
@@ -1709,6 +1725,7 @@ fn main() -> Result<(), tauri::Error> {
             library_check_watch_folders,
             library_add_watch_folder,
             library_download_releases,
+            library_set_release_dismissed,
             library_plan_release,
             library_import_release,
             library_lookup_release,

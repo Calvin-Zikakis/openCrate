@@ -1095,6 +1095,17 @@ impl LibraryService {
         imported_names(self.pool.lease().connection(), id)
     }
 
+    /// Releases the owner took off the Import list of watch folder `id`.
+    pub fn dismissed_releases(&self, id: i64) -> Result<std::collections::HashSet<Vec<u8>>> {
+        crate::downloads::dismissed_names(self.pool.lease().connection(), id)
+    }
+
+    /// Take a release off the Import list, or put it back.
+    pub fn set_release_dismissed(&self, id: i64, name: Vec<u8>, dismissed: bool) -> Result<()> {
+        self.writer
+            .run(move |database| database.set_release_dismissed(id, &name, dismissed, now_ms()))?
+    }
+
     /// Record that `files` files of the release `name` were imported from watch folder `id`.
     pub fn mark_imported(&self, id: i64, name: Vec<u8>, files: usize) -> Result<()> {
         self.writer

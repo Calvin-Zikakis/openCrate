@@ -17,8 +17,9 @@ interface Props {
 }
 
 /** Where imported tracks go once they are in the library: a crate of the owner's, a rekordbox
- * playlist, both or neither. Kept in the library, so it holds across restarts. */
-export function ImportTargetCard({ admin, target, onChange, rekordboxWriting, onCratesChanged, version = 0 }: Props) {
+ * playlist, both or neither. Sits beside the Import button; kept in the library, so it holds
+ * across restarts. */
+export function ImportTargetPickers({ admin, target, onChange, rekordboxWriting, onCratesChanged, version = 0 }: Props) {
   const [crates, setCrates] = useState<CrateInfo[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistInfo[]>([]);
   const [naming, setNaming] = useState<string | null>(null);
@@ -53,40 +54,28 @@ export function ImportTargetCard({ admin, target, onChange, rekordboxWriting, on
       setError(message(reason));
     }
   };
-  const crateName = crates.find((crate) => crate.id === target.crateId)?.name;
-  const playlistName = playlists.find((playlist) => playlist.id === target.playlistId)?.name;
 
-  return <div className="import-target" role="group" aria-label="After importing">
-    <h2>After importing</h2>
-    <label className="setting-row">
-      <span><strong>Add the tracks to a crate</strong><small>Every import lands in it, on top of the library. Crates live in openCrate and never change rekordbox.</small></span>
-      <select aria-label="Crate for imported tracks" value={naming !== null ? NEW_CRATE : target.crateId ?? ""} onChange={(event) => {
-        if (event.target.value === NEW_CRATE) { setNaming(""); return; }
-        setNaming(null);
-        void change({ ...target, crateId: event.target.value === "" ? null : Number(event.target.value) });
-      }}>
-        <option value="">None</option>
-        {crates.map((crate) => <option key={crate.id} value={crate.id}>{crate.name}</option>)}
-        <option value={NEW_CRATE}>New crate...</option>
-      </select>
-    </label>
+  return <div className="import-target" role="group" aria-label="After importing, add the tracks to">
+    <label className="plan-root">Also into crate <select aria-label="Crate for imported tracks" title="Every import also lands in this crate. Crates live in openCrate and never change rekordbox." value={naming !== null ? NEW_CRATE : target.crateId ?? ""} onChange={(event) => {
+      if (event.target.value === NEW_CRATE) { setNaming(""); return; }
+      setNaming(null);
+      void change({ ...target, crateId: event.target.value === "" ? null : Number(event.target.value) });
+    }}>
+      <option value="">None</option>
+      {crates.map((crate) => <option key={crate.id} value={crate.id}>{crate.name}</option>)}
+      <option value={NEW_CRATE}>New crate...</option>
+    </select></label>
     {naming !== null && <form className="target-new-crate" onSubmit={(event) => { event.preventDefault(); void makeCrate(); }}>
       <input aria-label="Name for the new crate" autoFocus value={naming} placeholder="Name the crate" onChange={(event) => setNaming(event.target.value)} />
       <button type="submit" className="secondary-button" disabled={naming.trim() === ""}>Make it</button>
       <button type="button" className="link-button" onClick={() => setNaming(null)}>Cancel</button>
     </form>}
-    <label className="setting-row">
-      <span><strong>Add them to a rekordbox playlist</strong><small>{rekordboxWriting
-        ? "They always join rekordbox's rolling Imported playlist too."
-        : "Needs writing to rekordbox, which is off or not yet confirmed in Settings. With it on, every import also joins rekordbox's Imported playlist."}</small></span>
-      <select aria-label="rekordbox playlist for imported tracks" disabled={!rekordboxWriting} value={target.playlistId ?? ""} onChange={(event) => void change({ ...target, playlistId: event.target.value === "" ? null : Number(event.target.value) })}>
-        <option value="">None</option>
-        {playlists.map((playlist) => <option key={playlist.id} value={playlist.id}>{playlist.name}</option>)}
-      </select>
-    </label>
-    <p className="settings-copy" role="status">{target.crateId === null && target.playlistId === null
-      ? "Imported tracks only go into your library for now."
-      : `Imported tracks go into ${[crateName && `the crate ${crateName}`, playlistName && rekordboxWriting && `the rekordbox playlist ${playlistName}`].filter(Boolean).join(" and ") || "your library"}.`}</p>
+    <label className="plan-root">rekordbox playlist <select aria-label="rekordbox playlist for imported tracks" disabled={!rekordboxWriting}
+      title={rekordboxWriting ? "Every import also joins this rekordbox playlist, as well as rekordbox's rolling Imported playlist." : "Needs writing to rekordbox, which is off or not yet confirmed in Settings."}
+      value={target.playlistId ?? ""} onChange={(event) => void change({ ...target, playlistId: event.target.value === "" ? null : Number(event.target.value) })}>
+      <option value="">{rekordboxWriting ? "None" : "Writing is off"}</option>
+      {playlists.map((playlist) => <option key={playlist.id} value={playlist.id}>{playlist.name}</option>)}
+    </select></label>
     {error && <p role="alert" className="inline-error">{error}</p>}
   </div>;
 }

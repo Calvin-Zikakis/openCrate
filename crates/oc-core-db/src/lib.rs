@@ -70,6 +70,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/023_track_tag_tempo_key.sql"),
     include_str!("schema/024_file_by_size.sql"),
     include_str!("schema/025_import_batch.sql"),
+    include_str!("schema/026_dismissed_release.sql"),
 ];
 
 #[derive(Debug, Error)]

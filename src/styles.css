@@ -643,13 +643,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 /* The import table: values the owner can type over, marked by where they came from. */
 .import-setup-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .import-setup-head h2 { margin: 0; }
-.import-setup .import-choices, .import-setup .import-target { background: none; border: 0; border-radius: 0; padding: 14px 0 0; }
-.import-setup .import-choices h2, .import-setup .import-target h2 { font-size: 13px; margin: 0 0 4px; }
+.import-setup .import-choices { background: none; border: 0; border-radius: 0; padding: 14px 0 0; }
+.import-setup .import-choices h2 { font-size: 13px; margin: 0 0 4px; }
 .import-setup .sync-card { background: none; border: 0; padding: 14px 0 0; }
 .import-setup .sync-card h2 { font-size: 13px; }
-.import-target .setting-row { justify-content: flex-start; }
-.import-target .setting-row > span { flex: 0 1 460px; }
-.import-target select { color: var(--text); font-size: 12px; background: var(--raised); border: 1px solid var(--line); padding: 7px 10px; min-width: 170px; max-width: none; }
 .import-target select:disabled { opacity: .5; }
 .target-new-crate { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
 .target-new-crate input { flex: 0 1 260px; font-size: 12px; padding: 8px 10px; color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: 6px; }
@@ -657,6 +654,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .import-actions .import-all { margin: 0; }
 .import-actions .import-button { margin: 0; }
 .import-actions .plan-root { margin: 0; }
+.import-destinations { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-left: auto; }
+.import-target { display: contents; }
+.import-target .plan-root select { min-width: 150px; }
+.import-target .inline-error { flex-basis: 100%; }
+.plan-remove { flex-basis: 100%; align-self: flex-start; padding-left: 0; color: var(--secondary); }
 .lookup-note { display: block; flex-basis: 100%; color: var(--secondary); font-size: 11px; }
 .import-grid td.plan-cell { padding-top: 2px; padding-bottom: 2px; }
 .import-grid .plan-row td { white-space: nowrap; }
