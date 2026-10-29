@@ -32,17 +32,14 @@ const COLUMN_MIN = 30;
 const COLUMN_MAX = 600;
 
 interface ColumnSettings { hidden: TrackColumn[]; widths: Partial<Record<TrackColumn, number>>; order: TrackColumn[] }
-/** The columns in the owner's order: the number and the title stay first, the rest as saved,
- * with any column the saved order does not know (new since) in its usual place. */
+/** The columns in the owner's order, with any column the saved order does not know (new since)
+ * in its usual place. Every column can move; only the number and the title cannot be hidden. */
 function orderedColumns(order: TrackColumn[]): typeof TRACK_COLUMNS[number][] {
-  const pinned = TRACK_COLUMNS.filter((column) => "fixed" in column);
-  const rest = TRACK_COLUMNS.filter((column) => !("fixed" in column));
-  const known = order.filter((id) => rest.some((column) => column.id === id));
-  const sorted = [...rest].sort((a, b) => {
-    const at = (id: TrackColumn) => { const index = known.indexOf(id); return index === -1 ? rest.findIndex((column) => column.id === id) + known.length : index; };
+  const known = order.filter((id) => TRACK_COLUMNS.some((column) => column.id === id));
+  return [...TRACK_COLUMNS].sort((a, b) => {
+    const at = (id: TrackColumn) => { const index = known.indexOf(id); return index === -1 ? TRACK_COLUMNS.findIndex((column) => column.id === id) + known.length : index; };
     return at(a.id) - at(b.id);
   });
-  return [...pinned, ...sorted];
 }
 function loadColumns(): ColumnSettings {
   try {
@@ -174,7 +171,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   /** Put `moving` just before or after `target` among the columns that can move. */
   const placeColumn = (moving: TrackColumn, target: TrackColumn, after: boolean) => setColumnPrefs((before) => {
     if (moving === target) return before;
-    const movable = orderedColumns(before.order).filter((column) => !("fixed" in column)).map((column) => column.id).filter((id) => id !== moving);
+    const movable = orderedColumns(before.order).map((column) => column.id).filter((id) => id !== moving);
     const at = movable.indexOf(target);
     if (at === -1) return before;
     movable.splice(at + (after ? 1 : 0), 0, moving);
@@ -184,7 +181,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   });
   /** Alt+Left or Alt+Right on a heading moves its column one place, for those not using a mouse. */
   const nudgeColumn = (id: TrackColumn, step: -1 | 1) => {
-    const movable = visibleColumns.filter((column) => !("fixed" in column)).map((column) => column.id);
+    const movable = visibleColumns.map((column) => column.id);
     const at = movable.indexOf(id);
     const neighbour = movable[at + step];
     if (at === -1 || !neighbour) return;
@@ -418,13 +415,13 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column" title="Right-click to choose columns" style={{ gridTemplateColumns: columnTemplate }} onContextMenu={(event) => { event.preventDefault(); setColumnMenu({ x: event.clientX, y: event.clientY }); }}>
       {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels.
           Every heading but the last carries a handle to drag its width. */}
-      {visibleColumns.map((column, index) => <span key={column.id} className={`track-heading track-heading-${column.id}${"fixed" in column ? "" : " is-movable"}${columnDragging === column.id ? " is-dragging" : ""}${columnDrop?.id === column.id ? (columnDrop.after ? " is-drop-after" : " is-drop-before") : ""}`}
-        draggable={!("fixed" in column)}
-        title={"fixed" in column ? undefined : "Drag to move this column; right-click to choose columns"}
-        onDragStart={(event) => { if ("fixed" in column) { event.preventDefault(); return; } event.dataTransfer.setData("text/x-opencrate-column", column.id); event.dataTransfer.effectAllowed = "move"; setColumnDragging(column.id); }}
+      {visibleColumns.map((column, index) => <span key={column.id} className={`track-heading track-heading-${column.id} is-movable${columnDragging === column.id ? " is-dragging" : ""}${columnDrop?.id === column.id ? (columnDrop.after ? " is-drop-after" : " is-drop-before") : ""}`}
+        draggable
+        title="Drag to move this column; right-click to choose columns"
+        onDragStart={(event) => { event.dataTransfer.setData("text/x-opencrate-column", column.id); event.dataTransfer.effectAllowed = "move"; setColumnDragging(column.id); }}
         onDragEnd={() => { setColumnDragging(null); setColumnDrop(null); }}
         onDragOver={(event) => {
-          if (!columnDragging || "fixed" in column || columnDragging === column.id) return;
+          if (!columnDragging || columnDragging === column.id) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
           const box = event.currentTarget.getBoundingClientRect();
@@ -432,7 +429,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
         }}
         onDragLeave={() => setColumnDrop((current) => (current?.id === column.id ? null : current))}
         onDrop={(event) => {
-          if (!columnDragging || "fixed" in column) return;
+          if (!columnDragging) return;
           event.preventDefault();
           const box = event.currentTarget.getBoundingClientRect();
           placeColumn(columnDragging, column.id, event.clientX > box.left + box.width / 2);
@@ -440,7 +437,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
           setColumnDrop(null);
         }}
         onKeyDown={(event) => {
-          if (!event.altKey || "fixed" in column || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+          if (!event.altKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
           event.preventDefault();
           event.stopPropagation();
           nudgeColumn(column.id, event.key === "ArrowRight" ? 1 : -1);
