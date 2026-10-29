@@ -2208,7 +2208,8 @@ test("settings: a long watch folder path is shown whole, on a line of its own, a
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await dialog.getByRole("button", { name: "Add watch folder..." }).click();
   const row = dialog.locator(".folder-row").filter({ hasText: "Downloads" });
-  const shown = row.locator("small[title]");
+  // By its text, not its title: the quick hover text lifts the title while the pointer is on it.
+  const shown = row.locator("small").filter({ hasText: path });
   await expect(shown).toHaveText(path);
   expect(await shown.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   // The buttons sit below the path, inside the dialog, and Remove is still reachable.

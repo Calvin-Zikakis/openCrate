@@ -107,8 +107,8 @@ h1 { font-size: clamp(28px, 3.6vw, 46px); line-height: 1.12; letter-spacing: -1.
    Play all) and what a playlist holds stay. */
 .library-hero.folded p.page-note, .library-hero.folded .eyebrow, .library-hero.folded .hero-art { display: none; }
 .library-hero.folded .back-link, .library-hero.folded .play-all, .library-hero.folded .cover-actions, .library-hero.folded p { margin: 0; }
-.library-toolbar { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin-bottom: 16px; }
-.format-filters, .view-options { display: flex; align-items: center; gap: 7px; }
+.library-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; justify-content: space-between; margin-bottom: 16px; }
+.format-filters, .view-options { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .format-filters button { font-size: 11px; border-radius: 20px; padding: 8px 13px; background: rgb(var(--ink) / 0.031); color: var(--secondary); }
 .format-filters button[aria-pressed="true"] { color: var(--base); background: var(--text); }
 /* The filter beyond formats: a pill that opens a small panel for genre, year and date added. */
@@ -132,6 +132,8 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .result-summary span { color: var(--faint); margin-left: 8px; }
 /* The columns themselves come from the list (chosen and sized by the owner); this is the frame. */
 .track-columns { display: grid; grid-template-columns: 28px minmax(180px,1.6fr) minmax(100px,1fr) 44px 40px 42px 48px; align-items: center; gap: 12px; padding: 0 10px; }
+/* A narrow window: half the gaps, so every column stays in view. */
+@media (max-width: 860px) { .track-columns { gap: 6px; } }
 .track-header .track-heading { position: relative; display: flex; align-items: center; min-width: 0; padding-right: 10px; }
 .track-header .track-heading > span:first-child, .track-header .track-heading > button:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The grip between columns: wider than it looks, with a line that shows on hover. */
@@ -624,7 +626,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 
 /* Crate tools on Clean up: three small panels side by side. */
 .crate-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 8px 0 12px; }
-.crate-tool { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; align-content: start; }
+.crate-tool { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+/* The button (or its question) sits at the foot of each tool, so the three line up however many fields each has. */
+.crate-tool > :last-child { margin-top: auto; }
 .crate-tool h3 { margin: 0; font-size: 12px; }
 .crate-tool .send-row { font-size: 12px; color: var(--secondary); gap: 8px; }
 .crate-tool .send-row input { width: 14px; height: 14px; }

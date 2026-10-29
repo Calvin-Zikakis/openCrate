@@ -103,6 +103,9 @@ function keyNote(item: LibraryItem): string | undefined {
   return item.rekordboxKey ? "From rekordbox" : "From the file's tags. rekordbox has no key for this track yet.";
 }
 
+
+/** Columns that narrow in a small window, and how far: text columns a long way, Added to a day or a time. */
+const SHRINKS_TO: Partial<Record<TrackColumn, number>> = { release: 40, genre: 40, label: 40, added: 64 };
 export function Library({ api, query, compact, brief = false, keyNotation = "rekordbox", selected, onSelect, onOpen, onPlay, onQueue, selection, onSelectionChange, onEdit, onRemoveFromCrate, onGoTo, crates = [], onAddToCrate, within, onSort, playlistEmpty = false, nowPlaying = null, dragTracks = false, reorder = null, version = 0, restoreScroll = 0, onTotal, onOpenSettings, onOpenImport }: Props) {
   /** The row being dragged within this list (null when the drag came from elsewhere), and the
    * gap the drop would fill: the dragged tracks go just before row `insertAt`. */
@@ -148,8 +151,15 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     placeColumn(id, neighbour, step === 1);
   };
   const widthOf = (id: TrackColumn) => Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, columnPrefs.widths[id] ?? TRACK_COLUMNS.find((column) => column.id === id)?.width ?? 60)));
-  /** The grid both the heading row and every track row follow: the title takes what is left. */
-  const columnTemplate = visibleColumns.map((column) => (column.id === "title" ? "minmax(160px, 1fr)" : `${widthOf(column.id)}px`)).join(" ");
+  /** The grid both the heading row and every track row follow: the title takes what is left.
+   * Release, Genre, Label and Added keep their width while there is room and give way in a narrow
+   * window (`SHRINKS_TO`), so the short columns at the end stay in view. */
+  const columnTemplate = visibleColumns.map((column) => {
+    if (column.id === "title") return "minmax(100px, 1fr)";
+    const width = widthOf(column.id);
+    const least = SHRINKS_TO[column.id];
+    return least === undefined ? `${width}px` : `minmax(${Math.min(least, width)}px, ${width}px)`;
+  }).join(" ");
   const toggleColumn = (id: TrackColumn) => setColumnPrefs((before) => {
     const next = { ...before, hidden: before.hidden.includes(id) ? before.hidden.filter((other) => other !== id) : [...before.hidden, id] };
     saveColumns(next);
