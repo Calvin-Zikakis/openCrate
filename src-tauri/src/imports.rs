@@ -71,6 +71,25 @@ pub fn tracks(service: &LibraryService, file_ids: &[i64]) -> Result<Vec<i64>, St
     service.imported_tracks(file_ids).map_err(|e| text(&e))
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValueDto {
+    pub value: String,
+    pub tracks: i64,
+}
+
+/// Every label in the library with its track count, for suggestions while typing.
+pub fn labels(service: &LibraryService) -> Result<Vec<ValueDto>, String> {
+    service
+        .labels()
+        .map(|rows| {
+            rows.into_iter()
+                .map(|(value, tracks)| ValueDto { value, tracks })
+                .collect()
+        })
+        .map_err(|e| text(&e))
+}
+
 pub fn formats(service: &LibraryService) -> Result<Vec<FormatDto>, String> {
     service
         .formats()

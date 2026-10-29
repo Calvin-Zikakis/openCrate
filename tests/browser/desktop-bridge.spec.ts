@@ -189,6 +189,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                   rel("Night Drive EP", "downloading", { audioFiles: 3 }),
                   rel("Bought online.zip", "settling", { loose: true, audioFiles: 0, archives: 1, quietSeconds: 4 }),
                   rel("Old Favourites", "ready", { alreadyThere: true, audioFiles: 12 }),
+                  ...Array.from({ length: (window as any).__manyOlder ?? 0 }, (_, n) => rel(`Archive ${String(n + 1).padStart(2, "0")}`, "ready", { alreadyThere: true, audioFiles: 1 })),
                   ...((window as any).__twoReady ? [rel("Second Light", "ready", { audioFiles: 2 })] : []),
                   ...((window as any).__cleanReady ? [rel("Clean Single", "ready", { audioFiles: 1 })] : []),
                   ...Array.from({ length: (window as any).__manyImported ?? 0 }, (_, n) => rel(`Earlier ${n + 1}`, "ready", { imported: true, audioFiles: 1 })),
@@ -480,7 +481,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                         accepted(args?.options, "Genre", `${args?.name}/01.flac`, "Genre", { value: null, guessed: false, tidiedFrom: null }),
                       ],
                       audio: "FLAC 16/44.1", length: "3:45", readError: null,
-                      warnings: ["The title ends with a file extension."],
+                      warnings: [...((window as any).__dupe ? ["Already in your library, by size and length: Night Drive - Studio 001 (Music: Studio 001/Between Spaces/01 Night Drive.flac)."] : []), "The title ends with a file extension."],
                     },
                   },
                   { source: `${args?.name}/02.flac`, destination: null, shortened: false, problem: "No track number in the tags or file name.", tags: null, becomes: null },
@@ -506,6 +507,8 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return (window as any).__batches ?? batches;
             case "library_imported_tracks":
               return (args?.fileIds as number[]).map((id) => 100 + id);
+            case "library_labels":
+              return [{ value: "Test Label", tracks: 12 }, { value: "Night Shift", tracks: 3 }];
             case "library_formats":
               return (window as any).__formats ?? [{ format: "AIFF", tracks: 1000 }, { format: "MP3", tracks: 200 }, { format: "M4A", tracks: 34 }];
             case "library_import_target":
@@ -701,6 +704,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 artist: "Backend Artist", artistId: 1, release: "Backend Release", releaseId: 2,
                 bpm: i % 5 === 0 ? null : 120, musicalKey: "8A", durationMs: 200_000,
                 format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 !== 1, rekordboxKey: i % 5 !== 1,
+                genre: i % 2 === 0 ? "Techno" : "House", label: `Label ${i % 3}`, year: 2000 + (i % 25), addedMs: Date.UTC(2026, 9, 29, 12, 0, 0) - i * 3_600_000,
               });
               const batchId = (query as unknown as { batchId?: number | null }).batchId;
               if (batchId != null) {
@@ -716,14 +720,7 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               }
               const total = (window as any).__emptyLibrary ? 0 : scanStarted && statusCalls >= 3 ? 1500 : 1234;
               const items = [];
-              for (let i = start; i < Math.min(start + count, total); i += 1) {
-                items.push({
-                  id: i + 1, kind: query.view, title: `Rust Track ${String(i + 1).padStart(4, "0")}`,
-                  artist: "Backend Artist", artistId: 1, release: "Backend Release", releaseId: 2,
-                  bpm: i % 5 === 0 ? null : 120, musicalKey: "8A", durationMs: 200_000,
-                  format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 !== 1, rekordboxKey: i % 5 !== 1,
-                });
-              }
+              for (let i = start; i < Math.min(start + count, total); i += 1) items.push(row(i));
               return { items, total, start };
             }
             default:
@@ -747,7 +744,7 @@ test("a desktop app with a database shows rows read through the Rust commands", 
   expect(seen[0]?.command).toBe("library_mode");
   const firstRead = seen.find((call) => call.command === "library_read");
   expect(firstRead?.args).toEqual({
-    query: { view: "tracks", search: "", sort: "recent", format: null, artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null, reversed: false },
+    query: { view: "tracks", search: "", sort: "recent", format: null, artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null, genre: null, yearFrom: null, yearTo: null, addedFrom: null, addedTo: null, reversed: false },
     start: 0,
     count: expect.any(Number),
   });
@@ -758,7 +755,7 @@ test("a desktop app with a database shows rows read through the Rust commands", 
   await page.getByLabel("Sort library").selectOption("bpm");
   await expect
     .poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query)
-    .toEqual({ view: "tracks", search: "night", sort: "bpm", format: "MP3", artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null, reversed: false });
+    .toEqual({ view: "tracks", search: "night", sort: "bpm", format: "MP3", artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null, genre: null, yearFrom: null, yearTo: null, addedFrom: null, addedTo: null, reversed: false });
 });
 
 test("a desktop app without a database keeps the in-memory demo", async ({ page }) => {
@@ -1048,7 +1045,7 @@ test("import: every finished release's tags are read into one table, one row per
   await expect(first.getByRole("textbox", { name: "Track of 01.flac" })).toHaveValue("1");
   await expect(first.locator(".grid-cell.is-guessed")).toHaveCount(1);
   await expect(first.locator(".grid-cell.is-tidied .grid-input")).toHaveValue("Studio 001");
-  await expect(first.getByRole("textbox", { name: "Label of 01.flac" })).toHaveAttribute("placeholder", "Add label");
+  await expect(first.getByLabel("Label of 01.flac")).toHaveAttribute("placeholder", "Add label");
   await expect(first.getByText("FLAC 16/44.1")).toBeVisible();
   await expect(first.getByText("3:45")).toBeVisible();
   // The icons at the start of a row: the state with its reasons on hover, then the actions.
@@ -1145,12 +1142,12 @@ test("import: typing over a value sends it with the plan and the import, and a r
     { source: "Second Light/02.mp3", album: "Second Light EP" },
   ]);
   const between = rowOf(page, "01.flac").first();
-  await between.getByRole("textbox", { name: "Genre of 01.flac" }).fill("Techno");
-  await between.getByRole("textbox", { name: "Genre of 01.flac" }).press("Tab");
+  await between.getByLabel("Genre of 01.flac").fill("Techno");
+  await between.getByLabel("Genre of 01.flac").press("Tab");
   await expect(noteOf(page, "Between Spaces")).toContainText("1 value typed.");
   await noteOf(page, "Between Spaces").getByRole("button", { name: "Undo the typing" }).click();
   await expect(noteOf(page, "Between Spaces")).toHaveCount(0);
-  await expect(between.getByRole("textbox", { name: "Genre of 01.flac" })).toHaveValue("");
+  await expect(between.getByLabel("Genre of 01.flac")).toHaveValue("");
 });
 
 test("import: a release is copied in with one click, the library rescanned, and it moves to Imported", async ({ page }) => {
@@ -1509,7 +1506,7 @@ test("tracks: the format filter offers every container the library holds, and th
   await stubBridge(page, "managed");
   await page.goto("/");
   const filters = page.getByRole("group", { name: "Format filters" });
-  await expect(filters.getByRole("button")).toHaveText(["All tracks", "AIFF", "MP3", "M4A"]);
+  await expect(filters.getByRole("button")).toHaveText(["All tracks", "AIFF", "MP3", "M4A", "Filter"]);
   await filters.getByRole("button", { name: "M4A" }).click();
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query.format).toBe("M4A");
   await page.getByRole("group", { name: "Sort by column" }).getByRole("button", { name: "Format" }).click();
@@ -3037,7 +3034,7 @@ test("playlists from the export appear in the sidebar and open as an ordered tra
   await expect(tree.getByRole("button", { name: "Friday warm-up" })).toHaveAttribute("aria-current", "true");
   await expect(page.getByLabel("Sort library")).toHaveValue("playlist");
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query)
-    .toEqual({ view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null, batchId: null, reversed: false });
+    .toEqual({ view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null, batchId: null, genre: null, yearFrom: null, yearTo: null, addedFrom: null, addedTo: null, reversed: false });
   await page.screenshot({ path: "test-results/playlists-open.png" });
 
   await page.getByRole("button", { name: "Back to tracks" }).click();
@@ -3394,7 +3391,7 @@ test("select all from the track menu asks the library for every id, and a revers
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query.reversed).toBe(true);
   // The usual order comes back with the next sort.
   await page.getByLabel("Sort library").selectOption("title");
-  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query).toEqual({ view: "tracks", search: "", sort: "title", format: null, artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null, reversed: false });
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query).toEqual({ view: "tracks", search: "", sort: "title", format: null, artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null, genre: null, yearFrom: null, yearTo: null, addedFrom: null, addedTo: null, reversed: false });
 });
 
 test("clean up: a capitals-only change waits for its own tick, even beside another fix of the same track", async ({ page }) => {
@@ -3500,4 +3497,105 @@ test("settings: grouped with a jump list, and a search that hides what does not 
   await dialog.getByLabel("Search settings").fill("");
   await expect(dialog.getByText("Reduce motion")).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "Music folders" })).toBeVisible();
+});
+
+test("tracks: columns are chosen and resized from the heading row, Added sits last, and the filter narrows by genre, year and date", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const header = page.getByRole("group", { name: "Sort by column" });
+  // Added shows by default at the far right; Genre, Label and Year wait behind the right-click menu.
+  await expect(header.locator(".track-heading").last()).toContainText("Added");
+  await expect(header.getByText("Genre")).toHaveCount(0);
+  const first = page.getByTestId("track-row").first();
+  await expect(first.locator(".track-added")).not.toHaveText("");
+  await header.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "Columns" });
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Title / Artist" })).toHaveAttribute("aria-disabled", "true");
+  await menu.getByRole("menuitemcheckbox", { name: "Genre" }).click();
+  await menu.getByRole("menuitemcheckbox", { name: "Year" }).click();
+  await menu.getByRole("menuitemcheckbox", { name: "Release" }).click();
+  await page.keyboard.press("Escape");
+  await expect(header.getByText("Genre")).toBeVisible();
+  await expect(header.getByText("Release")).toHaveCount(0);
+  await expect(first.locator(".track-genre")).toHaveText("Techno");
+  await expect(first.locator(".track-year")).toHaveText("2000");
+  // Drag a heading's edge; the arrow keys work too; both survive a reload.
+  const bpm = header.locator(".track-heading-bpm");
+  const before = (await bpm.boundingBox())!.width;
+  const handle = (await page.getByRole("separator", { name: "Resize BPM" }).boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 + 40, handle.y + handle.height / 2, { steps: 4 });
+  await page.mouse.up();
+  expect(Math.abs((await bpm.boundingBox())!.width - before - 40)).toBeLessThanOrEqual(2);
+  await page.reload();
+  await expect(header.getByText("Genre")).toBeVisible();
+  await expect(header.getByText("Release")).toHaveCount(0);
+  expect(Math.abs((await bpm.boundingBox())!.width - before - 40)).toBeLessThanOrEqual(2);
+  expect(JSON.parse(await page.evaluate(() => localStorage.getItem("opencrate.trackColumns") ?? "null"))).toMatchObject({ hidden: ["label", "release"] });
+
+  // The filter: genre, a year range and a span of dates, sent with the query and counted on the pill.
+  const filters = page.getByRole("group", { name: "Format filters" });
+  await filters.getByRole("button", { name: "Filter" }).click();
+  const panel = page.getByRole("dialog", { name: "Filter tracks" });
+  await panel.getByLabel("Genre").selectOption("Techno");
+  await panel.getByLabel("Year from").fill("2010");
+  await panel.getByLabel("Year to").fill("2015");
+  await panel.getByLabel("Added").selectOption("week");
+  await expect(filters.getByRole("button", { name: /^Filter/ })).toHaveText("Filter · 3");
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query).toMatchObject({ genre: "Techno", yearFrom: 2010, yearTo: 2015 });
+  const sent = (await calls(page)).filter((call) => call.command === "library_read").at(-1)!.args.query;
+  expect(typeof sent.addedFrom).toBe("number");
+  expect(sent.addedTo).toBeNull();
+  await panel.getByRole("button", { name: "Clear filters" }).click();
+  await expect(filters.getByRole("button", { name: /^Filter/ })).toHaveText("Filter");
+  await panel.getByRole("button", { name: "Done" }).click();
+  await expect(panel).toHaveCount(0);
+});
+
+test("import: typed values and lookups outlive a trip to another screen and a reload, until the release is imported", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__twoReady = true; });
+  await openImportWithFolders(page);
+  const one = rowOf(page, "01.mp3");
+  const title = one.getByRole("textbox", { name: "Title of 01.mp3" });
+  await title.click();
+  await title.fill("Opening Light");
+  await title.press("Tab");
+  await expect(noteOf(page, "Second Light")).toContainText("1 value typed.");
+  await page.getByRole("button", { name: "Tracks", exact: true }).click();
+  await page.getByRole("button", { name: "Import", exact: true }).first().click();
+  await expect(rowOf(page, "01.mp3").getByRole("textbox", { name: "Title of 01.mp3" })).toHaveValue("Opening Light");
+  // Remembered in this browser, so a restart keeps it too.
+  expect(await page.evaluate(() => localStorage.getItem("opencrate.importEdits"))).toContain("Opening Light");
+  // Genres and labels the library knows are offered while typing.
+  await expect(rowOf(page, "01.mp3").getByLabel("Label of 01.mp3")).toHaveAttribute("list", "import-known-labels");
+  await expect(page.locator("datalist#import-known-labels option")).toHaveCount(2);
+  // Imported, the typing is forgotten.
+  await rowOf(page, "01.mp3").getByRole("button", { name: /^Import Second Light/ }).click();
+  await expect(noteOf(page, "Second Light")).toContainText("2 files are now in Music.");
+  expect(await page.evaluate(() => localStorage.getItem("opencrate.importEdits"))).not.toContain("Opening Light");
+});
+
+test("import: a file already in the library by size and length is marked, and the whole release can be cleared", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__dupe = true; });
+  await openImportWithFolders(page);
+  const first = rowOf(page, "01.flac").first();
+  await expect(first.getByRole("img", { name: "Already in your library" })).toHaveAttribute("data-tip", /Night Drive - Studio 001 \(Music: Studio 001\/Between Spaces\/01 Night Drive\.flac\)/);
+  // The second file is blocked by its own problem, so Between Spaces is not "all in the library"...
+  await expect(page.getByRole("button", { name: /already in library/ })).toHaveCount(0);
+});
+
+test("import: a long list of releases already there is read and shown a page at a time", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__manyOlder = 25; });
+  await openImportWithFolders(page);
+  const older = page.locator(".sync-card").filter({ hasText: "Already there when you added the folder" });
+  // Twenty releases shown and read; the rest wait, unread, behind Show more.
+  await expect(older.getByRole("button", { name: "Show 6 more of 26" })).toBeVisible();
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_plan_release" && String(call.args.name).startsWith("Archive")).length).toBe(19);
+  await older.getByRole("button", { name: "Show 6 more of 26" }).click();
+  await expect(older.getByRole("button", { name: /^Show .* more/ })).toHaveCount(0);
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_plan_release" && String(call.args.name).startsWith("Archive")).length).toBe(25);
 });

@@ -952,6 +952,17 @@ impl LibraryService {
         crate::imports::tracks_of_files(self.pool.lease().connection(), file_ids)
     }
 
+    /// Every label with a present track, with how many tracks, most first.
+    pub fn labels(&self) -> Result<Vec<(String, i64)>> {
+        crate::library::labels(self.pool.lease().connection())
+    }
+
+    /// Present files of this size and within a second of this length: a recording already in
+    /// the library, most likely.
+    pub fn files_like(&self, size: i64, duration_ms: i64) -> Result<Vec<crate::library::LikeFile>> {
+        crate::library::files_like(self.pool.lease().connection(), size, duration_ms)
+    }
+
     /// Every container in the library with how many tracks have an active file in it, most
     /// common first.
     pub fn formats(&self) -> Result<Vec<(String, i64)>> {

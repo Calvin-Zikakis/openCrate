@@ -240,7 +240,8 @@ fn lossless_doubt(ffmpeg: &Path, path: &Path) -> Option<String> {
 }
 
 /// What does not change from file to file in one plan.
-struct Context {
+struct Context<'a> {
+    service: &'a LibraryService,
     template: Template,
     root_path: PathBuf,
     root_text: String,
@@ -285,6 +286,7 @@ fn plan_audio(
         Err(_) => (TagInfo::default(), None),
     };
     let duration_ms = read.as_ref().map_or(0, |info| info.audio.duration_ms);
+    let readable = read.is_ok();
     let accepted = context
         .options
         .accepted
@@ -306,6 +308,23 @@ fn plan_audio(
             .and_then(|ffmpeg| lossless_doubt(ffmpeg, path))
         {
             view.warnings.push(doubt);
+        }
+    }
+    // The same size and length as a file already in the library: most likely the same
+    // recording bought or downloaded twice. Said, not blocked; the owner decides.
+    if readable {
+        if let Ok(size) = std::fs::metadata(path).map(|metadata| metadata.len()) {
+            if let Ok(like) = context
+                .service
+                .files_like(i64::try_from(size).unwrap_or(i64::MAX), duration_ms)
+            {
+                if let Some(found) = like.first() {
+                    view.warnings.push(format!(
+                        "Already in your library, by size and length: {} - {} ({}: {}).",
+                        found.title, found.artist, found.folder, found.path
+                    ));
+                }
+            }
         }
     }
     let becomes = convert.map(|(format, _)| format.container());
@@ -441,6 +460,7 @@ pub fn plan_release(
         .map_err(|error| error.to_string())?
         .unwrap_or_else(|| DEFAULT_TEMPLATE.to_owned());
     let context = Context {
+        service,
         template: Template::parse(&layout).map_err(|error| error.to_string())?,
         root_text: root_path.to_string_lossy().into_owned(),
         root_path: root_path.clone(),

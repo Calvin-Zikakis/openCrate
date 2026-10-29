@@ -8,7 +8,7 @@ import { AutoImportCard, type AutoImport } from "./AutoImport";
 import { ImportAll } from "./ImportAll";
 import { ImportChoices, loadOptions } from "./ImportChoices";
 import { DestinationMenu } from "./ImportTarget";
-import type { Accepted, DownloadFolderState, DownloadRelease, DownloadsSnapshot, FolderInfo, ImportOptions, ImportPlan, ImportTarget, LibraryAdmin, ReleaseImport, ReleaseLookup } from "../library/types";
+import type { Accepted, DownloadFolderState, DownloadRelease, DownloadsSnapshot, FolderInfo, ImportOptions, ImportPlan, ImportTarget, LibraryAdmin, PlanFile, ReleaseImport, ReleaseLookup } from "../library/types";
 
 const POLL_MS = 3000;
 /** Imported releases listed before "Show all". */
@@ -49,6 +49,36 @@ function folderNote(folder: DownloadFolderState): string | null {
 }
 
 const SETUP_KEY = "opencrate.importSetupOpen";
+const EDITS_KEY = "opencrate.importEdits";
+const LOOKUPS_KEY = "opencrate.importLookups";
+/** Releases of the "already there" list shown before "Show more"; their tags are read only once shown. */
+const OLDER_PAGE = 20;
+
+/** Typed values by release and file, as saved in this browser. */
+function loadEdits(): Map<string, Map<string, Edit>> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(EDITS_KEY) ?? "null");
+    if (typeof saved !== "object" || saved === null) return new Map();
+    return new Map(Object.entries(saved as Record<string, Record<string, Edit>>).map(([key, files]) => [key, new Map(Object.entries(files))]));
+  } catch { return new Map(); }
+}
+function saveEdits(edits: Map<string, Map<string, Edit>>) {
+  try { localStorage.setItem(EDITS_KEY, JSON.stringify(Object.fromEntries([...edits].map(([key, files]) => [key, Object.fromEntries(files)])))); } catch { /* applied for now, not remembered */ }
+}
+/** Lookups that found something, as saved; one still being asked, or failed, is not kept. */
+function loadLookups(): Map<string, Lookup> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(LOOKUPS_KEY) ?? "null");
+    if (typeof saved !== "object" || saved === null) return new Map();
+    return new Map(Object.entries(saved as Record<string, ReleaseLookup>).map(([key, result]) => [key, { state: "done", result }]));
+  } catch { return new Map(); }
+}
+function saveLookups(lookups: Map<string, Lookup>) {
+  try {
+    const kept = Object.fromEntries([...lookups].flatMap(([key, lookup]) => (lookup.state === "done" ? [[key, lookup.result]] : [])));
+    localStorage.setItem(LOOKUPS_KEY, JSON.stringify(kept));
+  } catch { /* applied for now, not remembered */ }
+}
 const IMPORTED_KEY = "opencrate.importedFolded";
 function loadImportedFolded(): boolean {
   try { return localStorage.getItem(IMPORTED_KEY) === "true"; } catch { return false; }
@@ -110,9 +140,24 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
   const [importedFolded, setImportedFolded] = useState(loadImportedFolded);
   const [target, setTarget] = useState<ImportTarget>({ crateId: null, playlistId: null });
   const [rekordboxWriting, setRekordboxWriting] = useState(false);
-  /** What was typed into the table, by release and then by file. */
-  const [edits, setEdits] = useState<Map<string, Map<string, Edit>>>(new Map());
-  const [lookups, setLookups] = useState<Map<string, Lookup>>(new Map());
+  /** What was typed into the table, by release and then by file. Kept in this browser until
+   * the release is imported, so leaving the screen or restarting loses nothing. */
+  const [edits, setEdits] = useState<Map<string, Map<string, Edit>>>(loadEdits);
+  const [lookups, setLookups] = useState<Map<string, Lookup>>(loadLookups);
+  useEffect(() => { saveEdits(edits); }, [edits]);
+  useEffect(() => { saveLookups(lookups); }, [lookups]);
+  /** Genres and labels the library already has, offered while typing so spellings stay one. */
+  const [known, setKnown] = useState<{ genre: string[]; label: string[] }>({ genre: [], label: [] });
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const [genres, labels] = await Promise.all([admin.genres().catch(() => null), admin.labels().catch(() => [])]);
+      if (live) setKnown({ genre: genres?.genres.map((item) => item.name) ?? [], label: labels.map((item) => item.value) });
+    })();
+    return () => { live = false; };
+  }, [admin]);
+  /** How many of the "already there" releases are shown; the rest wait behind Show more. */
+  const [olderShown, setOlderShown] = useState(OLDER_PAGE);
   const [showDismissed, setShowDismissed] = useState(false);
   /** Bumped when a crate is made from a destination picker, so every picker lists it. */
   const [targetVersion, setTargetVersion] = useState(0);
@@ -191,6 +236,7 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
       await oneAtATime(async () => {
         const done = await admin.importRelease(release.folderId, release.name, rootId, optionsFor(release));
         setResults((current) => new Map(current).set(key, done));
+        if (done.filed > 0) { forgetEdits(key); forgetLookup(key); }
         if (done.filed === 0) readAgain();
         if (done.filed > 0) {
           setImporting({ key, step: "scanning" });
@@ -262,7 +308,8 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
 
   // Every finished release has its tags read without asking, one at a time, so the table fills
   // itself; one still downloading waits until it is ready.
-  const wanted = releases.filter((release) => !release.imported && release.state === "ready");
+  const olderVisible = older.slice(0, olderShown);
+  const wanted = releases.filter((release) => !release.imported && release.state === "ready" && (!release.alreadyThere || olderVisible.includes(release)));
   for (const release of wanted) stamps.current.set(keyOf(release), stampOf(release));
   const reading = useRef(new Set<string>());
   const todo = rootId === null ? [] : wanted.filter((release) => !planned(release) && !reading.current.has(`${keyOf(release)}|${stampOf(release)}`));
@@ -357,7 +404,7 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
     });
     return <div className="plan-panel import-table">
       {rootId === null && noFolder}
-      <ImportGrid releases={rows} onEdit={edit} />
+      <ImportGrid releases={rows} onEdit={edit} suggestions={known} />
     </div>;
   };
 
@@ -389,9 +436,10 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
     return ready.length > 1 && <button className="secondary-button" disabled={lookingUp || rootId === null} title={`Ask MusicBrainz about all ${ready.length} finished releases, one a second`} onClick={() => void lookUp(ready)}>{lookingUp ? "Looking up..." : "Look up all"}</button>;
   };
   /** Releases whose every file is already in the music folder: nothing to import, only to clear. */
+  const inLibrary = (file: PlanFile) => file.problem === "A file is already there." || (file.tags?.warnings ?? []).some((warning) => warning.startsWith("Already in your library"));
   const alreadyIn = (list: DownloadRelease[]) => list.filter((release) => {
     const plan = planOf(release);
-    return plan !== null && plan.ready === 0 && plan.files.length > 0 && plan.files.every((file) => file.problem === "A file is already there.");
+    return plan !== null && plan.files.length > 0 && plan.files.every(inLibrary);
   });
   const section = (list: DownloadRelease[], label?: (count: number) => string) => <>
     <div className="import-actions">
@@ -417,6 +465,9 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
       <div className="empty-icon"><Icon name="folder" size={36} /></div>
       <h1>Import</h1>
       <p>New music lands in your watch folders and shows up here with its tags, one row per track. Check the tags, fix any by typing over them or looking the release up, then import. Importing copies the files into your music folder; the originals stay where they are.</p>
+      {/* One list each for the whole screen; the grid's genre and label cells point at them. */}
+      {known.genre.length > 0 && <datalist id="import-known-genres">{known.genre.map((value) => <option key={value} value={value} />)}</datalist>}
+      {known.label.length > 0 && <datalist id="import-known-labels">{known.label.map((value) => <option key={value} value={value} />)}</datalist>}
     </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {!snapshot && !error && <p className="settings-copy" role="status">Looking at your watch folders...</p>}
@@ -450,7 +501,8 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
     {older.length > 0 && <div className="sync-card">
       <h2>Already there when you added the folder</h2>
       <p className="settings-copy">Not picked up on their own; bring them in when you want them.</p>
-      {section(older)}
+      {section(olderVisible)}
+      {older.length > olderShown && <button className="link-button" onClick={() => setOlderShown((count) => count + OLDER_PAGE)}>{`Show ${Math.min(OLDER_PAGE, older.length - olderShown)} more of ${older.length}`}</button>}
     </div>}
     {dismissed.length > 0 && <div className="sync-card">
       <h2>Removed from the list</h2>

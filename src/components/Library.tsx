@@ -10,6 +10,55 @@ const EMPTY_PAGE: LibraryPage = { total: 0, start: 0, items: [] };
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
+/** The track list's columns, in order. The number and the title are always there; the rest can
+ * be hidden or resized by the owner, and both are remembered in this browser. */
+export const TRACK_COLUMNS = [
+  { id: "number", label: "#", width: 28, fixed: true },
+  { id: "title", label: "Title / Artist", width: 0, fixed: true },
+  { id: "release", label: "Release", width: 180 },
+  { id: "genre", label: "Genre", width: 110 },
+  { id: "label", label: "Label", width: 110 },
+  { id: "year", label: "Year", width: 48 },
+  { id: "bpm", label: "BPM", width: 44 },
+  { id: "key", label: "Key", width: 40 },
+  { id: "time", label: "Time", width: 42 },
+  { id: "format", label: "Format", width: 48 },
+  { id: "added", label: "Added", width: 92 },
+] as const;
+export type TrackColumn = (typeof TRACK_COLUMNS)[number]["id"];
+const DEFAULT_HIDDEN_COLUMNS: TrackColumn[] = ["genre", "label", "year"];
+const COLUMNS_KEY = "opencrate.trackColumns";
+const COLUMN_MIN = 30;
+const COLUMN_MAX = 600;
+
+interface ColumnSettings { hidden: TrackColumn[]; widths: Partial<Record<TrackColumn, number>> }
+function loadColumns(): ColumnSettings {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? "null");
+    if (typeof saved === "object" && saved !== null) {
+      const { hidden, widths } = saved as Partial<ColumnSettings>;
+      const ids = TRACK_COLUMNS.map((column) => column.id as string);
+      return {
+        hidden: Array.isArray(hidden) ? hidden.filter((id): id is TrackColumn => ids.includes(id) && !("fixed" in (TRACK_COLUMNS.find((column) => column.id === id) ?? {}))) : DEFAULT_HIDDEN_COLUMNS,
+        widths: typeof widths === "object" && widths !== null ? Object.fromEntries(Object.entries(widths).filter(([id, width]) => ids.includes(id) && typeof width === "number" && Number.isFinite(width))) as ColumnSettings["widths"] : {},
+      };
+    }
+  } catch { /* storage unavailable or unreadable: the defaults */ }
+  return { hidden: DEFAULT_HIDDEN_COLUMNS, widths: {} };
+}
+function saveColumns(settings: ColumnSettings) {
+  try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(settings)); } catch { /* applied, not remembered */ }
+}
+
+/** A date in the list: today's time, else the day. */
+function addedText(ms: number): string {
+  if (ms <= 0) return "";
+  const date = new Date(ms);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleDateString([], { year: date.getFullYear() === now.getFullYear() ? undefined : "2-digit", month: "short", day: "numeric" });
+}
+
 interface Props {
   api: LibraryApi;
   query: LibraryQuery;
@@ -100,6 +149,35 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   const space = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(4);
   const [page, setPage] = useState(EMPTY_PAGE);
+  const [columnPrefs, setColumnPrefs] = useState<ColumnSettings>(loadColumns);
+  const [columnMenu, setColumnMenu] = useState<{ x: number; y: number } | null>(null);
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+  const columnDrag = useRef<{ id: TrackColumn; startX: number; startWidth: number } | null>(null);
+  const visibleColumns = TRACK_COLUMNS.filter((column) => !columnPrefs.hidden.includes(column.id));
+  const widthOf = (id: TrackColumn) => Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, columnPrefs.widths[id] ?? TRACK_COLUMNS.find((column) => column.id === id)?.width ?? 60)));
+  /** The grid both the heading row and every track row follow: the title takes what is left. */
+  const columnTemplate = visibleColumns.map((column) => (column.id === "title" ? "minmax(160px, 1fr)" : `${widthOf(column.id)}px`)).join(" ");
+  const toggleColumn = (id: TrackColumn) => setColumnPrefs((before) => {
+    const next = { ...before, hidden: before.hidden.includes(id) ? before.hidden.filter((other) => other !== id) : [...before.hidden, id] };
+    saveColumns(next);
+    return next;
+  });
+  const setColumnWidth = (id: TrackColumn, width: number | null, remember: boolean) => setColumnPrefs((before) => {
+    const widths = { ...before.widths };
+    if (width === null) delete widths[id]; else widths[id] = Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, width)));
+    const next = { ...before, widths };
+    if (remember) saveColumns(next);
+    return next;
+  });
+  useEffect(() => {
+    if (!columnMenu) return;
+    const close = (event: Event) => { if (!(event instanceof MouseEvent && columnMenuRef.current?.contains(event.target as Node))) setColumnMenu(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setColumnMenu(null); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", escape);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("scroll", close, true); window.removeEventListener("keydown", escape); };
+  }, [columnMenu]);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState("");
   const [start, setStart] = useState(0);
@@ -282,13 +360,39 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
         ? " Drag to reorder. Alt+Up/Down moves the focused track; Delete takes it out of the crate."
         : " Drag a track onto a crate, a rekordbox playlist or the player, or within the list to arrange it (Custom order). Right-click for Play next and Add to queue."}</span>}
     </div>
-    {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column">
-      {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels. */}
-      {heading("#", "recent", "Sort by recently added")}
-      <span className="heading-pair">{heading("Title", "title", "Sort by title")}<span aria-hidden="true"> / </span>{heading("Artist", "artist", "Sort by artist")}</span>
-      <span>Release</span>
-      {heading("BPM", "bpm", "Sort by BPM")}
-      <span>Key</span><span>Time</span>{heading("Format", "format", "Sort by format")}
+    {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column" title="Right-click to choose columns" style={{ gridTemplateColumns: columnTemplate }} onContextMenu={(event) => { event.preventDefault(); setColumnMenu({ x: event.clientX, y: event.clientY }); }}>
+      {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels.
+          Every heading but the last carries a handle to drag its width. */}
+      {visibleColumns.map((column) => <span key={column.id} className={`track-heading track-heading-${column.id}`}>
+        {column.id === "number" ? heading("#", "recent", "Sort by recently added")
+          : column.id === "title" ? <span className="heading-pair">{heading("Title", "title", "Sort by title")}<span aria-hidden="true"> / </span>{heading("Artist", "artist", "Sort by artist")}</span>
+          : column.id === "bpm" ? heading("BPM", "bpm", "Sort by BPM")
+          : column.id === "format" ? heading("Format", "format", "Sort by format")
+          : column.id === "added" ? heading("Added", "recent", "Sort by date added")
+          : <span>{column.label}</span>}
+        {column.id !== "title" && <span className="col-resizer" role="separator" aria-orientation="vertical" aria-label={`Resize ${column.label}`} aria-valuemin={COLUMN_MIN} aria-valuemax={COLUMN_MAX} aria-valuenow={widthOf(column.id)} tabIndex={0}
+          onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); columnDrag.current = { id: column.id, startX: event.clientX, startWidth: widthOf(column.id) }; }}
+          onPointerMove={(event) => { const active = columnDrag.current; if (active) setColumnWidth(active.id, active.startWidth + event.clientX - active.startX, false); }}
+          onPointerUp={() => { if (!columnDrag.current) return; columnDrag.current = null; setColumnPrefs((current) => { saveColumns(current); return current; }); }}
+          onPointerCancel={() => { columnDrag.current = null; }}
+          onDoubleClick={() => setColumnWidth(column.id, null, true)}
+          onKeyDown={(event) => {
+            const step = event.shiftKey ? 50 : 10;
+            if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setColumnWidth(column.id, widthOf(column.id) + (event.key === "ArrowRight" ? step : -step), true); }
+            else if (event.key === "Home") { event.preventDefault(); setColumnWidth(column.id, null, true); }
+          }} />}
+      </span>)}
+    </div>}
+    {columnMenu && <div ref={columnMenuRef} className="column-menu" role="menu" aria-label="Columns" style={{ left: columnMenu.x, top: columnMenu.y }}>
+      {TRACK_COLUMNS.map((column) => {
+        const fixed = "fixed" in column;
+        const shown = !columnPrefs.hidden.includes(column.id);
+        return <button key={column.id} type="button" role="menuitemcheckbox" aria-checked={shown} aria-disabled={fixed} onClick={() => { if (!fixed) toggleColumn(column.id); }}>
+          <span className="column-check" aria-hidden="true">{shown ? "\u2713" : ""}</span>{column.label}
+        </button>;
+      })}
+      <div className="column-menu-divider" />
+      <button type="button" role="menuitem" onClick={() => { setColumnPrefs((before) => { const next = { ...before, widths: {} }; saveColumns(next); return next; }); setColumnMenu(null); }}>Reset column widths</button>
     </div>}
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"
@@ -363,7 +467,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                   else event.dataTransfer.effectAllowed = "copy";
                 }}
                 onDragEnd={() => setDrag(null)}
-                style={isGrid ? undefined : { height: rowHeight }}
+                style={isGrid ? undefined : { height: rowHeight, gridTemplateColumns: columnTemplate }}
                 data-index={index} data-testid={isGrid ? "library-card" : "track-row"}
                 aria-label={isGrid ? `${item.title}, ${item.trackCount} tracks` : `${item.title}, ${item.artist}`}
                 aria-pressed={isGrid ? undefined : isChosen(item)}
@@ -468,9 +572,24 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                 }}
               >
                 {isGrid ? <>{item.kind === "artists" ? <ArtistArtwork api={api} artistId={item.id} color={item.color} large /> : <Artwork color={item.color} large src={api.artworkUrl?.(item.releaseId) ?? null} />}<strong title={item.title}>{item.title}</strong><span>{item.kind === "artists" ? `${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}` : item.artist}</span>{item.kind === "releases" && <small>{`${item.trackCount} ${item.trackCount === 1 ? "track" : "tracks"}`}</small>}</> :
-                  <><span className="track-number">{nowPlaying?.id === item.id
-                    ? <span className={`now-bars${nowPlaying.playing ? " is-playing" : ""}`} role="img" aria-label={nowPlaying.playing ? "Now playing" : "Paused"}><i /><i /><i /></span>
-                    : index + 1}</span><span className="track-identity"><Artwork color={item.color} src={(item.kind === "tracks" ? api.coverUrl?.(item.id) : null) ?? api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate" title={`${item.title} - ${item.artist}`}><strong>{item.title}</strong>{item.missing && <span className="missing-tag" title="The file is not on disk right now">Missing</span>}<small>{item.artist}</small></span></span><span className="track-release" title={item.release}>{item.release}</span><span className={`track-bpm${item.bpm === null ? "" : item.analysed ? " is-analysed" : " from-tags"}`} title={tempoNote(item)}>{item.bpm ?? "--"}</span><span className={`track-key${!item.rekordboxKey && item.musicalKey ? " from-tags" : ""}`} title={keyNote(item)}>{showKey(item.musicalKey, keyNotation)}</span><span className="track-time">{time(item.duration)}</span><span className="track-format">{item.format}</span></>}
+                  visibleColumns.map((column) => {
+                    switch (column.id) {
+                      case "number": return <span key={column.id} className="track-number">{nowPlaying?.id === item.id
+                        ? <span className={`now-bars${nowPlaying.playing ? " is-playing" : ""}`} role="img" aria-label={nowPlaying.playing ? "Now playing" : "Paused"}><i /><i /><i /></span>
+                        : index + 1}</span>;
+                      case "title": return <span key={column.id} className="track-identity"><Artwork color={item.color} src={(item.kind === "tracks" ? api.coverUrl?.(item.id) : null) ?? api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate" title={`${item.title} - ${item.artist}`}><strong>{item.title}</strong>{item.missing && <span className="missing-tag" title="The file is not on disk right now">Missing</span>}<small>{item.artist}</small></span></span>;
+                      case "release": return <span key={column.id} className="track-release" title={item.release}>{item.release}</span>;
+                      case "genre": return <span key={column.id} className="track-release track-genre" title={item.genre}>{item.genre}</span>;
+                      case "label": return <span key={column.id} className="track-release track-label" title={item.label}>{item.label}</span>;
+                      case "year": return <span key={column.id} className="track-year">{item.year ?? ""}</span>;
+                      case "bpm": return <span key={column.id} className={`track-bpm${item.bpm === null ? "" : item.analysed ? " is-analysed" : " from-tags"}`} title={tempoNote(item)}>{item.bpm ?? "--"}</span>;
+                      case "key": return <span key={column.id} className={`track-key${!item.rekordboxKey && item.musicalKey ? " from-tags" : ""}`} title={keyNote(item)}>{showKey(item.musicalKey, keyNotation)}</span>;
+                      case "time": return <span key={column.id} className="track-time">{time(item.duration)}</span>;
+                      case "format": return <span key={column.id} className="track-format">{item.format}</span>;
+                      case "added": return <span key={column.id} className="track-added" title={item.addedMs > 0 ? new Date(item.addedMs).toLocaleString() : undefined}>{addedText(item.addedMs)}</span>;
+                      default: return null;
+                    }
+                  })}
               </button>
               {!isGrid && onPlay && !item.missing && <button className="row-play" tabIndex={-1} aria-label={`Play ${item.title}`}
                 style={{ height: rowHeight }} onClick={() => { onSelect(item, index); onPlay(item, index); }}><Icon name="play" size={14} /></button>}

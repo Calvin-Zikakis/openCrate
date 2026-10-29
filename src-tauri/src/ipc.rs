@@ -66,6 +66,17 @@ pub struct QueryDto {
     #[serde(default)]
     pub batch_id: Option<i64>,
     #[serde(default)]
+    pub genre: Option<String>,
+    /// Both ends included; either may be left out.
+    #[serde(default)]
+    pub year_from: Option<i32>,
+    #[serde(default)]
+    pub year_to: Option<i32>,
+    #[serde(default)]
+    pub added_from: Option<i64>,
+    #[serde(default)]
+    pub added_to: Option<i64>,
+    #[serde(default)]
     pub reversed: bool,
 }
 
@@ -100,6 +111,24 @@ impl QueryDto {
         query.playlist_id = self.playlist_id;
         query.crate_id = self.crate_id;
         query.batch_id = self.batch_id;
+        query.genre = self
+            .genre
+            .as_deref()
+            .map(str::trim)
+            .filter(|genre| !genre.is_empty())
+            .map(str::to_owned);
+        if self.year_from.is_some() || self.year_to.is_some() {
+            query.years = Some((
+                self.year_from.unwrap_or(i32::MIN),
+                self.year_to.unwrap_or(i32::MAX),
+            ));
+        }
+        if self.added_from.is_some() || self.added_to.is_some() {
+            query.added = Some((
+                self.added_from.unwrap_or(i64::MIN),
+                self.added_to.unwrap_or(i64::MAX),
+            ));
+        }
         query.reversed = self.reversed;
         query
     }
@@ -123,6 +152,10 @@ pub struct ItemDto {
     pub missing: bool,
     pub analysed: bool,
     pub rekordbox_key: bool,
+    pub genre: String,
+    pub label: String,
+    pub year: Option<i32>,
+    pub added_ms: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -155,6 +188,10 @@ impl From<LibraryItem> for ItemDto {
             missing: item.missing,
             analysed: item.analysed,
             rekordbox_key: item.rekordbox_key,
+            genre: item.genre,
+            label: item.label,
+            year: item.year,
+            added_ms: item.added_ms,
         }
     }
 }
@@ -235,6 +272,17 @@ mod tests {
             ("night", Some(4), None)
         );
         assert_eq!(mapped.playlist_id, Some(9));
+        let mut tagged = base();
+        tagged["genre"] = json!(" Techno ");
+        tagged["yearFrom"] = json!(2019);
+        tagged["addedTo"] = json!(5);
+        let mapped = query(tagged).unwrap().to_query();
+        assert_eq!(mapped.genre.as_deref(), Some("Techno"));
+        assert_eq!(mapped.years, Some((2019, i32::MAX)));
+        assert_eq!(mapped.added, Some((i64::MIN, 5)));
+        let mut blank = base();
+        blank["genre"] = json!("  ");
+        assert_eq!(query(blank).unwrap().to_query().genre, None);
         let mut playlist = base();
         playlist["sort"] = json!("playlist");
         assert_eq!(query(playlist).unwrap().to_query().sort, Sort::Playlist);
@@ -300,11 +348,15 @@ mod tests {
             "missing",
             "analysed",
             "rekordboxKey",
+            "genre",
+            "label",
+            "year",
+            "addedMs",
         ] {
             assert!(first.get(key).is_some(), "missing {key}");
         }
         assert_eq!(first["kind"], "tracks");
-        assert_eq!(first.as_object().unwrap().len(), 15, "no stray fields");
+        assert_eq!(first.as_object().unwrap().len(), 19, "no stray fields");
         assert!(first["format"].is_string());
         assert_eq!(value["items"].as_array().unwrap().len(), 3);
         service.shutdown().unwrap();

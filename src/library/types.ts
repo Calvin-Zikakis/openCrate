@@ -17,6 +17,11 @@ export interface LibraryItem {
   /** The file's container as the library names it: "AIFF", "WAV", "MP3", "M4A" and so on. */
   format: string | null;
   trackCount: number;
+  /** Tracks only: the tags shown in the list's optional columns, and when it joined the library. */
+  genre: string;
+  label: string;
+  year: number | null;
+  addedMs: number;
   /** A track none of whose files is on disk right now (not the same as an offline folder). */
   missing: boolean;
   /** rekordbox has analysed it: bpm and key are rekordbox's, not the file's tags'. */
@@ -39,6 +44,14 @@ export interface LibraryQuery {
   crateId: number | null;
   /** Tracks filed by one import batch (Recently imported). */
   batchId: number | null;
+  /** Tracks whose genre is spelled exactly so; null for any. */
+  genre: string | null;
+  /** Year range, both ends included; null ends are open. */
+  yearFrom: number | null;
+  yearTo: number | null;
+  /** When the track joined the library, milliseconds since the epoch, both ends included. */
+  addedFrom: number | null;
+  addedTo: number | null;
   /** The sort the other way round: oldest first, Z to A, BPM high to low. Rows without a value
    * stay last. Playlist, crate and custom orders are never reversed. */
   reversed: boolean;
@@ -658,6 +671,8 @@ export interface LibraryAdmin {
   setImportTarget(target: ImportTarget): Promise<ImportTarget>;
   /** Every container in the library with its track count, most common first. */
   formats(): Promise<FormatCount[]>;
+  /** Every label in the library with its track count, most common first. */
+  labels(): Promise<{ value: string; tracks: number }[]>;
   /** Asks MusicBrainz about a release; only when the owner presses the button. Writes nothing. */
   lookupRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseLookup>;
   /** Which of the owner's lookup keys are saved, each shown by its last four characters only. */
@@ -852,7 +867,8 @@ export type WorkerReply =
   | { id: number; error: string };
 
 export const DEFAULT_QUERY: LibraryQuery = {
-  view: "tracks", search: "", sort: "recent", format: "all", artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null, reversed: false,
+  view: "tracks", search: "", sort: "recent", format: "all", artistId: null, releaseId: null, playlistId: null, crateId: null, batchId: null,
+  genre: null, yearFrom: null, yearTo: null, addedFrom: null, addedTo: null, reversed: false,
 };
 
 export const MAX_WINDOW = 200;

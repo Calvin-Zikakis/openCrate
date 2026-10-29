@@ -21,6 +21,7 @@ import { CrateBrowser } from "./components/CrateBrowser";
 import { useAutoImport } from "./components/AutoImport";
 import { PlayerBar, type PlayRequest } from "./components/PlayerBar";
 import { Sync } from "./components/Sync";
+import { DEMO_GENRES } from "./library/catalog";
 import { DEFAULT_QUERY, type Format, type FormatCount, type ImportBatch, type LibraryApi, type LibraryItem, type CrateInfo, type PlaylistInfo, type Sort, type View } from "./library/types";
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from "./preferences";
 import { PLAIN_TEXT } from "./components/plainText";
@@ -80,6 +81,36 @@ const PAGE_NOTES = {
   artists: "All your artists live here, with the releases they are on.",
 } as const;
 
+/** The list filters beyond the format pills: genre, year and when a track was added. */
+interface Filters { genre: string | null; yearFrom: number | null; yearTo: number | null; added: AddedSpan; addedFrom: string; addedTo: string }
+type AddedSpan = "any" | "today" | "week" | "month" | "quarter" | "year" | "custom";
+const NO_FILTERS: Filters = { genre: null, yearFrom: null, yearTo: null, added: "any", addedFrom: "", addedTo: "" };
+const ADDED_SPANS: { id: AddedSpan; name: string }[] = [
+  { id: "any", name: "Any time" }, { id: "today", name: "Today" }, { id: "week", name: "Last 7 days" }, { id: "month", name: "Last 30 days" },
+  { id: "quarter", name: "Last 90 days" }, { id: "year", name: "This year" }, { id: "custom", name: "Between dates..." },
+];
+/** The span of milliseconds a filter means, both ends included; null ends are open. */
+function addedRange(filters: Filters): { from: number | null; to: number | null } {
+  const now = new Date();
+  const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const day = 86_400_000;
+  switch (filters.added) {
+    case "any": return { from: null, to: null };
+    case "today": return { from: startOfDay(now), to: null };
+    case "week": return { from: startOfDay(now) - 6 * day, to: null };
+    case "month": return { from: startOfDay(now) - 29 * day, to: null };
+    case "quarter": return { from: startOfDay(now) - 89 * day, to: null };
+    case "year": return { from: new Date(now.getFullYear(), 0, 1).getTime(), to: null };
+    case "custom": {
+      const from = filters.addedFrom ? new Date(`${filters.addedFrom}T00:00:00`).getTime() : NaN;
+      const to = filters.addedTo ? new Date(`${filters.addedTo}T23:59:59.999`).getTime() : NaN;
+      return { from: Number.isFinite(from) ? from : null, to: Number.isFinite(to) ? to : null };
+    }
+    default: return { from: null, to: null };
+  }
+}
+const activeFilterCount = (filters: Filters) => (filters.genre ? 1 : 0) + (filters.yearFrom !== null || filters.yearTo !== null ? 1 : 0) + (filters.added !== "any" ? 1 : 0);
+
 type SettingsGroup = "appearance" | "library" | "import" | "rekordbox";
 const SETTINGS_GROUPS: { id: SettingsGroup; name: string }[] = [
   { id: "appearance", name: "Appearance" },
@@ -104,9 +135,11 @@ function describeBatch(batch: ImportBatch): string {
 }
 
 /** The library query a screen shows; Back uses it to name the list it returns to. */
-function queryOf(screen: Screen, search: string, sort: Sort, format: Format | "all", focus: LibraryItem | null, playlist: PlaylistInfo | null, crate: CrateInfo | null, reversed = false, batch: ImportBatch | null = null) {
+function queryOf(screen: Screen, search: string, sort: Sort, format: Format | "all", focus: LibraryItem | null, playlist: PlaylistInfo | null, crate: CrateInfo | null, reversed = false, batch: ImportBatch | null = null, filters: Filters = NO_FILTERS) {
+  const added = addedRange(filters);
   return {
-    ...DEFAULT_QUERY, view: screen === "import" || screen === "recent" || screen === "sync" || screen === "cleanup" || screen === "playlists" || screen === "crates" ? "tracks" as const : screen,
+    ...DEFAULT_QUERY,
+    genre: filters.genre, yearFrom: filters.yearFrom, yearTo: filters.yearTo, addedFrom: added.from, addedTo: added.to, view: screen === "import" || screen === "recent" || screen === "sync" || screen === "cleanup" || screen === "playlists" || screen === "crates" ? "tracks" as const : screen,
     search, sort, reversed, format: screen === "tracks" ? format : "all" as const,
     artistId: focus?.kind === "artists" ? focus.id : null,
     releaseId: focus?.kind === "releases" ? focus.id : null,
@@ -129,6 +162,10 @@ export function App({ api }: { api: LibraryApi }) {
   /** The sort the other way round (oldest first, Z to A, BPM high to low). */
   const [reversed, setReversed] = useState(false);
   const [format, setFormat] = useState<Format | "all">("all");
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+  const [genreList, setGenreList] = useState<string[]>([]);
   const [focus, setFocus] = useState<LibraryItem | null>(null);
   const [playlist, setPlaylist] = useState<PlaylistInfo | null>(null);
   const [crate, setCrate] = useState<CrateInfo | null>(null);
@@ -308,10 +345,24 @@ export function App({ api }: { api: LibraryApi }) {
     // Moving between Tracks, Releases and Artists keeps the search: it looks in all three.
     const views: Screen[] = ["tracks", "releases", "artists"];
     if (!(views.includes(next) && views.includes(screen) && !focus && !playlist && !crate)) setSearch("");
-    setScreen(next); setFocus(null); setPlaylist(null); setCrate(null); setFormat("all"); setSort("recent"); setReversed(false); setFromBrowser(false); setFromCrates(false);
+    setScreen(next); setFocus(null); setPlaylist(null); setCrate(null); setFormat("all"); setFilters(NO_FILTERS); setSort("recent"); setReversed(false); setFromBrowser(false); setFromCrates(false);
   };
   // Keyed on what the query uses, so a refreshed focus (a new name) is not a new list.
-  const query = useMemo(() => queryOf(screen, search, sort, format, focus, playlist, crate, reversed, batch), [screen, search, sort, format, focus?.kind, focus?.id, playlist, crate, reversed, batch]);
+  const query = useMemo(() => queryOf(screen, search, sort, format, focus, playlist, crate, reversed, batch, filters), [screen, search, sort, format, focus?.kind, focus?.id, playlist, crate, reversed, batch, filters]);
+  useEffect(() => {
+    if (!filterOpen) return;
+    const close = (event: MouseEvent) => { if (!filterRef.current?.contains(event.target as Node)) setFilterOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setFilterOpen(false); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", escape);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", escape); };
+  }, [filterOpen]);
+  useEffect(() => {
+    if (!api.admin) { setGenreList([...DEMO_GENRES]); return; }
+    let live = true;
+    api.admin.genres().then((found) => { if (live) setGenreList(found.genres.map((genre) => genre.name)); }, () => undefined);
+    return () => { live = false; };
+  }, [api.admin, libraryVersion]);
   /** The grid a release or artist was opened from, so Back returns to it as it was. */
   const [backTo, setBackTo] = useState<{ screen: View; sort: Sort; reversed: boolean; top: number } | { crate: CrateInfo; top: number } | { playlist: PlaylistInfo; top: number } | null>(null);
   // A new list says how long it is once read; until then the last count does not apply.
@@ -570,7 +621,17 @@ export function App({ api }: { api: LibraryApi }) {
             <div className="hero-art" aria-hidden="true">{focus?.kind === "artists" ? <ArtistArtwork api={api} artistId={focus.id} color={focus.color} large /> : <Artwork color={focus?.color ?? 1} large src={focus ? api.artworkUrl?.(focus.releaseId) ?? null : null} />}<div className="hero-disc" /></div>
           </div>
           <div className="library-toolbar">
-            <div className="format-filters" role="group" aria-label={screen === "recent" ? "Import batch" : "Format filters"}>{screen === "tracks" ? ["all", ...formatChoices].map((value) => <button key={value} aria-pressed={format === value} title={value === "all" ? undefined : `${formatList.find((item) => item.format === value)?.tracks ?? ""} ${value} tracks`.trim()} onClick={() => setFormat(value)}>{value === "all" ? "All tracks" : value}</button>) : screen === "recent" && batches.length > 0 ? <label className="batch-pick"><span className="sr-only">Import batch</span><select value={batch?.id ?? ""} onChange={(event) => setBatch(batches.find((item) => item.id === Number(event.target.value)) ?? null)}>{batches.map((item) => <option key={item.id} value={item.id}>{`${describeBatch(item)} - ${item.tracks} ${item.tracks === 1 ? "track" : "tracks"}`}</option>)}</select></label> : <span />}</div>
+            <div className="format-filters" role="group" aria-label={screen === "recent" ? "Import batch" : "Format filters"}>{screen === "tracks" ? <>{["all", ...formatChoices].map((value) => <button key={value} aria-pressed={format === value} title={value === "all" ? undefined : `${formatList.find((item) => item.format === value)?.tracks ?? ""} ${value} tracks`.trim()} onClick={() => setFormat(value)}>{value === "all" ? "All tracks" : value}</button>)}
+              <div className="list-filter" ref={filterRef}>
+                <button className="list-filter-button" aria-pressed={activeFilterCount(filters) > 0} aria-haspopup="dialog" aria-expanded={filterOpen} onClick={() => setFilterOpen(!filterOpen)}>{activeFilterCount(filters) > 0 ? `Filter \u00b7 ${activeFilterCount(filters)}` : "Filter"}</button>
+                {filterOpen && <div className="list-filter-panel" role="dialog" aria-label="Filter tracks">
+                  <label className="filter-field">Genre<select value={filters.genre ?? ""} onChange={(event) => setFilters({ ...filters, genre: event.target.value || null })}><option value="">Any</option>{genreList.map((genre) => <option key={genre} value={genre}>{genre}</option>)}</select></label>
+                  <div className="filter-field"><span>Year</span><span className="filter-range"><input {...PLAIN_TEXT} type="number" inputMode="numeric" aria-label="Year from" placeholder="from" min={1900} max={2100} value={filters.yearFrom ?? ""} onChange={(event) => setFilters({ ...filters, yearFrom: event.target.value === "" ? null : Number(event.target.value) })} /><span aria-hidden="true">to</span><input {...PLAIN_TEXT} type="number" inputMode="numeric" aria-label="Year to" placeholder="to" min={1900} max={2100} value={filters.yearTo ?? ""} onChange={(event) => setFilters({ ...filters, yearTo: event.target.value === "" ? null : Number(event.target.value) })} /></span></div>
+                  <label className="filter-field">Added<select value={filters.added} onChange={(event) => setFilters({ ...filters, added: event.target.value as AddedSpan })}>{ADDED_SPANS.map((span) => <option key={span.id} value={span.id}>{span.name}</option>)}</select></label>
+                  {filters.added === "custom" && <div className="filter-field"><span>Dates</span><span className="filter-range"><input type="date" aria-label="Added from" value={filters.addedFrom} onChange={(event) => setFilters({ ...filters, addedFrom: event.target.value })} /><span aria-hidden="true">to</span><input type="date" aria-label="Added to" value={filters.addedTo} onChange={(event) => setFilters({ ...filters, addedTo: event.target.value })} /></span></div>}
+                  <div className="filter-actions"><button className="link-button" disabled={activeFilterCount(filters) === 0} onClick={() => setFilters(NO_FILTERS)}>Clear filters</button><button className="secondary-button" onClick={() => setFilterOpen(false)}>Done</button></div>
+                </div>}
+              </div></> : screen === "recent" && batches.length > 0 ? <label className="batch-pick"><span className="sr-only">Import batch</span><select value={batch?.id ?? ""} onChange={(event) => setBatch(batches.find((item) => item.id === Number(event.target.value)) ?? null)}>{batches.map((item) => <option key={item.id} value={item.id}>{`${describeBatch(item)} - ${item.tracks} ${item.tracks === 1 ? "track" : "tracks"}`}</option>)}</select></label> : <span />}</div>
             <div className="view-options"><button aria-expanded={!preferences.headerFolded} onClick={() => updatePreferences({ ...preferences, headerFolded: !preferences.headerFolded })}>{preferences.headerFolded ? "Show header" : "Hide header"}</button>{screen === "tracks" && <button aria-pressed={preferences.compact} onClick={() => updatePreferences({ ...preferences, compact: !preferences.compact })}><Icon name="tracks" size={16} />Compact</button>}<label className="sort-label"><span className="sr-only">Sort library</span><select value={sort} onChange={(event) => { setSort(event.target.value as Sort); setReversed(false); }}><option value="recent">Recently added</option><option value="title">Title</option>{screen !== "artists" && <option value="artist">Artist</option>}{screen === "tracks" && <option value="bpm">BPM</option>}{(screen === "tracks" || screen === "recent") && <option value="format">Format</option>}{focus && <option value="track">Track order</option>}{screen === "tracks" && !crate && !playlist && !focus && admin && <option value="custom">Custom order</option>}{playlist && <option value="playlist">Playlist order</option>}{crate && <option value="crate">Crate order</option>}</select></label>{sort !== "playlist" && sort !== "crate" && sort !== "custom" && <button aria-pressed={reversed} aria-label="Reverse the order" title={reversed ? "Back to the usual order" : sort === "recent" ? "Oldest first" : sort === "bpm" ? "BPM high to low" : "Z to A"} onClick={() => setReversed(!reversed)}><span aria-hidden="true" className="reverse-mark">{reversed ? "\u25B2" : "\u25BC"}</span>Reverse</button>}</div>
           </div>
           <Library key={`${JSON.stringify(query)}:${libraryVersion}`} api={api} query={query} compact={preferences.compact} brief={preferences.headerFolded} keyNotation={preferences.keyNotation} selected={selected} onSelect={(item, index) => { setSelected(item); setSelectedIndex(index); }} onOpen={openItem} onPlay={api.admin ? (item, index) => setPlayRequest({ item, index, query, nonce: Date.now() }) : undefined} nowPlaying={nowPlaying} selection={selectionSet} onSelectionChange={setSelection} onEdit={api.admin ? setEditing : undefined} onRemoveFromCrate={api.admin && crate ? (ids) => { if (ids.length > 1) setRemoveAsk({ crateId: crate.id, ids }); else void removeFromCrate(ids); return ids.length > 1; } : undefined} onGoTo={api.admin ? goTo : undefined} crates={crateList} onAddToCrate={api.admin ? (crateId, ids) => void addToCrate(crateId, ids) : undefined} within={crate?.name ?? playlist?.name ?? focus?.title} playlistEmpty={playlist?.entries === 0} onSort={(next) => { if (next === sort) setReversed(!reversed); else { setSort(next); setReversed(false); } }} onQueue={api.admin ? (item, next) => setQueue((current) => (next ? [item, ...current] : [...current, item])) : undefined} dragTracks={Boolean(api.admin)} reorder={reorder} restoreScroll={restore?.query === queryKey ? restore.top : 0} version={crateVersion} onTotal={setListTotal} onOpenSettings={api.admin ? () => setSettingsOpen(true) : undefined} onOpenImport={api.admin ? () => navigate("import") : undefined} />

@@ -4,6 +4,8 @@ const TITLES = ["After Hours", "Soft Focus", "Night Drive", "Open Water", "Low O
 const RELEASES = ["Between Spaces", "Nightfall Studies", "Colour Theory", "The Long Way Home", "Echoes in Motion", "Quiet Signals"];
 const ARTISTS = ["Studio", "Ensemble", "Project", "Collective"];
 const FORMATS = ["AIFF", "MP3", "FLAC"] as const;
+export const DEMO_GENRES = ["Techno", "House", "Breaks", "Ambient", "Dubstep"] as const;
+const GENRES = DEMO_GENRES;
 const KEYS = ["8A", "9A", "10A", "11A", "4A", "5A"];
 
 export function createCatalog(count = 100_000) {
@@ -27,6 +29,8 @@ export function createCatalog(count = 100_000) {
       duration: 210 + id % 300,
       format: FORMATS[id % FORMATS.length] ?? "AIFF",
       trackCount: 1, missing: false, analysed: id % 17 !== 0, rekordboxKey: true, color: releaseId % 8,
+      genre: GENRES[id % GENRES.length] ?? "", label: `Label ${String(releaseId % 40).padStart(2, "0")}`, year: 1998 + (releaseId % 28),
+      addedMs: Date.UTC(2026, 0, 1) + id * 60_000,
     };
     tracks.push(item);
     const album = releases.get(releaseId);
@@ -85,6 +89,11 @@ export function createCatalog(count = 100_000) {
           if (query.artistId !== null && item.artistId !== query.artistId) return false;
           if (query.releaseId !== null && item.releaseId !== query.releaseId) return false;
           if (query.format !== "all" && item.format !== query.format) return false;
+          if (query.genre !== null && item.genre !== query.genre) return false;
+          if (query.yearFrom !== null && (item.year ?? -Infinity) < query.yearFrom) return false;
+          if (query.yearTo !== null && (item.year ?? Infinity) > query.yearTo) return false;
+          if (query.addedFrom !== null && item.addedMs < query.addedFrom) return false;
+          if (query.addedTo !== null && item.addedMs > query.addedTo) return false;
           if (terms.length === 0) return true;
           return matches(item) || (byTrack?.has(item.id) ?? false);
         });

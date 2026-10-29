@@ -60,6 +60,13 @@ pub struct LibraryQuery {
     pub crate_id: Option<i64>,
     /// Tracks filed by one import batch. Tracks only.
     pub batch_id: Option<i64>,
+    /// Tracks whose genre is spelled exactly so (releases and artists with such a track).
+    pub genre: Option<String>,
+    /// Tracks whose year lies in this range, both ends included.
+    pub years: Option<(i32, i32)>,
+    /// Tracks added to the library in this span of milliseconds since the epoch, both ends
+    /// included.
+    pub added: Option<(i64, i64)>,
     /// The sort the other way round: oldest first, Z to A, BPM high to low. Rows without a
     /// value (no BPM) stay last either way. Playlist, crate and custom orders are never
     /// reversed: they are the owner's own arrangement, and moving a row relies on it.
@@ -79,6 +86,9 @@ impl LibraryQuery {
             playlist_id: None,
             crate_id: None,
             batch_id: None,
+            genre: None,
+            years: None,
+            added: None,
             reversed: false,
         }
     }
@@ -119,6 +129,12 @@ pub struct LibraryItem {
     pub analysed: bool,
     /// `musical_key` is rekordbox's, not the tag's.
     pub rekordbox_key: bool,
+    /// Tracks only; empty or `None` for a release or an artist.
+    pub genre: String,
+    pub label: String,
+    pub year: Option<i32>,
+    /// When the track joined the library.
+    pub added_ms: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -251,7 +267,42 @@ pub fn read_page(
     })
 }
 
+/// The genre, year and date-added conditions on a track alias, for every view.
+fn tag_clauses(filter: &mut Filter, alias: &'static str, query: &LibraryQuery) {
+    if let Some(genre) = &query.genre {
+        filter.add(
+            match alias {
+                "t" => "t.genre = ?",
+                "r" => "r.id IN (SELECT g.release_id FROM track g WHERE g.genre = ?)",
+                _ => "a.id IN (SELECT g.artist_id FROM track g WHERE g.genre = ?)",
+            },
+            genre.clone(),
+        );
+    }
+    if let Some((from, to)) = query.years {
+        let clause = match alias {
+            "t" => "t.year BETWEEN ? AND ?",
+            "r" => "r.id IN (SELECT y.release_id FROM track y WHERE y.year BETWEEN ? AND ?)",
+            _ => "a.id IN (SELECT y.artist_id FROM track y WHERE y.year BETWEEN ? AND ?)",
+        };
+        filter.clauses.push(clause);
+        filter.params.push(from.into());
+        filter.params.push(to.into());
+    }
+    if let Some((from, to)) = query.added {
+        let clause = match alias {
+            "t" => "t.added_ms BETWEEN ? AND ?",
+            "r" => "r.id IN (SELECT d.release_id FROM track d WHERE d.added_ms BETWEEN ? AND ?)",
+            _ => "a.id IN (SELECT d.artist_id FROM track d WHERE d.added_ms BETWEEN ? AND ?)",
+        };
+        filter.clauses.push(clause);
+        filter.params.push(from.into());
+        filter.params.push(to.into());
+    }
+}
+
 fn track_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
+    tag_clauses(filter, "t", query);
     if let Search::Match(expression) = search {
         filter.add(
             "t.id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)",
@@ -301,6 +352,7 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     // `IN`, not a correlated `EXISTS`: SQLCipher's SQLite 3.51.3 applies OFFSET wrongly to the
     // latter (decision 0015).
     filter.always("r.id IN (SELECT b.release_id FROM track b)");
+    tag_clauses(filter, "r", query);
     if let Search::Match(expression) = search {
         // A release shows for a track of its that matches, as well as for its own name.
         filter.add_each(
@@ -327,6 +379,7 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
 
 fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     filter.always("a.id IN (SELECT b.artist_id FROM track b)");
+    tag_clauses(filter, "a", query);
     if let Search::Match(expression) = search {
         // An artist shows for a track or release of theirs that matches, as well as for the name.
         filter.add_each(
@@ -396,7 +449,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                       (EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id AND f.lifecycle = 'active') \
                        AND NOT EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id \
                                        AND f.lifecycle = 'active' AND f.presence = 'present')), \
-                      t.bpm IS NOT NULL, t.musical_key <> ''",
+                      t.bpm IS NOT NULL, t.musical_key <> '', t.genre, t.label, t.year, t.added_ms",
             order: match (query.sort, query.playlist_id) {
                 (Sort::Playlist, Some(_)) => {
                     "(SELECT MIN(i.position) FROM playlist_item i \
@@ -437,7 +490,8 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             table: "release r",
             joined: "release r JOIN artist a ON a.id = r.artist_id",
             columns: "r.id, r.title, a.name, r.artist_id, r.title, r.id, NULL, '', 0, NULL, \
-                      (SELECT COUNT(*) FROM track t WHERE t.release_id = r.id), 0, 0, 0",
+                      (SELECT COUNT(*) FROM track t WHERE t.release_id = r.id), 0, 0, 0, '', '', NULL, \
+                      r.added_ms",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => {
                     "r.added_ms DESC, r.id DESC"
@@ -452,7 +506,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             table: "artist a",
             joined: "artist a",
             columns: "a.id, a.name, a.name, a.id, '', 0, NULL, '', 0, NULL, \
-                      (SELECT COUNT(*) FROM track t WHERE t.artist_id = a.id), 0, 0, 0",
+                      (SELECT COUNT(*) FROM track t WHERE t.artist_id = a.id), 0, 0, 0, '', '', NULL, 0",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => "a.id DESC",
                 Sort::Title | Sort::Artist | Sort::Bpm | Sort::Track | Sort::Format => {
@@ -536,6 +590,10 @@ fn item_from_row(kind: View, row: &rusqlite::Row<'_>) -> rusqlite::Result<Librar
         missing: row.get::<_, i64>(11)? != 0,
         analysed: row.get::<_, i64>(12)? != 0,
         rekordbox_key: row.get::<_, i64>(13)? != 0,
+        genre: row.get(14)?,
+        label: row.get(15)?,
+        year: row.get(16)?,
+        added_ms: row.get(17)?,
     })
 }
 
@@ -693,6 +751,51 @@ pub fn formats(connection: &Connection) -> Result<Vec<(String, i64)>> {
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// Every label tracks with a present file carry, as spelled, with how many tracks, most first.
+pub fn labels(connection: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut statement = connection.prepare(
+        "SELECT t.label, COUNT(DISTINCT t.id) FROM track t \
+         WHERE t.label <> '' AND EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id \
+         AND f.presence = 'present' AND f.lifecycle = 'active') \
+         GROUP BY t.label ORDER BY COUNT(DISTINCT t.id) DESC, t.label",
+    )?;
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// A present file that is the same size as one about to be imported and within a second of
+/// its length: the same recording already in the library, most likely.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LikeFile {
+    pub title: String,
+    pub artist: String,
+    /// The music folder's label.
+    pub folder: String,
+    /// Inside the music folder, with "/" between the parts (lossy where not text).
+    pub path: String,
+}
+
+pub fn files_like(connection: &Connection, size: i64, duration_ms: i64) -> Result<Vec<LikeFile>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT t.title, a.name, r.label, f.path_raw FROM file f \
+         JOIN track t ON t.id = f.track_id JOIN artist a ON a.id = t.artist_id \
+         JOIN library_root r ON r.id = f.root_id \
+         WHERE f.size = ?1 AND f.presence = 'present' AND f.lifecycle = 'active' \
+         AND f.duration_ms IS NOT NULL AND ABS(f.duration_ms - ?2) <= 1000 \
+         ORDER BY t.id LIMIT 5",
+    )?;
+    let rows = statement.query_map(rusqlite::params![size, duration_ms], |row| {
+        let path: Vec<u8> = row.get(3)?;
+        Ok(LikeFile {
+            title: row.get(0)?,
+            artist: row.get(1)?,
+            folder: row.get(2)?,
+            path: String::from_utf8_lossy(&path).replace('\\', "/"),
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 /// Case-folded sort text for titles and names. Display values are stored as given;

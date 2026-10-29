@@ -98,12 +98,14 @@ interface CellProps {
   onCommit: (text: string) => void;
   /** Right-click: offer the value to the whole release. */
   onMenu?: (event: MouseEvent<HTMLInputElement>, text: string) => void;
+  /** The id of a datalist of known values. */
+  list?: string;
 }
 
 /** One value the owner can type over. The text is theirs while the cell has focus; otherwise it
  * follows what the host last said. Enter keeps the value and moves down a row; Escape puts the
  * old value back. */
-function EditableCell({ column, label, value, source, placeholder, note, disabled = false, onCommit, onMenu }: CellProps) {
+function EditableCell({ column, label, value, source, placeholder, note, disabled = false, onCommit, onMenu, list }: CellProps) {
   const [text, setText] = useState(value);
   const [focused, setFocused] = useState(false);
   /** Set by Escape: the blur that follows must not keep what was typed. */
@@ -126,6 +128,7 @@ function EditableCell({ column, label, value, source, placeholder, note, disable
     <input
       className="grid-input"
       data-column={column}
+      list={list}
       aria-label={label}
       value={text}
       placeholder={placeholder}
@@ -178,6 +181,8 @@ interface Props {
   releases: GridRelease[];
   /** A value was typed for these files of a release. Blank text takes a typed value back. */
   onEdit: (releaseKey: string, sources: string[], field: GridField, text: string) => void;
+  /** Values the library already has, offered while typing a genre or a label. */
+  suggestions?: { genre: string[]; label: string[] };
 }
 
 type CellMenu = { x: number; y: number; release: GridRelease; field: GridField; text: string };
@@ -185,7 +190,7 @@ type CellMenu = { x: number; y: number; release: GridRelease; field: GridField; 
 /** The import table: a row per file of every release, with its tags as they would be written.
  * Click a value to change it; right-click one to put it on the whole release. Drag a heading's
  * edge to resize, right-click a heading to choose columns; both are remembered in this browser. */
-export function ImportGrid({ releases, onEdit }: Props) {
+export function ImportGrid({ releases, onEdit, suggestions }: Props) {
   const allFiles = releases.flatMap((release) => release.files);
   const [hidden, setHidden] = useState<Set<GridColumn>>(() => new Set(load(HIDDEN_KEY, DEFAULT_HIDDEN, isIdList)));
   const [widths, setWidths] = useState<Partial<Record<GridColumn, number>>>(() => load(WIDTHS_KEY, {}, isWidths));
@@ -312,8 +317,11 @@ export function ImportGrid({ releases, onEdit }: Props) {
   const icons = (release: GridRelease, file: PlanFile | null) => {
     const { actions } = release;
     const doubts = doubtsOf(file);
+    const duplicate = file && !file.problem ? (file.tags?.warnings ?? []).find((warning) => warning.startsWith("Already in your library")) : undefined;
     const state = file?.problem
       ? <span className="grid-state is-blocked" role="img" aria-label="Cannot be imported yet" tabIndex={0} {...tipOf(`${file.problem} ${actions.status}`.trim())}>!</span>
+      : duplicate
+        ? <span className="grid-state is-duplicate" role="img" aria-label="Already in your library" tabIndex={0} {...tipOf(`${duplicate} Importing it would make a second copy; Remove from the list leaves it out.`)}>=</span>
       : file && doubts.length > 0
         ? <span className="grid-state is-doubtful" role="img" aria-label="Worth a look" tabIndex={0} {...tipOf(doubts.join(" "))}>?</span>
         : file
@@ -342,6 +350,7 @@ export function ImportGrid({ releases, onEdit }: Props) {
       return <EditableCell column={column.id} label={`${column.label === "#" ? "Track" : column.label} of ${fileName(file.source)}`} value={shownText} source={source} note={note}
         placeholder={field === "track" ? "-" : `Add ${TAG_NAMES[field].toLowerCase()}`}
         onCommit={(text) => onEdit(release.key, [file.source], field, text)}
+        list={field === "genre" && (suggestions?.genre.length ?? 0) > 0 ? "import-known-genres" : field === "label" && (suggestions?.label.length ?? 0) > 0 ? "import-known-labels" : undefined}
         onMenu={forRelease ? (event, text) => setCellMenu({ x: event.clientX, y: event.clientY, release, field, text }) : undefined} />;
     }
     const fixed = (() => {

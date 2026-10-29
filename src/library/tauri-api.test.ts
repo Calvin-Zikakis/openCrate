@@ -18,7 +18,7 @@ describe("reading through the Rust backend", () => {
     const api = new TauriLibraryApi(invoke);
     const result = await api.read({ ...DEFAULT_QUERY, search: "night", format: "all", artistId: 4 }, 5, 100, live());
     expect(invoke).toHaveBeenCalledWith("library_read", {
-      query: { view: "tracks", search: "night", sort: "recent", format: null, artistId: 4, releaseId: null, playlistId: null, crateId: null, batchId: null, reversed: false },
+      query: { view: "tracks", search: "night", sort: "recent", format: null, artistId: 4, releaseId: null, playlistId: null, crateId: null, batchId: null, genre: null, yearFrom: null, yearTo: null, addedFrom: null, addedTo: null, reversed: false },
       start: 5,
       count: 100,
     });
@@ -29,6 +29,7 @@ describe("reading through the Rust backend", () => {
         id: 7, kind: "tracks", title: "After Hours 000007", artist: "Studio 001", artistId: 1,
         release: "Between Spaces 0001", releaseId: 10, bpm: 128, musicalKey: "8A",
         duration: 211, format: "AIFF", trackCount: 1, missing: false, analysed: false, rekordboxKey: false, color: 2,
+        genre: "", label: "", year: null, addedMs: 0,
       }],
     });
     await api.read({ ...DEFAULT_QUERY, format: "FLAC" }, 0, 1, live());
@@ -437,7 +438,7 @@ describe("playlists", () => {
     const api = new TauriLibraryApi(invoke);
     await api.read({ ...DEFAULT_QUERY, sort: "playlist", playlistId: 3 }, 0, 10, live());
     expect(invoke).toHaveBeenLastCalledWith("library_read", {
-      query: { view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null, batchId: null, reversed: false },
+      query: { view: "tracks", search: "", sort: "playlist", format: null, artistId: null, releaseId: null, playlistId: 3, crateId: null, batchId: null, genre: null, yearFrom: null, yearTo: null, addedFrom: null, addedTo: null, reversed: false },
       start: 0,
       count: 10,
     });

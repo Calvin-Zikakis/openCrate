@@ -72,6 +72,10 @@ interface ItemWire {
   missing: boolean;
   analysed?: boolean;
   rekordboxKey?: boolean;
+  genre?: string;
+  label?: string;
+  year?: number | null;
+  addedMs?: number;
 }
 
 interface PageWire {
@@ -138,6 +142,11 @@ function toWire(query: LibraryQuery) {
     playlistId: query.playlistId,
     crateId: query.crateId,
     batchId: query.batchId,
+    genre: query.genre,
+    yearFrom: query.yearFrom,
+    yearTo: query.yearTo,
+    addedFrom: query.addedFrom,
+    addedTo: query.addedTo,
     reversed: query.reversed,
   };
 }
@@ -179,6 +188,10 @@ function toItem(value: unknown): LibraryItem {
     format: row.format as Format | null,
     trackCount,
     color: ((releaseId % 8) + 8) % 8,
+    genre: text(row.genre) ?? "",
+    label: text(row.label) ?? "",
+    year: number(row.year),
+    addedMs: number(row.addedMs) ?? 0,
   };
 }
 
@@ -791,6 +804,14 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     importedTracks: async (fileIds) => ids(await invoke("library_imported_tracks", { fileIds }).catch((error: unknown) => { throw failure(error); }), "imported tracks"),
     importTarget: async () => toImportTarget(await invoke("library_import_target").catch((error: unknown) => { throw failure(error); })),
     setImportTarget: async (target) => toImportTarget(await invoke("library_set_import_target", { target }).catch((error: unknown) => { throw failure(error); })),
+    labels: async () => {
+      const response = await invoke("library_labels").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of labels.");
+      return response.map((row: unknown) => {
+        if (!isRecord(row)) throw new Error("The library returned an unreadable list of labels.");
+        return { value: text(row.value, "labels"), tracks: whole(row.tracks, "labels") };
+      });
+    },
     formats: async () => {
       const response = await invoke("library_formats").catch((error: unknown) => { throw failure(error); });
       if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of formats.");

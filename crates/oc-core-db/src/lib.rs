@@ -394,6 +394,8 @@ mod crates_tests;
 #[cfg(test)]
 mod downloads_tests;
 #[cfg(test)]
+mod filters_tests;
+#[cfg(test)]
 mod health_tests;
 #[cfg(test)]
 mod identity_tests;

@@ -1131,6 +1131,15 @@ async fn library_imported_tracks(
         .map_err(|error| error.to_string())?
 }
 
+/// Every label in the library with its track count, for suggestions while typing.
+#[tauri::command]
+async fn library_labels(state: State<'_, AppState>) -> Result<Vec<imports::ValueDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || imports::labels(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Every container in the library with its track count, for the format filter.
 #[tauri::command]
 async fn library_formats(state: State<'_, AppState>) -> Result<Vec<imports::FormatDto>, String> {
@@ -1776,6 +1785,7 @@ fn main() -> Result<(), tauri::Error> {
             library_import_batches,
             library_imported_tracks,
             library_formats,
+            library_labels,
             library_import_target,
             library_set_import_target,
             library_folder_layout,
