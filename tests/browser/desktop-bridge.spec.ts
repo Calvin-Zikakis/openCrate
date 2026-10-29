@@ -3468,6 +3468,11 @@ test("sidebar: crates and playlists fold to their captions and stay folded; CRAT
   await browser.getByRole("button", { name: /^Warm-up/ }).click();
   await expect(page.getByRole("heading", { name: "Warm-up" })).toBeVisible();
   await expect(page.locator(".library-hero .eyebrow")).toHaveText("CRATE");
+  // Opened from the crates page, Back goes back to it; opened from the sidebar, Back goes to Tracks.
+  await page.getByRole("button", { name: "Back to crates" }).click();
+  await expect(browser.getByRole("heading", { name: "Crates" })).toBeVisible();
+  await crates.getByRole("button", { name: /^Warm-up/ }).click();
+  await expect(page.getByRole("button", { name: "Back to tracks" })).toBeVisible();
 });
 
 test("settings: grouped with a jump list, and a search that hides what does not match", async ({ page }) => {
