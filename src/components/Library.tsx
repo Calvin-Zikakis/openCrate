@@ -31,20 +31,34 @@ const COLUMNS_KEY = "opencrate.trackColumns";
 const COLUMN_MIN = 30;
 const COLUMN_MAX = 600;
 
-interface ColumnSettings { hidden: TrackColumn[]; widths: Partial<Record<TrackColumn, number>> }
+interface ColumnSettings { hidden: TrackColumn[]; widths: Partial<Record<TrackColumn, number>>; order: TrackColumn[] }
+/** The columns in the owner's order: the number and the title stay first, the rest as saved,
+ * with any column the saved order does not know (new since) in its usual place. */
+function orderedColumns(order: TrackColumn[]): typeof TRACK_COLUMNS[number][] {
+  const pinned = TRACK_COLUMNS.filter((column) => "fixed" in column);
+  const rest = TRACK_COLUMNS.filter((column) => !("fixed" in column));
+  const known = order.filter((id) => rest.some((column) => column.id === id));
+  const sorted = [...rest].sort((a, b) => {
+    const at = (id: TrackColumn) => { const index = known.indexOf(id); return index === -1 ? rest.findIndex((column) => column.id === id) + known.length : index; };
+    return at(a.id) - at(b.id);
+  });
+  return [...pinned, ...sorted];
+}
 function loadColumns(): ColumnSettings {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? "null");
     if (typeof saved === "object" && saved !== null) {
       const { hidden, widths } = saved as Partial<ColumnSettings>;
       const ids = TRACK_COLUMNS.map((column) => column.id as string);
+      const { order } = saved as Partial<ColumnSettings>;
       return {
         hidden: Array.isArray(hidden) ? hidden.filter((id): id is TrackColumn => ids.includes(id) && !("fixed" in (TRACK_COLUMNS.find((column) => column.id === id) ?? {}))) : DEFAULT_HIDDEN_COLUMNS,
         widths: typeof widths === "object" && widths !== null ? Object.fromEntries(Object.entries(widths).filter(([id, width]) => ids.includes(id) && typeof width === "number" && Number.isFinite(width))) as ColumnSettings["widths"] : {},
+        order: Array.isArray(order) ? order.filter((id): id is TrackColumn => ids.includes(id)) : [],
       };
     }
   } catch { /* storage unavailable or unreadable: the defaults */ }
-  return { hidden: DEFAULT_HIDDEN_COLUMNS, widths: {} };
+  return { hidden: DEFAULT_HIDDEN_COLUMNS, widths: {}, order: [] };
 }
 function saveColumns(settings: ColumnSettings) {
   try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(settings)); } catch { /* applied, not remembered */ }
@@ -153,7 +167,29 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   const [columnMenu, setColumnMenu] = useState<{ x: number; y: number } | null>(null);
   const columnMenuRef = useRef<HTMLDivElement>(null);
   const columnDrag = useRef<{ id: TrackColumn; startX: number; start: ColumnSettings["widths"] } | null>(null);
-  const visibleColumns = TRACK_COLUMNS.filter((column) => !columnPrefs.hidden.includes(column.id));
+  const visibleColumns = orderedColumns(columnPrefs.order).filter((column) => !columnPrefs.hidden.includes(column.id));
+  /** A heading being dragged to a new place, and the heading it would land before or after. */
+  const [columnDragging, setColumnDragging] = useState<TrackColumn | null>(null);
+  const [columnDrop, setColumnDrop] = useState<{ id: TrackColumn; after: boolean } | null>(null);
+  /** Put `moving` just before or after `target` among the columns that can move. */
+  const placeColumn = (moving: TrackColumn, target: TrackColumn, after: boolean) => setColumnPrefs((before) => {
+    if (moving === target) return before;
+    const movable = orderedColumns(before.order).filter((column) => !("fixed" in column)).map((column) => column.id).filter((id) => id !== moving);
+    const at = movable.indexOf(target);
+    if (at === -1) return before;
+    movable.splice(at + (after ? 1 : 0), 0, moving);
+    const next = { ...before, order: movable };
+    saveColumns(next);
+    return next;
+  });
+  /** Alt+Left or Alt+Right on a heading moves its column one place, for those not using a mouse. */
+  const nudgeColumn = (id: TrackColumn, step: -1 | 1) => {
+    const movable = visibleColumns.filter((column) => !("fixed" in column)).map((column) => column.id);
+    const at = movable.indexOf(id);
+    const neighbour = movable[at + step];
+    if (at === -1 || !neighbour) return;
+    placeColumn(id, neighbour, step === 1);
+  };
   const widthOf = (id: TrackColumn) => Math.round(Math.min(COLUMN_MAX, Math.max(COLUMN_MIN, columnPrefs.widths[id] ?? TRACK_COLUMNS.find((column) => column.id === id)?.width ?? 60)));
   /** The grid both the heading row and every track row follow: the title takes what is left. */
   const columnTemplate = visibleColumns.map((column) => (column.id === "title" ? "minmax(160px, 1fr)" : `${widthOf(column.id)}px`)).join(" ");
@@ -382,13 +418,39 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
     {!isGrid && <div className="track-header track-columns" role="group" aria-label="Sort by column" title="Right-click to choose columns" style={{ gridTemplateColumns: columnTemplate }} onContextMenu={(event) => { event.preventDefault(); setColumnMenu({ x: event.clientX, y: event.clientY }); }}>
       {/* Headings sort where the library has that order, as the Sort menu does; the rest are labels.
           Every heading but the last carries a handle to drag its width. */}
-      {visibleColumns.map((column, index) => <span key={column.id} className={`track-heading track-heading-${column.id}`}>
+      {visibleColumns.map((column, index) => <span key={column.id} className={`track-heading track-heading-${column.id}${"fixed" in column ? "" : " is-movable"}${columnDragging === column.id ? " is-dragging" : ""}${columnDrop?.id === column.id ? (columnDrop.after ? " is-drop-after" : " is-drop-before") : ""}`}
+        draggable={!("fixed" in column)}
+        title={"fixed" in column ? undefined : "Drag to move this column; right-click to choose columns"}
+        onDragStart={(event) => { if ("fixed" in column) { event.preventDefault(); return; } event.dataTransfer.setData("text/x-opencrate-column", column.id); event.dataTransfer.effectAllowed = "move"; setColumnDragging(column.id); }}
+        onDragEnd={() => { setColumnDragging(null); setColumnDrop(null); }}
+        onDragOver={(event) => {
+          if (!columnDragging || "fixed" in column || columnDragging === column.id) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          const box = event.currentTarget.getBoundingClientRect();
+          setColumnDrop({ id: column.id, after: event.clientX > box.left + box.width / 2 });
+        }}
+        onDragLeave={() => setColumnDrop((current) => (current?.id === column.id ? null : current))}
+        onDrop={(event) => {
+          if (!columnDragging || "fixed" in column) return;
+          event.preventDefault();
+          const box = event.currentTarget.getBoundingClientRect();
+          placeColumn(columnDragging, column.id, event.clientX > box.left + box.width / 2);
+          setColumnDragging(null);
+          setColumnDrop(null);
+        }}
+        onKeyDown={(event) => {
+          if (!event.altKey || "fixed" in column || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          nudgeColumn(column.id, event.key === "ArrowRight" ? 1 : -1);
+        }}>
         {column.id === "number" ? heading("#", "recent", "Sort by recently added")
           : column.id === "title" ? <span className="heading-pair">{heading("Title", "title", "Sort by title")}<span aria-hidden="true"> / </span>{heading("Artist", "artist", "Sort by artist")}</span>
           : column.id === "bpm" ? heading("BPM", "bpm", "Sort by BPM")
           : column.id === "format" ? heading("Format", "format", "Sort by format")
           : column.id === "added" ? heading("Added", "recent", "Sort by date added")
-          : <span>{column.label}</span>}
+          : <span tabIndex={0} className="column-label">{column.label}</span>}
         {index < visibleColumns.length - 1 && <span className="col-resizer" role="separator" aria-orientation="vertical" aria-label={`Resize ${column.label}`} aria-valuemin={COLUMN_MIN} aria-valuemax={COLUMN_MAX} aria-valuenow={column.id === "title" ? widthOf(visibleColumns[index + 1]!.id) : widthOf(column.id)} tabIndex={0}
           onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); columnDrag.current = { id: column.id, startX: event.clientX, start: { ...columnPrefs.widths } }; }}
           onPointerMove={(event) => {
@@ -418,6 +480,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       })}
       <div className="column-menu-divider" />
       <button type="button" role="menuitem" onClick={() => { setColumnPrefs((before) => { const next = { ...before, widths: {} }; saveColumns(next); return next; }); setColumnMenu(null); }}>Reset column widths</button>
+      <button type="button" role="menuitem" onClick={() => { setColumnPrefs((before) => { const next = { ...before, order: [] }; saveColumns(next); return next; }); setColumnMenu(null); }}>Reset column order</button>
     </div>}
     {error && <div role="alert" className="inline-error">{error} <button onClick={() => setRetry((value) => value + 1)}>Try again</button></div>}
     {!pending && !error && page.total === 0 && (query.crateId !== null && !query.search && query.format === "all"

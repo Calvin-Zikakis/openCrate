@@ -3545,6 +3545,21 @@ test("tracks: columns are chosen and resized from the heading row, Added sits la
   expect(Math.abs((await bpm.boundingBox())!.width - before.bpm - 10)).toBeLessThanOrEqual(2);
   expect(Math.round(genreBefore - (await genre.boundingBox())!.width)).toBe(10);
   expect(JSON.parse(await page.evaluate(() => localStorage.getItem("opencrate.trackColumns") ?? "null"))).toMatchObject({ hidden: ["label", "release"] });
+  // Headings move by drag (and Alt+arrows); the order is remembered, and the first two stay put.
+  const labels = async () => header.locator(".track-heading").evaluateAll((items) => items.map((item) => item.textContent?.replace(/[▼▲]/g, "").trim()));
+  expect(await labels()).toEqual(["#", "Title / Artist", "Genre", "Year", "BPM", "Key", "Time", "Format", "Added"]);
+  const format = header.locator(".track-heading-format");
+  const genreBox = (await header.locator(".track-heading-genre").boundingBox())!;
+  await format.dragTo(header.locator(".track-heading-genre"), { targetPosition: { x: 4, y: genreBox.height / 2 } });
+  expect(await labels()).toEqual(["#", "Title / Artist", "Format", "Genre", "Year", "BPM", "Key", "Time", "Added"]);
+  await header.locator(".track-heading-key .column-label").focus();
+  await page.keyboard.press("Alt+ArrowRight");
+  expect(await labels()).toEqual(["#", "Title / Artist", "Format", "Genre", "Year", "BPM", "Time", "Key", "Added"]);
+  await page.reload();
+  expect(await labels()).toEqual(["#", "Title / Artist", "Format", "Genre", "Year", "BPM", "Time", "Key", "Added"]);
+  await header.click({ button: "right" });
+  await page.getByRole("menu", { name: "Columns" }).getByRole("menuitem", { name: "Reset column order" }).click();
+  expect(await labels()).toEqual(["#", "Title / Artist", "Genre", "Year", "BPM", "Key", "Time", "Format", "Added"]);
 
   // The filter: genre, a year range and a span of dates, sent with the query and counted on the pill.
   const filters = page.getByRole("group", { name: "Format filters" });

@@ -133,6 +133,13 @@ select { color: var(--secondary); font-size: 11px; background: var(--panel); bor
 .track-header .track-heading { position: relative; display: flex; align-items: center; min-width: 0; padding-right: 10px; }
 .track-header .track-heading > span:first-child, .track-header .track-heading > button:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-header .col-resizer { right: -6px; width: 10px; }
+/* Headings move by drag: a grab cursor, a faded one on the move, a line where it would land. */
+.track-header .track-heading.is-movable { cursor: grab; }
+.track-header .track-heading.is-dragging { opacity: .4; }
+.track-header .track-heading.is-drop-before::before, .track-header .track-heading.is-drop-after::after { content: ""; position: absolute; top: 4px; bottom: 4px; width: 2px; background: var(--accent); border-radius: 1px; }
+.track-header .track-heading.is-drop-before::before { left: -7px; }
+.track-header .track-heading.is-drop-after::after { right: -7px; }
+.track-header .column-label:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .track-genre, .track-label, .track-year, .track-added { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 10px; }
 .track-added { color: var(--faint); }
 .track-header { font-size: 10px; color: var(--faint); height: 34px; min-height: 34px; border-bottom: 1px solid rgb(var(--ink) / 0.063); margin-bottom: 8px; }
