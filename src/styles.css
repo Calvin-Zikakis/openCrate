@@ -825,3 +825,4 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .reorganize-grid td.plan-destination { white-space: normal; }
 .reorganize-grid .grid-action { width: 26px; height: 26px; }
 .reorganize-progress { display: flex; align-items: center; gap: 8px; }
+.sitting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; }

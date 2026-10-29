@@ -73,6 +73,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/025_import_batch.sql"),
     include_str!("schema/026_dismissed_release.sql"),
     include_str!("schema/027_reorganize.sql"),
+    include_str!("schema/028_reorganize_undone.sql"),
 ];
 
 #[derive(Debug, Error)]

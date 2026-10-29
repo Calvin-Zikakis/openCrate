@@ -935,22 +935,43 @@ impl LibraryService {
             .run(move |database| database.record_reorganize(session_id, &moves, now_ms()))?
     }
 
-    pub fn mark_reorganize_undone(&self, session_id: i64) -> Result<()> {
+    /// Moves of a sitting were put back; once every one is, the sitting is.
+    pub fn mark_reorganize_undone(&self, session_id: i64, move_ids: Vec<i64>) -> Result<()> {
         self.writer
-            .run(move |database| database.mark_reorganize_undone(session_id, now_ms()))?
+            .run(move |database| database.mark_reorganize_undone(session_id, &move_ids, now_ms()))?
     }
 
-    /// The newest Reorganize sitting.
-    pub fn last_reorganize(&self) -> Result<Option<crate::reorganize::ReorganizeSession>> {
-        crate::reorganize::last_session(self.pool.lease().connection())
+    /// The newest Reorganize sittings, newest first.
+    pub fn reorganize_sessions(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<crate::reorganize::ReorganizeSession>> {
+        crate::reorganize::sessions(self.pool.lease().connection(), limit)
+    }
+
+    /// One Reorganize sitting.
+    pub fn reorganize_session(
+        &self,
+        session_id: i64,
+    ) -> Result<Option<crate::reorganize::ReorganizeSession>> {
+        crate::reorganize::session(self.pool.lease().connection(), session_id)
     }
 
     /// A sitting's moves, newest first.
     pub fn reorganize_moves(
         &self,
         session_id: i64,
-    ) -> Result<Vec<crate::reorganize::ReorganizeMove>> {
+    ) -> Result<Vec<crate::reorganize::RecordedMove>> {
         crate::reorganize::session_moves(self.pool.lease().connection(), session_id)
+    }
+
+    /// Moves of later sittings, not put back, of one file.
+    pub fn later_reorganize_moves(
+        &self,
+        session_id: i64,
+        file_id: i64,
+    ) -> Result<Vec<crate::reorganize::RecordedMove>> {
+        crate::reorganize::later_moves(self.pool.lease().connection(), session_id, file_id)
     }
 
     /// Tracks whose tags lack something filing or finding them needs: an artist, title, album,

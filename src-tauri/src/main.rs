@@ -506,18 +506,18 @@ async fn library_reorganize_begin(state: State<'_, AppState>) -> Result<i64, Str
         .map_err(|error| error.to_string())?
 }
 
-/// The newest Reorganize sitting, put back or not.
+/// The newest Reorganize sittings, newest first, put back or not.
 #[tauri::command]
-async fn library_reorganize_last(
+async fn library_reorganize_sittings(
     state: State<'_, AppState>,
-) -> Result<Option<reorganize::SittingDto>, String> {
+) -> Result<Vec<reorganize::SittingDto>, String> {
     let service = state.library()?;
-    tauri::async_runtime::spawn_blocking(move || reorganize::last(&service))
+    tauri::async_runtime::spawn_blocking(move || reorganize::sittings(&service))
         .await
         .map_err(|error| error.to_string())?
 }
 
-/// Put the last sitting's files back where they were; rekordbox follows.
+/// Put a sitting's files back where they were; rekordbox follows. Any sitting, any order.
 #[tauri::command]
 async fn library_reorganize_undo(
     state: State<'_, AppState>,
@@ -1919,7 +1919,7 @@ fn main() -> Result<(), tauri::Error> {
             library_refile_plan,
             library_refile,
             library_reorganize_begin,
-            library_reorganize_last,
+            library_reorganize_sittings,
             library_reorganize_undo,
             library_thin_tracks,
             library_lookup_tracks,

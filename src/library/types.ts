@@ -510,8 +510,9 @@ export interface RefileMove { fileId: number; rootLabel: string; from: string; t
 export interface RefilePlan { layout: string; moves: RefileMove[]; skipped: { path: string; why: string }[]; inPlace: number }
 export interface Refiled { moved: number; relocated: number; left: string[] }
 
-/** One sitting of the Reorganize tool: its moves can be put back while it is the newest. */
-export interface ReorganizeSitting { id: number; startedMs: number; moves: number; undone: boolean }
+/** One sitting of the Reorganize tool (one press of Move). Any sitting can be put back, partly
+ * when a later sitting moved a file again; `undone` once every move is back. */
+export interface ReorganizeSitting { id: number; startedMs: number; moves: number; putBack: number; undone: boolean; /** The first few files it moved, by their new names. */ names: string[] }
 /** What putting a sitting back did. */
 export interface PutBack { putBack: number; relocated: number; left: string[] }
 /** One library track's lookup: the release it was matched to and what its tags would become. */
@@ -760,9 +761,9 @@ export interface LibraryAdmin {
   refile(fileIds: number[], session?: number | null): Promise<Refiled>;
   /** Start a Reorganize sitting; its id goes with each `refile` call of the sitting. */
   reorganizeBegin(): Promise<number>;
-  /** The newest sitting, put back or not; null before the first. */
-  reorganizeLast(): Promise<ReorganizeSitting | null>;
-  /** Put the last sitting's files back where they were; rekordbox follows. */
+  /** The newest sittings (up to 20), newest first, put back or not. */
+  reorganizeSittings(): Promise<ReorganizeSitting[]>;
+  /** Put a sitting's files back where they were, any sitting; rekordbox follows. */
   reorganizeUndo(session: number): Promise<PutBack>;
   /** Tracks whose tags lack a title, artist, album, genre, label or year; newest first. */
   thinTracks(limit: number): Promise<number[]>;

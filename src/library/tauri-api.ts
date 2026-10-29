@@ -914,12 +914,17 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
     refilePlan: async () => toRefilePlan(await invoke("library_refile_plan").catch((error: unknown) => { throw failure(error); })),
     refile: async (fileIds, session = null) => toRefiled(await invoke("library_refile", { fileIds, session }).catch((error: unknown) => { throw failure(error); })),
     reorganizeBegin: async () => whole(await invoke("library_reorganize_begin").catch((error: unknown) => { throw failure(error); }), "sitting"),
-    reorganizeLast: async () => {
-      const value: unknown = await invoke("library_reorganize_last").catch((error: unknown) => { throw failure(error); });
-      if (value === null || value === undefined) return null;
-      const what = "sitting";
-      if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
-      return { id: whole(value.id, what), startedMs: whole(value.startedMs, what), moves: whole(value.moves, what), undone: flag(value.undone, what) };
+    reorganizeSittings: async () => {
+      const value: unknown = await invoke("library_reorganize_sittings").catch((error: unknown) => { throw failure(error); });
+      const what = "list of sittings";
+      if (!Array.isArray(value)) throw new Error(`The library returned an unreadable ${what}.`);
+      return value.map((item: unknown) => {
+        if (!isRecord(item) || !Array.isArray(item.names)) throw new Error(`The library returned an unreadable ${what}.`);
+        return {
+          id: whole(item.id, what), startedMs: whole(item.startedMs, what), moves: whole(item.moves, what), putBack: whole(item.putBack, what), undone: flag(item.undone, what),
+          names: item.names.map((name) => text(name, what)),
+        };
+      });
     },
     reorganizeUndo: async (session) => {
       const value: unknown = await invoke("library_reorganize_undo", { session }).catch((error: unknown) => { throw failure(error); });

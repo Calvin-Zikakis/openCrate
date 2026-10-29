@@ -374,13 +374,15 @@ describe("reorganizing the library", () => {
   const manage = { canManageFolders: true, persistent: true };
 
   it("sends the sitting with each move and reads the sitting back", async () => {
-    const invoke = vi.fn().mockResolvedValueOnce({ moved: 2, relocated: 1, left: [] }).mockResolvedValueOnce(4).mockResolvedValueOnce({ id: 4, startedMs: 10, moves: 2, undone: false }).mockResolvedValueOnce(null).mockResolvedValueOnce({ putBack: 2, relocated: 1, left: ["a.aif is not where the sitting left it; it stays."] });
+    const sittings = [{ id: 4, startedMs: 10, moves: 2, putBack: 1, undone: false, names: ["01 - a.aif", "02 - b.aif"] }, { id: 3, startedMs: 5, moves: 1, putBack: 1, undone: true, names: ["c.aif"] }];
+    const invoke = vi.fn().mockResolvedValueOnce({ moved: 2, relocated: 1, left: [] }).mockResolvedValueOnce(4).mockResolvedValueOnce(sittings).mockResolvedValueOnce([{ id: 4 }]).mockResolvedValueOnce({ putBack: 2, relocated: 1, left: ["a.aif is not where the sitting left it; it stays."] });
     const admin = new TauriLibraryApi(invoke, manage).admin!;
     expect(await admin.refile([1, 2], 4)).toEqual({ moved: 2, relocated: 1, left: [] });
     expect(invoke).toHaveBeenLastCalledWith("library_refile", { fileIds: [1, 2], session: 4 });
     expect(await admin.reorganizeBegin()).toBe(4);
-    expect(await admin.reorganizeLast()).toEqual({ id: 4, startedMs: 10, moves: 2, undone: false });
-    expect(await admin.reorganizeLast()).toBeNull();
+    expect(await admin.reorganizeSittings()).toEqual(sittings);
+    expect(invoke).toHaveBeenLastCalledWith("library_reorganize_sittings");
+    await expect(admin.reorganizeSittings()).rejects.toThrow("unreadable");
     expect(await admin.reorganizeUndo(4)).toEqual({ putBack: 2, relocated: 1, left: ["a.aif is not where the sitting left it; it stays."] });
     expect(invoke).toHaveBeenLastCalledWith("library_reorganize_undo", { session: 4 });
   });

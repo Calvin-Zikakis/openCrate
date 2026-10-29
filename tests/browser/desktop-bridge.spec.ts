@@ -353,21 +353,39 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 skipped: [{ path: "Music: Unsorted/nobody.aif", why: "it has no artist or title in its tags" }],
               };
             }
-            case "library_refile":
-              (window as any).__refiled = [...((window as any).__refiled ?? []), ...(args?.fileIds ?? [])];
-              if (args?.session != null && (window as any).__sitting?.id === args.session) (window as any).__sitting.moves += (args?.fileIds ?? []).length;
+            case "library_refile": {
+              const w = window as any;
+              w.__refiled = [...(w.__refiled ?? []), ...(args?.fileIds ?? [])];
+              const sitting = (w.__sittings ?? []).find((item: any) => item.id === args?.session);
+              if (sitting) {
+                sitting.moves += (args?.fileIds ?? []).length;
+                sitting.files.push(...(args?.fileIds ?? []));
+                sitting.names = sitting.files.slice(0, 3).map((id: number) => (id === 1 ? "01 - Studio 001 - Night Drive.aif" : "02 - Studio 001 - Soft Focus.aif"));
+              }
               return { moved: (args?.fileIds ?? []).length, relocated: (args?.fileIds ?? []).includes(1) ? 1 : 0, left: [] };
-            case "library_reorganize_begin":
-              (window as any).__sitting = { id: ((window as any).__sitting?.id ?? 0) + 1, startedMs: 1_700_000_000_000, moves: 0, undone: false };
-              return (window as any).__sitting.id;
-            case "library_reorganize_last":
-              return (window as any).__sitting ?? null;
+            }
+            case "library_reorganize_begin": {
+              const w = window as any;
+              w.__sittings ??= [];
+              const id = w.__sittings.length + 1;
+              w.__sittings.unshift({ id, startedMs: 1_700_000_000_000 + id * 3_600_000, moves: 0, putBack: 0, undone: false, files: [], names: [] });
+              return id;
+            }
+            case "library_reorganize_sittings":
+              return ((window as any).__sittings ?? []).map(({ files: _files, ...item }: any) => item);
             case "library_reorganize_undo": {
-              const sitting = (window as any).__sitting;
-              if (!sitting || sitting.id !== args?.session) throw "Only the last sitting can be put back, and this is not it.";
-              sitting.undone = true;
-              (window as any).__refiled = [];
-              return { putBack: sitting.moves, relocated: 1, left: [] };
+              const w = window as any;
+              const sitting = (w.__sittings ?? []).find((item: any) => item.id === args?.session);
+              if (!sitting) throw "That sitting is not in the library's record.";
+              if (sitting.undone) throw "That sitting was put back already.";
+              // With __heldBack, one file waits for a later sitting the first time.
+              const going: number[] = w.__heldBack && sitting.putBack === 0 ? sitting.files.slice(1) : sitting.files.slice(sitting.putBack);
+              sitting.putBack += going.length;
+              sitting.undone = sitting.putBack === sitting.moves;
+              w.__refiled = (w.__refiled ?? []).filter((id: number) => !going.includes(id));
+              w.__undone = [...(w.__undone ?? []), args?.session];
+              const left = going.length < sitting.files.length - (sitting.putBack - going.length) ? ["Studio 001/Between Spaces/01 - Studio 001 - Night Drive.aif was moved again by a later sitting; put that one back first."] : [];
+              return { putBack: going.length, relocated: going.includes(1) ? 1 : 0, left };
             }
             case "library_thin_tracks":
               return [7, 8];
@@ -2440,7 +2458,7 @@ test("clean up: reorganize fills in tags with a lookup, moves files in a sitting
     { trackId: 8, changes: [{ field: "genre", value: "Techno" }] },
   ]);
 
-  // Moves: only rekordbox's files at first; the setting offers the rest. They go in one sitting.
+  // Moves: only rekordbox's files at first; the setting offers the rest. Each Move is a sitting.
   await card.getByRole("button", { name: "Check the folder layout" }).click();
   await expect(card).toContainText("3 files are already in place; 1 file is offered; 1 file rekordbox does not know is left out (see the settings above); 1 file cannot be placed from its tags.");
   const list = card.getByRole("list", { name: "Files to reorganize" });
@@ -2448,18 +2466,45 @@ test("clean up: reorganize fills in tags with a lookup, moves files in a sitting
   await card.getByRole("button", { name: "Reorganize settings" }).click();
   await card.getByRole("checkbox", { name: "Offer files rekordbox does not know about too" }).check();
   await expect(list.getByRole("listitem")).toHaveCount(2);
-  await card.getByRole("button", { name: "Move 2 files" }).click();
-  await expect(card.getByRole("status")).toHaveText("2 files were moved; rekordbox was told where 1 file went.");
+  await list.getByRole("checkbox", { name: "Unsorted/soft.aif" }).uncheck();
+  await card.getByRole("button", { name: "Move 1 file" }).click();
+  await expect(card.getByRole("status")).toHaveText("1 file was moved; rekordbox was told where 1 file went.");
+  await card.getByRole("button", { name: "Move 1 file" }).click();
+  await expect(card.getByRole("status")).toHaveText("1 file was moved.");
   expect(await page.evaluate(() => (window as any).__refiled)).toEqual([1, 2]);
   await expect(card).toContainText("5 files are already in place; 0 files are offered");
 
-  // Put back: asks first, then the sitting is spent.
-  await card.getByRole("button", { name: "Put back the last sitting (2 files)" }).click();
-  await card.getByRole("alertdialog", { name: "Put the last sitting back?" }).getByRole("button", { name: "Put them back" }).click();
-  await expect(card.getByRole("status")).toHaveText("2 files were put back; rekordbox was told where 1 file went.");
-  await expect(card).toContainText("was put back.");
-  await expect(card.getByRole("button", { name: /Put back the last sitting/ })).toHaveCount(0);
+  // Put back: every sitting is listed, newest first, and the older one goes back on its own.
+  const sittings = card.getByRole("list", { name: "Sittings" }).getByRole("listitem");
+  await expect(sittings).toHaveCount(2);
+  await expect(sittings.nth(0)).toContainText("moved 1 file");
+  // Each names its files, so two of the same minute can be told apart.
+  await expect(sittings.nth(0)).toContainText("02 - Studio 001 - Soft Focus.aif");
+  await expect(sittings.nth(1)).toContainText("01 - Studio 001 - Night Drive.aif");
+  await sittings.nth(1).getByRole("button", { name: "Put back 1 file" }).click();
+  await card.getByRole("alertdialog", { name: "Put this sitting back?" }).getByRole("button", { name: "Put them back" }).click();
+  await expect(card.getByRole("status")).toHaveText("1 file was put back; rekordbox was told where 1 file went.");
+  expect(await page.evaluate(() => (window as any).__undone)).toEqual([1]);
+  await expect(sittings.nth(1)).toContainText("moved 1 file, all put back");
+  await expect(sittings.nth(1).getByRole("button")).toHaveCount(0);
+  await expect(sittings.nth(0).getByRole("button", { name: "Put back 1 file" })).toBeVisible();
+  await expect(list.getByRole("listitem")).toHaveCount(1);
+  await sittings.nth(0).getByRole("button", { name: "Put back 1 file" }).click();
+  await card.getByRole("alertdialog", { name: "Put this sitting back?" }).getByRole("button", { name: "Put them back" }).click();
+  await expect(card.getByRole("status")).toHaveText("1 file was put back.");
   await expect(list.getByRole("listitem")).toHaveCount(2);
+
+  // A sitting a later one holds a file of goes back partly, says why, and can be finished.
+  await page.evaluate(() => { (window as any).__heldBack = true; });
+  await card.getByRole("button", { name: "Move 2 files" }).click();
+  await expect(sittings).toHaveCount(3);
+  await sittings.nth(0).getByRole("button", { name: "Put back 2 files" }).click();
+  await card.getByRole("alertdialog", { name: "Put this sitting back?" }).getByRole("button", { name: "Put them back" }).click();
+  await expect(card.getByRole("status")).toContainText("1 file was put back. Studio 001/Between Spaces/01 - Studio 001 - Night Drive.aif was moved again by a later sitting; put that one back first.");
+  await expect(sittings.nth(0)).toContainText("moved 2 files, 1 put back");
+  await sittings.nth(0).getByRole("button", { name: "Put back the other 1 file" }).click();
+  await card.getByRole("alertdialog", { name: "Put this sitting back?" }).getByRole("button", { name: "Put them back" }).click();
+  await expect(sittings.nth(0)).toContainText("moved 2 files, all put back");
   // The setting is remembered.
   await page.reload();
   await page.getByRole("button", { name: "Clean up" }).click();

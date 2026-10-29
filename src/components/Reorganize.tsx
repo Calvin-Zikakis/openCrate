@@ -63,6 +63,8 @@ const LOOKUP_CHUNK = 8;
 const MOVE_CHUNK = 50;
 /** Rows drawn at first. */
 const DRAWN = 200;
+/** Sittings the host lists, newest first. */
+const SITTINGS_SHOWN = 20;
 
 interface Row {
   tags: TrackTags;
@@ -107,8 +109,9 @@ export function Reorganize({ admin, onChanged }: Props) {
   const [rowsShown, setRowsShown] = useState(DRAWN);
   const [plan, setPlan] = useState<RefilePlan | null>(null);
   const [unticked, setUnticked] = useState<Set<number>>(new Set());
-  const [sitting, setSitting] = useState<ReorganizeSitting | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [sittings, setSittings] = useState<ReorganizeSitting[] | null>(null);
+  /** The sitting whose Put back is asking first. */
+  const [confirming, setConfirming] = useState<number | null>(null);
   const [busy, setBusy] = useState<"tags" | "looking" | "applying" | "checking" | "moving" | "undoing" | null>(null);
   const [progress, setProgress] = useState("");
   const [note, setNote] = useState("");
@@ -119,7 +122,7 @@ export function Reorganize({ admin, onChanged }: Props) {
 
   const loadSitting = useCallback(async () => {
     try {
-      setSitting(await admin.reorganizeLast());
+      setSittings(await admin.reorganizeSittings());
     } catch (reason) {
       setError(message(reason));
     }
@@ -282,13 +285,12 @@ export function Reorganize({ admin, onChanged }: Props) {
       }
     }
   };
-  const putBack = async () => {
-    if (!sitting) return;
-    setConfirming(false);
+  const putBack = async (sitting: ReorganizeSitting) => {
+    setConfirming(null);
     begin("undoing");
     try {
       const done = await admin.reorganizeUndo(sitting.id);
-      setNote(`${plural(done.putBack, "file was", "files were")} put back${done.relocated > 0 ? `; rekordbox was told where ${plural(done.relocated, "file", "files")} went` : ""}.${done.left.length > 0 ? ` ${done.left.join(" ")}` : ""}`);
+      setNote(`${done.putBack === 0 ? "No file was put back" : `${plural(done.putBack, "file was", "files were")} put back`}${done.relocated > 0 ? `; rekordbox was told where ${plural(done.relocated, "file", "files")} went` : ""}.${done.left.length > 0 ? ` ${done.left.join(" ")}` : ""}`);
       onChanged();
       await loadSitting();
       if (plan) setPlan(await admin.refilePlan());
@@ -309,7 +311,7 @@ export function Reorganize({ admin, onChanged }: Props) {
     <p className="settings-copy">For a library that grew without a plan: fill in the tags, then move the files into the folder layout from Settings, and tell rekordbox where they went. It moves your files. Read the warnings before you start.</p>
     {!folded && <>
       <ul className="check-list reorganize-warnings" aria-label="Before you start">
-        <li>Back up your music and your rekordbox library first. The last sitting can be put back from here; nothing older can.</li>
+        <li>Back up your music and your rekordbox library first. The last {SITTINGS_SHOWN} sittings are listed below and each can be put back; a backup covers everything else.</li>
         <li>Close rekordbox and turn on reading and writing its library in Settings. Files rekordbox uses are moved only when it can be told.</li>
         <li>Other software keeps its own paths. Serato, Traktor, playlists saved as M3U files and anything else that remembers where a file is will not follow the moves.</li>
         <li>Everything happens on this computer's view of the folders. A music folder on a network drive should be mounted the way rekordbox sees it.</li>
@@ -399,22 +401,30 @@ export function Reorganize({ admin, onChanged }: Props) {
       <div className="reorganize-step">
         <h3>{settings.skipTags ? "2. Put back" : "3. Put back"}</h3>
         {said("undo")}
-        {sitting === null
-          ? <p className="settings-copy">No sitting yet. After a sitting, its moves can be put back here until the next sitting starts.</p>
-          : sitting.undone
-            ? <p className="settings-copy">{`The last sitting, ${when(sitting.startedMs)}, was put back.`}</p>
-            : sitting.moves === 0
-              ? <p className="settings-copy">{`The last sitting, ${when(sitting.startedMs)}, moved nothing.`}</p>
-              : <>
-                <p className="settings-copy">{`The last sitting, ${when(sitting.startedMs)}, moved ${plural(sitting.moves, "file", "files")}. Putting it back moves each file to where it was, newest move first, and tells rekordbox. A file moved since by hand stays.`}</p>
-                {confirming
-                  ? <div className="crate-confirm" role="alertdialog" aria-label="Put the last sitting back?">
-                    <span>{`Put ${plural(sitting.moves, "file", "files")} back where ${sitting.moves === 1 ? "it was" : "they were"}?`}</span>
-                    <button className="link-button" onClick={() => void putBack()}>Put them back</button>
-                    <button className="link-button" autoFocus onClick={() => setConfirming(false)}>Cancel</button>
+        {sittings === null || sittings.length === 0
+          ? <p className="settings-copy">No sitting yet. Each press of Move is a sitting, and its moves can be put back here.</p>
+          : <>
+            <p className="settings-copy">Putting a sitting back moves each of its files to where it was, newest move first, and tells rekordbox. Any sitting can go back, in any order. A file a later sitting moved again stays until that sitting is put back, so going newest first undoes everything; a sitting left partly put back can be finished later. A file moved since by hand stays.</p>
+            <ul className="folder-list" aria-label="Sittings">{sittings.map((sitting) => {
+              const left = sitting.moves - sitting.putBack;
+              const state = sitting.moves === 0 ? "moved nothing"
+                : sitting.undone ? `moved ${plural(sitting.moves, "file", "files")}, all put back`
+                  : sitting.putBack > 0 ? `moved ${plural(sitting.moves, "file", "files")}, ${sitting.putBack} put back`
+                    : `moved ${plural(sitting.moves, "file", "files")}`;
+              const more = sitting.moves - sitting.names.length;
+              const files = sitting.names.length === 0 ? "" : `${sitting.names.join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
+              return <li key={sitting.id} className="merge-row sitting-row" aria-label={`Sitting of ${when(sitting.startedMs)}`}>
+                <span className="folder-text"><strong>{when(sitting.startedMs)}</strong><small>{state}</small>{files && <small title={files}>{files}</small>}</span>
+                {!sitting.undone && left > 0 && (confirming === sitting.id
+                  ? <div className="crate-confirm" role="alertdialog" aria-label="Put this sitting back?">
+                    <span>{`Put ${plural(left, "file", "files")} back where ${left === 1 ? "it was" : "they were"}?`}</span>
+                    <button className="link-button" onClick={() => void putBack(sitting)}>Put them back</button>
+                    <button className="link-button" autoFocus onClick={() => setConfirming(null)}>Cancel</button>
                   </div>
-                  : <button className="secondary-button" disabled={busy !== null} onClick={() => setConfirming(true)}>{busy === "undoing" ? "Putting back..." : `Put back the last sitting (${plural(sitting.moves, "file", "files")})`}</button>}
-              </>}
+                  : <button className="secondary-button" disabled={busy !== null} onClick={() => setConfirming(sitting.id)}>{sitting.putBack > 0 ? `Put back the other ${plural(left, "file", "files")}` : `Put back ${plural(left, "file", "files")}`}</button>)}
+              </li>;
+            })}</ul>
+          </>}
       </div>
     </>}
   </section>;
