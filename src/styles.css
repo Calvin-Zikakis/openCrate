@@ -626,6 +626,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .crate-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 8px 0 12px; }
 .crate-tool { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; align-content: start; }
 .crate-tool h3 { margin: 0; font-size: 12px; }
+.crate-tool .send-row { font-size: 12px; color: var(--secondary); gap: 8px; }
+.crate-tool .send-row input { width: 14px; height: 14px; }
 .crate-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--secondary); }
 .crate-pick select { width: 150px; color: var(--text); background: var(--raised); border: 1px solid var(--line); font-size: 12px; }
 .comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
