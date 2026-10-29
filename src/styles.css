@@ -470,9 +470,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .sidebar-lists .playlist-tree { flex: none; min-height: auto; overflow: visible; }
 .sidebar > * { flex-shrink: 0; }
 .sidebar > .sidebar-lists { flex-shrink: 1; }
-.crate-list .crate-item { width: 100%; }
-.crate-list .crate-item small { margin-left: auto; font-size: 10px; color: var(--faint); }
+/* The same row as the playlist tree: a 14 px slot (here the crate icon), the name, a plain count. */
+.crate-list .crate-item { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 5px 12px 5px 8px; border-radius: 6px; font-size: 12px; color: var(--secondary); }
+.crate-list .crate-item:hover { color: var(--text); }
+.crate-list .crate-item svg { flex: none; width: 14px; color: var(--secondary); }
+.crate-list .crate-item .tree-count { margin-left: auto; padding-left: 6px; font-size: 10px; font-variant-numeric: tabular-nums; color: var(--faint); }
 .crate-list .crate-item[aria-current="true"] { color: var(--accent-text); background: var(--raised); }
+.crate-list .crate-item[aria-current="true"] svg { color: var(--accent-text); }
 .crate-head .nav-caption { margin-bottom: 0; }
 .crate-head { margin-bottom: 8px; padding-right: 6px; }
 .sidebar { position: relative; }

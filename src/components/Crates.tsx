@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { carriesTracks, draggedTracks, setDraggedCrate } from "../library/drag";
 import type { CrateInfo, LibraryAdmin } from "../library/types";
+import { Icon } from "./Icon";
 import { PLAIN_TEXT } from "./plainText";
 import { inWindow } from "./menuPlace";
 
@@ -167,7 +168,7 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
             void drop(crate, trackIds);
           }}
         >
-          <span className="truncate">{crate.name}</span><small>{crate.tracks}</small>
+          <Icon name="crate" size={13} /><span className="truncate">{crate.name}</span><small className="tree-count">{crate.tracks === 0 ? "" : crate.tracks}</small>
         </button>}
         {confirming?.id === crate.id && <div className="crate-confirm" role="alertdialog" aria-label={`Delete ${crate.name}?`} onKeyDown={(event) => { if (event.key === "Escape") setConfirming(null); }}>
           <span>Delete {crate.name}? The tracks stay in your library.</span>
