@@ -445,7 +445,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .column-check { width: 12px; color: var(--accent); }
 .column-menu-divider { height: 1px; margin: 4px 2px; background: var(--line); }
 .crate-list { margin: 18px 0 0; }
-.crate-head { display: flex; align-items: center; justify-content: space-between; }
+.crate-head { display: flex; align-items: center; gap: 2px; }
+.crate-head .nav-caption { margin-left: 0; margin-right: auto; }
+/* The arrow that folds a sidebar section to its caption: down when open, right when folded. */
+.playlist-tree .section-fold, .playlist-note .section-fold, .crate-list .section-fold { flex: none; width: 20px; height: 20px; margin-left: 2px; padding: 0; justify-content: center; border-radius: 5px; color: var(--faint); }
+.section-fold svg { transform: rotate(-90deg); transition: transform .15s; }
+.section-fold[aria-expanded="false"] svg { transform: rotate(180deg); }
+.section-fold:hover, .section-fold:focus-visible { color: var(--text); background: var(--hover); }
+.crate-head .caption-button { flex: 1; }
 .crate-add { width: 24px; height: 24px; font-size: 16px; line-height: 1; }
 .playlist-tree .crate-add, .playlist-note .crate-add { width: 24px; padding: 0; justify-content: center; font-size: 16px; color: var(--secondary); }
 .crate-list ul { list-style: none; margin: 4px 0 0; padding: 0; }
@@ -606,11 +613,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 }
 
 /* PLAYLISTS in the sidebar opens the playlist browser; it keeps the caption's look. */
-.playlist-tree .caption-button, .playlist-note .caption-button { display: inline-block; width: auto; padding: 0; border-radius: 0; font-size: 10px; letter-spacing: 1.8px; font-weight: 700; color: var(--faint); text-align: left; }
-.playlist-tree .caption-button:hover, .playlist-note .caption-button:hover, .playlist-tree .caption-button[aria-current="page"] { color: var(--accent); background: none; }
+.crate-list .caption-button, .playlist-tree .caption-button, .playlist-note .caption-button { display: inline-block; width: auto; padding: 0; border-radius: 0; font-size: 10px; letter-spacing: 1.8px; font-weight: 700; color: var(--faint); text-align: left; }
+.crate-list .caption-button:hover, .playlist-tree .caption-button:hover, .playlist-note .caption-button:hover, .crate-list .caption-button[aria-current="page"], .playlist-tree .caption-button[aria-current="page"] { color: var(--accent); background: none; }
 
 /* The playlist browser: rekordbox's tree a folder at a time, as cards. */
 .playlist-browser { display: flex; flex-direction: column; min-height: 0; }
+.browser-trail-row { display: flex; align-items: center; gap: 14px; margin: 0 0 16px; }
+.browser-trail-row .browser-trail { margin: 0; }
+.browser-back { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px 4px 4px; border-radius: 6px; font-size: 12px; color: var(--secondary); }
+.browser-back:hover { color: var(--text); background: var(--hover); }
 .browser-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .browser-actions .secondary-button { display: inline-flex; align-items: center; gap: 6px; }
 .browser-name { max-width: 360px; margin: 0 0 12px; }

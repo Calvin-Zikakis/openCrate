@@ -55,7 +55,16 @@ function useCanWrite(admin: LibraryAdmin, version: number) {
 }
 const CANNOT_WRITE = "Needs writing to rekordbox on in Settings";
 
+/** Whether a sidebar section is folded to its caption, as the owner left it. */
+export function loadFold(key: string): boolean {
+  try { return localStorage.getItem(key) === "true"; } catch { return false; }
+}
+export function saveFold(key: string, folded: boolean) {
+  try { localStorage.setItem(key, String(folded)); } catch { /* applied for now, not remembered */ }
+}
+
 export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrowse, browsing = false, askFirst = true, onStopAsking }: Props) {
+  const [folded, setFolded] = useState(() => loadFold("opencrate.playlistsFolded"));
   const [rows, setRows] = useState<PlaylistInfo[]>([]);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [failed, setFailed] = useState(false);
@@ -231,6 +240,7 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
 
   const caption = <>
     <div className="crate-head">
+      <button className="icon-button section-fold" aria-expanded={!folded} aria-label={folded ? "Show the playlists" : "Hide the playlists"} title={folded ? "Show the playlists" : "Hide the playlists"} onClick={() => { setFolded(!folded); saveFold("opencrate.playlistsFolded", !folded); }}><Icon name="back" size={12} /></button>
       {onBrowse
         ? <button className={`nav-caption caption-button${over === -1 ? " is-drop-target" : ""}`} aria-current={browsing ? "page" : undefined} title="Show every folder and playlist" onClick={onBrowse} onContextMenu={(event) => openMenu(event, null)} onKeyDown={menuKeys(null)} {...crateTarget(null)}>PLAYLISTS</button>
         : <div className={`nav-caption${over === -1 ? " is-drop-target" : ""}`} onContextMenu={(event) => openMenu(event, null)} {...crateTarget(null)}>PLAYLISTS</div>}
@@ -305,8 +315,8 @@ export function Playlists({ admin, version, activeId, onOpen, onChanged, onBrows
       </button>
     </li>);
   return <nav className="playlist-tree" aria-label="Playlists" onContextMenu={(event) => openMenu(event, null)}>
-    {caption}<ul>{render(startOf(rows), 0)}</ul>
-    {footer}
+    {caption}{!folded && <ul>{render(startOf(rows), 0)}</ul>}
+    {!folded && footer}
   </nav>;
 }
 
@@ -375,10 +385,13 @@ export function PlaylistBrowser({ admin, version, folderId, onFolder, onOpen, on
       <div><h1>Playlists</h1></div>
       <div className="browser-actions">{newButton("playlist")}{newButton("folder")}</div>
     </div>
+    <div className="browser-trail-row">
+    {current && <button className="back-link browser-back" onClick={() => onFolder(current.parentId === start ? null : current.parentId)}><Icon name="back" size={14} />{`Back to ${trail.length > 1 ? trail[trail.length - 2]!.name : "rekordbox"}`}</button>}
     <nav className="browser-trail" aria-label="Folder path">
       <button className="link-button" aria-current={current ? undefined : "page"} onClick={() => onFolder(null)}>rekordbox</button>
       {trail.map((folder) => <span key={folder.id}><span aria-hidden="true"> / </span><button className="link-button" aria-current={folder.id === current?.id ? "page" : undefined} onClick={() => onFolder(folder.id)}>{folder.name}</button></span>)}
     </nav>
+    </div>
     {naming && <input {...PLAIN_TEXT}
       className="crate-name-input browser-name"
       aria-label={`New ${naming.kind} ${where}`}

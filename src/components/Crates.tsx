@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { carriesTracks, draggedTracks, setDraggedCrate } from "../library/drag";
 import type { CrateInfo, LibraryAdmin } from "../library/types";
 import { Icon } from "./Icon";
+import { loadFold, saveFold } from "./Playlists";
 import { PLAIN_TEXT } from "./plainText";
 import { inWindow } from "./menuPlace";
 
@@ -14,17 +15,21 @@ interface Props {
   version: number;
   activeId: number | null;
   onOpen: (crate: CrateInfo) => void;
-  /** Tracks were added to a crate. */
+  /** Crates changed: tracks were added, or a crate was made, renamed or deleted. */
   onChanged: () => void;
   onRenamed: (crate: CrateInfo) => void;
   onDeleted: (crateId: number) => void;
+  /** Opens every crate as cards in the main area. */
+  onBrowse?: () => void;
+  browsing?: boolean;
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 
 /** The owner's own crates, kept by openCrate only. Drop tracks on a crate to add them. */
-export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed, onDeleted }: Props) {
+export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed, onDeleted, onBrowse, browsing = false }: Props) {
   const [crates, setCrates] = useState<CrateInfo[]>([]);
+  const [folded, setFolded] = useState(() => loadFold("opencrate.cratesFolded"));
   const [naming, setNaming] = useState<{ id: number | null; name: string } | null>(null);
   /** The menu for a crate, or (crate null) for making one. */
   const [menu, setMenu] = useState<{ crate: CrateInfo | null; x: number; y: number } | null>(null);
@@ -77,10 +82,13 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
       if (id === null) {
         const made = await admin.createCrate(name);
         await load();
+        // The app keeps its own list (the crates page, the Import destination): it reads again.
+        onChanged();
         onOpen(made);
       } else {
         await admin.renameCrate(id, name);
         await load();
+        onChanged();
         const renamed = crates.find((crate) => crate.id === id);
         if (renamed) onRenamed({ ...renamed, name: name.trim() });
       }
@@ -94,6 +102,7 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
     try {
       await admin.deleteCrate(crate.id);
       await load();
+      onChanged();
       onDeleted(crate.id);
     } catch (reason) {
       setError(message(reason));
@@ -132,11 +141,14 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
 
   return <nav className="crate-list" aria-label="Crates" onContextMenu={newMenu}>
     <div className="crate-head">
-      <div className="nav-caption">CRATES</div>
-      <button className="icon-button crate-add" aria-label="New crate" title="New crate" onClick={() => { setNaming({ id: null, name: "" }); setError(""); }}>+</button>
+      <button className="icon-button section-fold" aria-expanded={!folded} aria-label={folded ? "Show the crates" : "Hide the crates"} title={folded ? "Show the crates" : "Hide the crates"} onClick={() => { setFolded(!folded); saveFold("opencrate.cratesFolded", !folded); }}><Icon name="back" size={12} /></button>
+      {onBrowse
+        ? <button className="nav-caption caption-button" aria-current={browsing ? "page" : undefined} title="Show every crate" onClick={onBrowse}>CRATES</button>
+        : <div className="nav-caption">CRATES</div>}
+      <button className="icon-button crate-add" aria-label="New crate" title="New crate" onClick={() => { setFolded(false); setNaming({ id: null, name: "" }); setError(""); }}>+</button>
     </div>
-    {crates.length === 0 && !naming && <p className="crate-empty">Make a crate, then drag tracks onto it. Crates stay in openCrate; rekordbox is not changed.</p>}
-    <ul>
+    {!folded && crates.length === 0 && !naming && <p className="crate-empty">Make a crate, then drag tracks onto it. Crates stay in openCrate; rekordbox is not changed.</p>}
+    {!folded && <ul>
       {crates.map((crate) => <li key={crate.id}>
         {naming?.id === crate.id ? nameInput(`Rename ${crate.name}`) : <button
           className={`tree-playlist crate-item${over === crate.id ? " is-drop-target" : ""}`}
@@ -178,7 +190,7 @@ export function Crates({ admin, version, activeId, onOpen, onChanged, onRenamed,
         </div>}
       </li>)}
       {naming?.id === null && <li>{nameInput("New crate name")}</li>}
-    </ul>
+    </ul>}
     {note && <p className="crate-note" role="status">{note}</p>}
     {error && <p className="crate-error" role="alert">{error}</p>}
     {menu && <div ref={menuRef} className="column-menu" role="menu" aria-label={menu.crate ? `${menu.crate.name} actions` : "New crate"} style={inWindow(menu.x, menu.y)}>

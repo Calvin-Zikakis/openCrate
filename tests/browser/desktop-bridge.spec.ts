@@ -2880,7 +2880,7 @@ test("playlists: PLAYLISTS opens a browser of folders and playlists, a folder at
   await page.goto("/");
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await page.getByRole("button", { name: "Choose export..." }).click();
-  await page.getByRole("complementary").getByRole("button", { name: "PLAYLISTS" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "PLAYLISTS", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Playlists" })).toBeVisible();
   const grid = page.getByRole("list", { name: "Playlists and folders" });
   await expect(grid.getByRole("button")).toHaveText(["Sets1 item", "Closers12 of 12 in your library"]);
@@ -2906,7 +2906,7 @@ test("playlists: the browser makes a playlist or folder in the folder it shows",
   await page.goto("/");
   await page.getByRole("button", { name: "rekordbox", exact: true }).click();
   await page.getByRole("button", { name: "Choose export..." }).click();
-  await page.getByRole("complementary").getByRole("button", { name: "PLAYLISTS" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "PLAYLISTS", exact: true }).click();
   const main = page.locator(".playlist-browser");
   // Escape gives up without writing.
   await main.getByRole("button", { name: "New playlist" }).click();
@@ -3438,4 +3438,34 @@ test("crates: a question to remove tracks goes with its crate, and never acts on
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
   await expect(page.getByTestId("track-row")).toHaveCount(2);
   expect((await calls(page)).filter((call) => call.command === "library_remove_from_crate")).toEqual([]);
+});
+
+test("sidebar: crates and playlists fold to their captions and stay folded; CRATES opens every crate as cards", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const sidebar = page.getByRole("complementary");
+  const crates = sidebar.getByRole("navigation", { name: "Crates" });
+  await crates.getByRole("button", { name: "New crate" }).click();
+  await crates.getByLabel("New crate name").fill("Warm-up");
+  await crates.getByLabel("New crate name").press("Enter");
+  await expect(crates.getByRole("button", { name: /^Warm-up/ })).toBeVisible();
+  // Fold the crates: the list goes, the caption and + stay, and it is remembered.
+  await crates.getByRole("button", { name: "Hide the crates" }).click();
+  await expect(crates.getByRole("button", { name: /^Warm-up/ })).toHaveCount(0);
+  await expect(crates.getByRole("button", { name: "New crate" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("opencrate.cratesFolded"))).toBe("true");
+  await crates.getByRole("button", { name: "Show the crates" }).click();
+  await expect(crates.getByRole("button", { name: /^Warm-up/ })).toBeVisible();
+  await sidebar.getByRole("button", { name: "Hide the playlists" }).click();
+  expect(await page.evaluate(() => localStorage.getItem("opencrate.playlistsFolded"))).toBe("true");
+  await expect(sidebar.getByRole("button", { name: "Show the playlists" })).toBeVisible();
+  // The CRATES caption opens the crates as cards; a card opens the crate.
+  await crates.getByRole("button", { name: "CRATES", exact: true }).click();
+  const browser = page.getByRole("region", { name: "Crates" });
+  await expect(browser.getByRole("heading", { name: "Crates" })).toBeVisible();
+  await expect(browser.locator(".browser-grid")).toContainText("Warm-up");
+  await expect(browser.locator(".browser-grid")).toContainText("Empty");
+  await browser.getByRole("button", { name: /^Warm-up/ }).click();
+  await expect(page.getByRole("heading", { name: "Warm-up" })).toBeVisible();
+  await expect(page.locator(".library-hero .eyebrow")).toHaveText("CRATE");
 });
