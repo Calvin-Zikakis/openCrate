@@ -355,7 +355,29 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
             }
             case "library_refile":
               (window as any).__refiled = [...((window as any).__refiled ?? []), ...(args?.fileIds ?? [])];
-              return { moved: (args?.fileIds ?? []).length, relocated: 0, left: [] };
+              if (args?.session != null && (window as any).__sitting?.id === args.session) (window as any).__sitting.moves += (args?.fileIds ?? []).length;
+              return { moved: (args?.fileIds ?? []).length, relocated: (args?.fileIds ?? []).includes(1) ? 1 : 0, left: [] };
+            case "library_reorganize_begin":
+              (window as any).__sitting = { id: ((window as any).__sitting?.id ?? 0) + 1, startedMs: 1_700_000_000_000, moves: 0, undone: false };
+              return (window as any).__sitting.id;
+            case "library_reorganize_last":
+              return (window as any).__sitting ?? null;
+            case "library_reorganize_undo": {
+              const sitting = (window as any).__sitting;
+              if (!sitting || sitting.id !== args?.session) throw "Only the last sitting can be put back, and this is not it.";
+              sitting.undone = true;
+              (window as any).__refiled = [];
+              return { putBack: sitting.moves, relocated: 1, left: [] };
+            }
+            case "library_thin_tracks":
+              return [7, 8];
+            case "library_lookup_tracks":
+              (window as any).__lookedUp = [...((window as any).__lookedUp ?? []), ...(args?.trackIds ?? [])];
+              return ((args?.trackIds ?? []) as number[]).map((id) => (id === 7 ? {
+                trackId: 7, matchedBy: "title", note: null,
+                found: { source: "MusicBrainz", title: "Backend Release", artist: "Backend Artist", year: 2020, label: "Test Label", genre: null, tracks: 2, url: "https://musicbrainz.org/release/0b1d" },
+                changes: [{ field: "Label", from: null, to: "Test Label" }, { field: "Year", from: "2019", to: "2020" }],
+              } : { trackId: id, matchedBy: null, found: null, changes: [], note: "MusicBrainz has no match for a track \"08 - RUST TRACK 0008\" by Backend Artist closely enough." }));
             case "library_track_covers":
               return { state: (args?.trackIds ?? []).length > 1 ? "mixed" : "same", folderImage: true };
             case "library_pick_cover":
@@ -2375,6 +2397,65 @@ test("clean up: music filed another way is moved by the folder layout, only what
   await expect(card.getByRole("status")).toHaveText("1 file was moved.");
   expect(await page.evaluate(() => (window as any).__refiled)).toEqual([2]);
   await expect(list.getByRole("listitem")).toHaveCount(1);
+});
+
+test("clean up: reorganize fills in tags with a lookup, moves files in a sitting, and puts the sitting back", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Clean up" }).click();
+  const card = page.getByRole("region", { name: "Reorganize library (experimental)" });
+  await expect(card).toContainText("It moves your files.");
+  await expect(card.getByRole("list", { name: "Before you start" })).toHaveCount(0);
+  await card.getByRole("button", { name: "Show the tool" }).click();
+  await expect(card.getByRole("list", { name: "Before you start" })).toContainText("Serato, Traktor, playlists saved as M3U files");
+  await expect(card).toContainText("No sitting yet.");
+
+  // Tags: two thin tracks; the lookup fills in track 7's label and year, which are then written.
+  await card.getByRole("button", { name: "Read tags" }).click();
+  const grid = card.getByRole("table", { name: "Tracks to tag" });
+  await expect(grid.getByRole("row")).toHaveCount(3);
+  await expect(grid.getByLabel("Label of track 7")).toHaveValue("");
+  await card.getByRole("button", { name: "Look up all 2" }).click();
+  await expect(card.getByRole("status")).toHaveText("2 tracks were looked up. Suggestions are marked; type over any you do not want, then apply.");
+  await expect(grid.getByLabel("Label of track 7")).toHaveValue("Test Label");
+  await expect(grid.getByLabel("Year of track 7")).toHaveValue("2020");
+  await expect(grid).toContainText("MusicBrainz: Backend Release by Backend Artist, matched by title");
+  await expect(grid).toContainText("MusicBrainz has no match");
+  expect(await page.evaluate(() => (window as any).__lookedUp)).toEqual([7, 8]);
+  await grid.getByLabel("Genre of track 8").fill("Techno");
+  await grid.getByLabel("Genre of track 8").press("Enter");
+  await card.getByRole("button", { name: "Apply changes to 2 tracks" }).click();
+  await expect(card.getByRole("status")).toHaveText("2 files were written.");
+  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([
+    { trackId: 7, changes: [{ field: "label", value: "Test Label" }, { field: "year", value: "2020" }] },
+    { trackId: 8, changes: [{ field: "genre", value: "Techno" }] },
+  ]);
+
+  // Moves: only rekordbox's files at first; the setting offers the rest. They go in one sitting.
+  await card.getByRole("button", { name: "Check the folder layout" }).click();
+  await expect(card).toContainText("3 files are already in place; 1 file is offered; 1 file rekordbox does not know is left out (see the settings above); 1 file cannot be placed from its tags.");
+  const list = card.getByRole("list", { name: "Files to reorganize" });
+  await expect(list.getByRole("listitem")).toHaveCount(1);
+  await card.getByRole("button", { name: "Reorganize settings" }).click();
+  await card.getByRole("checkbox", { name: "Offer files rekordbox does not know about too" }).check();
+  await expect(list.getByRole("listitem")).toHaveCount(2);
+  await card.getByRole("button", { name: "Move 2 files" }).click();
+  await expect(card.getByRole("status")).toHaveText("2 files were moved; rekordbox was told where 1 file went.");
+  expect(await page.evaluate(() => (window as any).__refiled)).toEqual([1, 2]);
+  await expect(card).toContainText("5 files are already in place; 0 files are offered");
+
+  // Put back: asks first, then the sitting is spent.
+  await card.getByRole("button", { name: "Put back the last sitting (2 files)" }).click();
+  await card.getByRole("alertdialog", { name: "Put the last sitting back?" }).getByRole("button", { name: "Put them back" }).click();
+  await expect(card.getByRole("status")).toHaveText("2 files were put back; rekordbox was told where 1 file went.");
+  await expect(card).toContainText("was put back.");
+  await expect(card.getByRole("button", { name: /Put back the last sitting/ })).toHaveCount(0);
+  await expect(list.getByRole("listitem")).toHaveCount(2);
+  // The setting is remembered.
+  await page.reload();
+  await page.getByRole("button", { name: "Clean up" }).click();
+  await expect(card.getByRole("list", { name: "Before you start" })).toBeVisible();
+  await expect(card).toContainText("Files rekordbox does not know are offered too.");
 });
 
 test("clean up: a change that cannot be put back can be forgotten, so earlier ones can be undone", async ({ page }) => {

@@ -10,6 +10,7 @@ import {
   type LibraryAdmin,
   type LibraryApi,
   type LibraryItem,
+  type TrackLookup,
   type LibraryPage,
   type LibraryQuery,
   type EditedTracks,
@@ -588,6 +589,20 @@ function toRelinked(value: unknown): Relinked {
   return { relinked: whole(value.relinked, what), relocated: whole(value.relocated, what), left: value.left.map((item) => text(item, what)) };
 }
 
+function toTrackLookup(value: unknown): TrackLookup {
+  const bad = () => new Error("The library returned an unreadable lookup.");
+  if (!isRecord(value) || !Array.isArray(value.changes)) throw bad();
+  const maybe = (field: unknown) => (field === null || field === undefined ? null : text(field, "lookup"));
+  const found = toLookup({ found: value.found ?? null, files: [], note: null }).found;
+  return {
+    trackId: whole(value.trackId, "lookup"), found, matchedBy: maybe(value.matchedBy), note: maybe(value.note),
+    changes: value.changes.map((change: unknown) => {
+      if (!isRecord(change)) throw bad();
+      return { field: text(change.field, "lookup"), from: maybe(change.from), to: text(change.to, "lookup") };
+    }),
+  };
+}
+
 function toRefilePlan(value: unknown): RefilePlan {
   const what = "re-file plan";
   if (!isRecord(value) || !Array.isArray(value.moves) || !Array.isArray(value.skipped)) throw new Error(`The library returned an unreadable ${what}.`);
@@ -897,7 +912,31 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
       return { state: value.state as TrackCovers["state"], folderImage: flag(value.folderImage, "covers") };
     },
     refilePlan: async () => toRefilePlan(await invoke("library_refile_plan").catch((error: unknown) => { throw failure(error); })),
-    refile: async (fileIds) => toRefiled(await invoke("library_refile", { fileIds }).catch((error: unknown) => { throw failure(error); })),
+    refile: async (fileIds, session = null) => toRefiled(await invoke("library_refile", { fileIds, session }).catch((error: unknown) => { throw failure(error); })),
+    reorganizeBegin: async () => whole(await invoke("library_reorganize_begin").catch((error: unknown) => { throw failure(error); }), "sitting"),
+    reorganizeLast: async () => {
+      const value: unknown = await invoke("library_reorganize_last").catch((error: unknown) => { throw failure(error); });
+      if (value === null || value === undefined) return null;
+      const what = "sitting";
+      if (!isRecord(value)) throw new Error(`The library returned an unreadable ${what}.`);
+      return { id: whole(value.id, what), startedMs: whole(value.startedMs, what), moves: whole(value.moves, what), undone: flag(value.undone, what) };
+    },
+    reorganizeUndo: async (session) => {
+      const value: unknown = await invoke("library_reorganize_undo", { session }).catch((error: unknown) => { throw failure(error); });
+      const what = "put back";
+      if (!isRecord(value) || !Array.isArray(value.left)) throw new Error(`The library returned an unreadable ${what}.`);
+      return { putBack: whole(value.putBack, what), relocated: whole(value.relocated, what), left: value.left.map((item) => text(item, what)) };
+    },
+    thinTracks: async (limit) => {
+      const value: unknown = await invoke("library_thin_tracks", { limit }).catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(value)) throw new Error("The library returned an unreadable list of tracks.");
+      return value.map((id) => whole(id, "tracks"));
+    },
+    lookupTracks: async (trackIds) => {
+      const value: unknown = await invoke("library_lookup_tracks", { trackIds }).catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(value)) throw new Error("The library returned an unreadable lookup.");
+      return value.map(toTrackLookup);
+    },
     movedFiles: async () => toMovedFiles(await invoke("library_moved_files").catch((error: unknown) => { throw failure(error); })),
     relink: async (pairs) => toRelinked(await invoke("library_relink", { pairs }).catch((error: unknown) => { throw failure(error); })),
     relinkChosen: async (missing) => {

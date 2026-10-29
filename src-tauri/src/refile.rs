@@ -266,6 +266,7 @@ pub fn refile(
     service: &LibraryService,
     probe: &Probe,
     file_ids: &[i64],
+    session: Option<i64>,
 ) -> Result<RefiledDto, String> {
     let reading = rekordbox_db::status(service, probe)?;
     if !reading.enabled || reading.needs_confirmation {
@@ -301,7 +302,7 @@ pub fn refile(
         }
     }
     for (root_id, plans) in by_root {
-        match refile_root(service, probe, root_id, plans, &mut done) {
+        match refile_root(service, probe, root_id, plans, session, &mut done) {
             Ok(()) => {}
             // Files of an earlier folder moved: say so with the error, rather than fail as if
             // nothing happened.
@@ -328,6 +329,7 @@ fn refile_root(
     probe: &rekordbox_db::Probe,
     root_id: i64,
     plans: Vec<Planned>,
+    session: Option<i64>,
     done: &mut RefiledDto,
 ) -> Result<(), String> {
     let failed = |error: oc_core_db::Error| error.to_string();
@@ -335,7 +337,13 @@ fn refile_root(
         let root = plans[0].root.clone();
         let mut renamed = HashMap::new();
         let mut planned_moves = Vec::new();
+        // Where each file was, inside the folder, for the sitting's record.
+        let mut origins: HashMap<i64, (String, String)> = HashMap::new();
         for plan in plans {
+            origins.insert(
+                plan.item.file_id,
+                (plan.item.from.clone(), plan.item.to.clone()),
+            );
             let Some((_, from)) = service.file_location(plan.item.file_id).map_err(failed)? else {
                 done.left
                     .push(format!("{} cannot be reached.", plan.item.from));
@@ -392,6 +400,23 @@ fn refile_root(
                     .collect(),
             )
             .map_err(failed)?;
+        if let Some(session) = session {
+            let records = moved
+                .iter()
+                .filter_map(|item| {
+                    let (from, to) = origins.get(&item.file_id)?;
+                    Some(oc_core_db::reorganize::ReorganizeMove {
+                        file_id: item.file_id,
+                        root_id,
+                        from_raw: from.as_bytes().to_vec(),
+                        to_raw: to.as_bytes().to_vec(),
+                    })
+                })
+                .collect();
+            service
+                .record_reorganize(session, records)
+                .map_err(failed)?;
+        }
         service
             .scan_root(root_id, &ScanOptions::default())
             .map_err(failed)?;

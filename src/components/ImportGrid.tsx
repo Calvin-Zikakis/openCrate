@@ -76,7 +76,7 @@ function Value({ of }: { of: TagField | undefined }) {
 }
 
 /** Moves focus to the same column one row up or down, skipping rows without that cell. */
-function moveFocus(from: HTMLInputElement, step: 1 | -1) {
+export function moveFocus(from: HTMLInputElement, step: 1 | -1) {
   const column = from.dataset.column;
   let row = from.closest("tr")?.[step === 1 ? "nextElementSibling" : "previousElementSibling"];
   while (row) {
@@ -86,7 +86,7 @@ function moveFocus(from: HTMLInputElement, step: 1 | -1) {
   }
 }
 
-interface CellProps {
+export interface CellProps {
   column: GridColumn;
   label: string;
   value: string;
@@ -105,7 +105,7 @@ interface CellProps {
 /** One value the owner can type over. The text is theirs while the cell has focus; otherwise it
  * follows what the host last said. Enter keeps the value and moves down a row; Escape puts the
  * old value back. */
-function EditableCell({ column, label, value, source, placeholder, note, disabled = false, onCommit, onMenu, list }: CellProps) {
+export function EditableCell({ column, label, value, source, placeholder, note, disabled = false, onCommit, onMenu, list }: CellProps) {
   const [text, setText] = useState(value);
   const [focused, setFocused] = useState(false);
   /** Set by Escape: the blur that follows must not keep what was typed. */

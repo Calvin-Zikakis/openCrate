@@ -15,6 +15,7 @@ pub mod moved;
 pub mod offers;
 pub mod publish_store;
 mod recovery;
+pub mod reorganize;
 pub mod roots;
 pub mod scan;
 pub mod service;
@@ -71,6 +72,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/024_file_by_size.sql"),
     include_str!("schema/025_import_batch.sql"),
     include_str!("schema/026_dismissed_release.sql"),
+    include_str!("schema/027_reorganize.sql"),
 ];
 
 #[derive(Debug, Error)]

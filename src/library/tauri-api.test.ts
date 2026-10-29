@@ -370,6 +370,45 @@ describe("managing folders", () => {
   });
 });
 
+describe("reorganizing the library", () => {
+  const manage = { canManageFolders: true, persistent: true };
+
+  it("sends the sitting with each move and reads the sitting back", async () => {
+    const invoke = vi.fn().mockResolvedValueOnce({ moved: 2, relocated: 1, left: [] }).mockResolvedValueOnce(4).mockResolvedValueOnce({ id: 4, startedMs: 10, moves: 2, undone: false }).mockResolvedValueOnce(null).mockResolvedValueOnce({ putBack: 2, relocated: 1, left: ["a.aif is not where the sitting left it; it stays."] });
+    const admin = new TauriLibraryApi(invoke, manage).admin!;
+    expect(await admin.refile([1, 2], 4)).toEqual({ moved: 2, relocated: 1, left: [] });
+    expect(invoke).toHaveBeenLastCalledWith("library_refile", { fileIds: [1, 2], session: 4 });
+    expect(await admin.reorganizeBegin()).toBe(4);
+    expect(await admin.reorganizeLast()).toEqual({ id: 4, startedMs: 10, moves: 2, undone: false });
+    expect(await admin.reorganizeLast()).toBeNull();
+    expect(await admin.reorganizeUndo(4)).toEqual({ putBack: 2, relocated: 1, left: ["a.aif is not where the sitting left it; it stays."] });
+    expect(invoke).toHaveBeenLastCalledWith("library_reorganize_undo", { session: 4 });
+  });
+
+  it("sends a move without a sitting as none", async () => {
+    const invoke = vi.fn().mockResolvedValue({ moved: 1, relocated: 0, left: [] });
+    await new TauriLibraryApi(invoke, manage).admin!.refile([3]);
+    expect(invoke).toHaveBeenLastCalledWith("library_refile", { fileIds: [3], session: null });
+  });
+
+  it("reads thin tracks and per-track lookups, and rejects unreadable ones", async () => {
+    const lookup = {
+      trackId: 7, matchedBy: "title", note: null,
+      found: { source: "MusicBrainz", title: "Between Spaces", artist: "Studio 001", year: 2019, label: "Test Label", genre: null, tracks: 2, url: "https://musicbrainz.org/release/0b1d" },
+      changes: [{ field: "Label", from: null, to: "Test Label" }],
+    };
+    const invoke = vi.fn().mockResolvedValueOnce([7, 8]).mockResolvedValueOnce([lookup, { trackId: 8, matchedBy: null, found: null, changes: [], note: "Nothing close." }]).mockResolvedValueOnce([{ trackId: 9 }]);
+    const admin = new TauriLibraryApi(invoke, manage).admin!;
+    expect(await admin.thinTracks(500)).toEqual([7, 8]);
+    expect(invoke).toHaveBeenLastCalledWith("library_thin_tracks", { limit: 500 });
+    expect(await admin.lookupTracks([7, 8])).toEqual([
+      { trackId: 7, matchedBy: "title", note: null, found: { ...lookup.found }, changes: [{ field: "Label", from: null, to: "Test Label" }] },
+      { trackId: 8, matchedBy: null, found: null, changes: [], note: "Nothing close." },
+    ]);
+    await expect(admin.lookupTracks([9])).rejects.toThrow("unreadable");
+  });
+});
+
 describe("rekordbox sync", () => {
   const counts = { matched: 8977, unmapped: 31, notIndexed: 0, ambiguous: 0, unrecognized: 0, playlists: 135, unresolvedReferences: 2 };
   const mirror = {

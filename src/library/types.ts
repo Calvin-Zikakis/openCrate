@@ -510,6 +510,19 @@ export interface RefileMove { fileId: number; rootLabel: string; from: string; t
 export interface RefilePlan { layout: string; moves: RefileMove[]; skipped: { path: string; why: string }[]; inPlace: number }
 export interface Refiled { moved: number; relocated: number; left: string[] }
 
+/** One sitting of the Reorganize tool: its moves can be put back while it is the newest. */
+export interface ReorganizeSitting { id: number; startedMs: number; moves: number; undone: boolean }
+/** What putting a sitting back did. */
+export interface PutBack { putBack: number; relocated: number; left: string[] }
+/** One library track's lookup: the release it was matched to and what its tags would become. */
+export interface TrackLookup {
+  trackId: number;
+  found: ReleaseLookup["found"];
+  matchedBy: string | null;
+  changes: { field: string; from: string | null; to: string }[];
+  note: string | null;
+}
+
 export type ExportFormat = "m3u8" | "csv";
 export interface Exported { path: string; tracks: number; withoutFile: number }
 
@@ -742,8 +755,19 @@ export interface LibraryAdmin {
   restoreMissing(pairs: [number, string][]): Promise<Restored>;
   /** Files whose place by the folder layout differs from where they are. Reads every file's tags. */
   refilePlan(): Promise<RefilePlan>;
-  /** Move the chosen files to their places by the layout; rekordbox follows the ones it uses. */
-  refile(fileIds: number[]): Promise<Refiled>;
+  /** Move the chosen files to their places by the layout; rekordbox follows the ones it uses.
+   * With a sitting, each move is written down so the sitting can be put back. */
+  refile(fileIds: number[], session?: number | null): Promise<Refiled>;
+  /** Start a Reorganize sitting; its id goes with each `refile` call of the sitting. */
+  reorganizeBegin(): Promise<number>;
+  /** The newest sitting, put back or not; null before the first. */
+  reorganizeLast(): Promise<ReorganizeSitting | null>;
+  /** Put the last sitting's files back where they were; rekordbox follows. */
+  reorganizeUndo(session: number): Promise<PutBack>;
+  /** Tracks whose tags lack a title, artist, album, genre, label or year; newest first. */
+  thinTracks(limit: number): Promise<number[]>;
+  /** Look up library tracks on MusicBrainz (and Discogs with a token). Nothing is written. */
+  lookupTracks(trackIds: number[]): Promise<TrackLookup[]>;
   /** Pick a cover image with the system picker and hold it until `setTracksArt(…, "picked")`; false when cancelled. */
   pickCover(): Promise<boolean>;
   setTracksArt(trackIds: number[], art: TrackArt): Promise<ArtChanged>;

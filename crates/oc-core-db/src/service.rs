@@ -919,6 +919,52 @@ impl LibraryService {
             .run(move |database| database.add_to_crate(crate_id, &track_ids, now_ms()))?
     }
 
+    /// Start a Reorganize sitting; its id goes on every move made in it.
+    pub fn begin_reorganize(&self) -> Result<i64> {
+        self.writer
+            .run(move |database| database.begin_reorganize(now_ms()))?
+    }
+
+    /// Write down moves a sitting made.
+    pub fn record_reorganize(
+        &self,
+        session_id: i64,
+        moves: Vec<crate::reorganize::ReorganizeMove>,
+    ) -> Result<()> {
+        self.writer
+            .run(move |database| database.record_reorganize(session_id, &moves, now_ms()))?
+    }
+
+    pub fn mark_reorganize_undone(&self, session_id: i64) -> Result<()> {
+        self.writer
+            .run(move |database| database.mark_reorganize_undone(session_id, now_ms()))?
+    }
+
+    /// The newest Reorganize sitting.
+    pub fn last_reorganize(&self) -> Result<Option<crate::reorganize::ReorganizeSession>> {
+        crate::reorganize::last_session(self.pool.lease().connection())
+    }
+
+    /// A sitting's moves, newest first.
+    pub fn reorganize_moves(
+        &self,
+        session_id: i64,
+    ) -> Result<Vec<crate::reorganize::ReorganizeMove>> {
+        crate::reorganize::session_moves(self.pool.lease().connection(), session_id)
+    }
+
+    /// Tracks whose tags lack something filing or finding them needs: an artist, title, album,
+    /// genre, year or label. Newest first, at most `limit`.
+    pub fn thin_tracks(&self, limit: usize) -> Result<Vec<i64>> {
+        let lease = self.pool.lease();
+        let mut statement = lease.connection().prepare(
+            "SELECT t.id FROM track t JOIN artist a ON a.id = t.artist_id              JOIN release r ON r.id = t.release_id              WHERE EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id                            AND f.presence = 'present' AND f.lifecycle = 'active')              AND (t.title = '' OR a.name = '' OR r.title = '' OR t.genre = '' OR t.year IS NULL                   OR t.label = '')              ORDER BY t.added_ms DESC, t.id DESC LIMIT ?1",
+        )?;
+        let rows =
+            statement.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Remember files just filed under a music folder (components below it), so Recently
     /// imported can show them and the import can be followed into a crate or playlist.
     pub fn record_import(

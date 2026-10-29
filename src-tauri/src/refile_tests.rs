@@ -137,11 +137,17 @@ fn files_are_refiled_by_the_layout_only_when_chosen_and_rekordbox_follows() {
     let track = setup.service.track_of_file(night.file_id).unwrap();
 
     // Reading rekordbox is off: nothing moves.
-    let error = refile(&setup.service, &setup.probe, &[night.file_id]).unwrap_err();
+    let error = refile(&setup.service, &setup.probe, &[night.file_id], None).unwrap_err();
     assert!(error.contains("reading rekordbox"), "{error}");
     rekordbox_db::set_enabled(&setup.service, &setup.probe, true).unwrap();
     // rekordbox uses Night Drive and writing is off: nothing moves.
-    let error = refile(&setup.service, &setup.probe, &[night.file_id, soft.file_id]).unwrap_err();
+    let error = refile(
+        &setup.service,
+        &setup.probe,
+        &[night.file_id, soft.file_id],
+        None,
+    )
+    .unwrap_err();
     assert!(
         error.contains("rekordbox uses some of these files"),
         "{error}"
@@ -149,7 +155,7 @@ fn files_are_refiled_by_the_layout_only_when_chosen_and_rekordbox_follows() {
     assert!(setup.music.join(NIGHT).is_file());
 
     // Soft Focus alone is not used by rekordbox; its emptied folders go.
-    let done = refile(&setup.service, &setup.probe, &[soft.file_id]).unwrap();
+    let done = refile(&setup.service, &setup.probe, &[soft.file_id], None).unwrap();
     assert_eq!((done.moved, done.relocated), (1, 0), "{:?}", done.left);
     assert!(setup.music.join(&soft.to).is_file());
     assert!(!setup.music.join("Unsorted/Deeper").exists());
@@ -159,7 +165,7 @@ fn files_are_refiled_by_the_layout_only_when_chosen_and_rekordbox_follows() {
     );
 
     crate::rekordbox_write::set_enabled(&setup.service, &setup.probe, true).unwrap();
-    let done = refile(&setup.service, &setup.probe, &[night.file_id]).unwrap();
+    let done = refile(&setup.service, &setup.probe, &[night.file_id], None).unwrap();
     assert_eq!((done.moved, done.relocated), (1, 1), "{:?}", done.left);
     let now = setup.music.join(&night.to);
     assert!(now.is_file());
@@ -206,4 +212,91 @@ fn two_files_bound_for_one_place_or_a_taken_place_are_left() {
         .map(|item| item.why.as_str())
         .collect();
     assert_eq!(why, ["another file would go to the same place"; 2]);
+}
+
+#[test]
+fn a_sitting_records_its_moves_and_puts_them_back_with_rekordbox_following() {
+    use crate::reorganize::{begin, last, undo_sitting};
+    let setup = setup();
+    rekordbox_db::set_enabled(&setup.service, &setup.probe, true).unwrap();
+    crate::rekordbox_write::set_enabled(&setup.service, &setup.probe, true).unwrap();
+    assert_eq!(last(&setup.service).unwrap(), None);
+    let plan = refile_plan(&setup.service).unwrap();
+    let ids: Vec<i64> = plan.moves.iter().map(|item| item.file_id).collect();
+    let night = plan
+        .moves
+        .iter()
+        .find(|item| item.from == NIGHT)
+        .unwrap()
+        .clone();
+    let soft = plan
+        .moves
+        .iter()
+        .find(|item| item.from != NIGHT)
+        .unwrap()
+        .clone();
+
+    let sitting = begin(&setup.service).unwrap();
+    let done = refile(&setup.service, &setup.probe, &ids, Some(sitting)).unwrap();
+    assert_eq!((done.moved, done.relocated), (2, 1), "{:?}", done.left);
+    let recorded = last(&setup.service).unwrap().unwrap();
+    assert_eq!(
+        (recorded.id, recorded.moves, recorded.undone),
+        (sitting, 2, false)
+    );
+    assert!(!setup.music.join(NIGHT).exists());
+
+    // Only the last sitting can be put back, and only once.
+    assert!(undo_sitting(&setup.service, &setup.probe, sitting + 1).is_err());
+    let undone = undo_sitting(&setup.service, &setup.probe, sitting).unwrap();
+    assert_eq!(
+        (undone.put_back, undone.relocated),
+        (2, 1),
+        "{:?}",
+        undone.left
+    );
+    assert!(setup.music.join(NIGHT).is_file());
+    assert!(setup.music.join("Unsorted/Deeper/soft.aif").is_file());
+    assert!(!setup.music.join(&night.to).exists());
+    assert!(!setup.music.join(&soft.to).exists());
+    assert_eq!(
+        stored_path(&setup),
+        setup.music.join(NIGHT).to_string_lossy().replace('\\', "/"),
+        "rekordbox points at the old place again"
+    );
+    assert!(last(&setup.service).unwrap().unwrap().undone);
+    let error = undo_sitting(&setup.service, &setup.probe, sitting).unwrap_err();
+    assert!(error.contains("already"), "{error}");
+    // The library knows the files at their old places: the plan offers the same moves again.
+    let plan = refile_plan(&setup.service).unwrap();
+    assert_eq!(plan.moves.len(), 2, "{:?}", plan.moves);
+}
+
+#[test]
+fn a_file_moved_elsewhere_since_the_sitting_stays_where_it_is() {
+    use crate::reorganize::{begin, undo_sitting};
+    let setup = setup();
+    rekordbox_db::set_enabled(&setup.service, &setup.probe, true).unwrap();
+    let plan = refile_plan(&setup.service).unwrap();
+    let soft = plan
+        .moves
+        .iter()
+        .find(|item| item.from != NIGHT)
+        .unwrap()
+        .clone();
+    let sitting = begin(&setup.service).unwrap();
+    refile(&setup.service, &setup.probe, &[soft.file_id], Some(sitting)).unwrap();
+    // Someone moves it again by hand, and the library catches up.
+    let elsewhere = setup.music.join("Elsewhere/soft.aif");
+    fs::create_dir_all(elsewhere.parent().unwrap()).unwrap();
+    fs::rename(setup.music.join(&soft.to), &elsewhere).unwrap();
+    let root = setup.service.roots().unwrap()[0].root.id;
+    setup
+        .service
+        .scan_root(root, &ScanOptions::default())
+        .unwrap();
+    let undone = undo_sitting(&setup.service, &setup.probe, sitting).unwrap();
+    assert_eq!(undone.put_back, 0);
+    assert_eq!(undone.left.len(), 1, "{:?}", undone.left);
+    assert!(elsewhere.is_file());
 }

@@ -3,6 +3,7 @@ import { onlyCasing, proposeFixes, type ProposedFix } from "../library/cleanup";
 import type { CrateComparison, CrateInfo, EditBatch, FolderSearch, Genres, LibraryAdmin, MissingArt, MovedFiles, RefilePlan, Relinked, Sort } from "../library/types";
 import { Icon } from "./Icon";
 import { PLAIN_TEXT } from "./plainText";
+import { Reorganize } from "./Reorganize";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
@@ -69,6 +70,7 @@ export function CleanUp({ admin, onChanged }: Props) {
     <ArtCard admin={admin} onChanged={changed} />
     <CratesCard admin={admin} onChanged={changed} />
     <RefileCard admin={admin} onChanged={onChanged} />
+    <Reorganize admin={admin} onChanged={changed} />
   </div>;
 }
 

@@ -453,6 +453,16 @@ pub fn lookup_release(
 ) -> Result<LookupDto, String> {
     let plan = plan_release(service, folder_id, name, root_id, options)?;
     let files = facts_of(&plan);
+    lookup_files(service, lookups, &files)
+}
+
+/// The lookup itself, from what the files say. Used by the import page's releases and by the
+/// Reorganize tool's library tracks.
+pub fn lookup_files(
+    service: &LibraryService,
+    lookups: &Lookups,
+    files: &[FileFacts],
+) -> Result<LookupDto, String> {
     let artist = most_common(files.iter().map(|file| {
         file.tags
             .album_artist
@@ -460,7 +470,7 @@ pub fn lookup_release(
             .or(file.tags.artist.as_ref())
     }));
     let album = most_common(files.iter().map(|file| file.tags.album.as_ref()));
-    let tracks = track_queries(&files);
+    let tracks = track_queries(files);
     let Some(artist) = artist else {
         return Ok(nothing(
             "A release is looked up by its artist and album name, or a track by its artist and \
@@ -519,16 +529,16 @@ pub fn lookup_release(
             if let Some(token) = token {
                 // The style is a nicety: a Discogs failure leaves MusicBrainz's answer as it is.
                 if let Ok(Some(more)) =
-                    discogs_find(&lookups.discogs, &token, &artist, &album_text, &files)
+                    discogs_find(&lookups.discogs, &token, &artist, &album_text, files)
                 {
                     release.genre = more.genre;
                 }
             }
-            Ok(compare("MusicBrainz", &release, &files))
+            Ok(compare("MusicBrainz", &release, files))
         }
         (Ok(None) | Err(_), Some(token)) => {
-            match discogs_find(&lookups.discogs, &token, &artist, &album_text, &files)? {
-                Some(release) => Ok(compare("Discogs", &release, &files)),
+            match discogs_find(&lookups.discogs, &token, &artist, &album_text, files)? {
+                Some(release) => Ok(compare("Discogs", &release, files)),
                 None => Ok(nothing(format!(
                     "Neither MusicBrainz nor Discogs has {asked} closely enough."
                 ))),
@@ -540,6 +550,101 @@ pub fn lookup_release(
         ))),
         (Err(error), None) => Err(error),
     }
+}
+
+/// One library track's lookup, for the Reorganize tool's tag step.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackLookupDto {
+    pub track_id: i64,
+    pub found: Option<FoundDto>,
+    pub matched_by: Option<&'static str>,
+    pub changes: Vec<ChangeDto>,
+    pub note: Option<String>,
+}
+
+/// Look up library tracks. Tracks with the same album artist (or artist) and album are asked
+/// about together, as one release; the rest one by one.
+pub fn lookup_tracks(
+    service: &LibraryService,
+    lookups: &Lookups,
+    track_ids: &[i64],
+) -> Result<Vec<TrackLookupDto>, String> {
+    let failed = |error: oc_core_db::Error| error.to_string();
+    let mut groups: Vec<(String, Vec<(i64, FileFacts)>)> = Vec::new();
+    for &track_id in track_ids {
+        let files = service.track_files(track_id).map_err(failed)?;
+        let Some((_, path)) = files.first() else {
+            continue;
+        };
+        let read =
+            oc_tag::read_file(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let facts = FileFacts {
+            source: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            tags: read.tags,
+            duration_ms: read.audio.duration_ms,
+        };
+        let artist = facts
+            .tags
+            .album_artist
+            .as_deref()
+            .or(facts.tags.artist.as_deref())
+            .unwrap_or_default()
+            .to_lowercase();
+        let album = facts
+            .tags
+            .album
+            .as_deref()
+            .unwrap_or_default()
+            .to_lowercase();
+        // A track without an album stands on its own.
+        let key = if album.is_empty() {
+            format!("{track_id}")
+        } else {
+            format!("{artist}\n{album}")
+        };
+        match groups.iter_mut().find(|(group, _)| *group == key) {
+            Some((_, members)) => members.push((track_id, facts)),
+            None => groups.push((key, vec![(track_id, facts)])),
+        }
+    }
+    let mut found = Vec::with_capacity(track_ids.len());
+    for (_, members) in groups {
+        let files: Vec<FileFacts> = members.iter().map(|(_, facts)| facts.clone()).collect();
+        let result = lookup_files(service, lookups, &files)?;
+        for (index, (track_id, _)) in members.into_iter().enumerate() {
+            let file = result.files.get(index);
+            found.push(TrackLookupDto {
+                track_id,
+                found: result.found.as_ref().map(|release| FoundDto {
+                    source: release.source,
+                    title: release.title.clone(),
+                    artist: release.artist.clone(),
+                    year: release.year,
+                    label: release.label.clone(),
+                    tracks: release.tracks,
+                    url: release.url.clone(),
+                    genre: release.genre.clone(),
+                }),
+                matched_by: file.and_then(|file| file.matched_by),
+                changes: file.map_or_else(Vec::new, |file| {
+                    file.changes
+                        .iter()
+                        .map(|change| ChangeDto {
+                            field: change.field,
+                            from: change.from.clone(),
+                            to: change.to.clone(),
+                        })
+                        .collect()
+                }),
+                note: result.note.clone(),
+            });
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(test)]

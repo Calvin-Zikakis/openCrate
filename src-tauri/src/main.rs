@@ -37,6 +37,7 @@ mod rekordbox_send;
 mod rekordbox_write;
 #[cfg(test)]
 mod rekordbox_write_tests;
+mod reorganize;
 mod sync;
 mod tagview;
 mod waves;
@@ -474,16 +475,83 @@ async fn library_refile_plan(state: State<'_, AppState>) -> Result<refile::Refil
 }
 
 /// Move the chosen files to their places by the folder layout; rekordbox follows the ones it uses.
+/// With a sitting, each move is recorded so the sitting can be put back.
 #[tauri::command]
 async fn library_refile(
     state: State<'_, AppState>,
     file_ids: Vec<i64>,
+    session: Option<i64>,
 ) -> Result<refile::RefiledDto, String> {
     let service = state.library()?;
     let hold = state.scan.hold_files("filing by the folder layout")?;
     tauri::async_runtime::spawn_blocking(move || {
         let _hold = hold;
-        refile::refile(&service, &rekordbox_db::Probe::installed(), &file_ids)
+        refile::refile(
+            &service,
+            &rekordbox_db::Probe::installed(),
+            &file_ids,
+            session,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Start a Reorganize sitting; its id goes with each `library_refile` call of the sitting.
+#[tauri::command]
+async fn library_reorganize_begin(state: State<'_, AppState>) -> Result<i64, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || reorganize::begin(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// The newest Reorganize sitting, put back or not.
+#[tauri::command]
+async fn library_reorganize_last(
+    state: State<'_, AppState>,
+) -> Result<Option<reorganize::SittingDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || reorganize::last(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Put the last sitting's files back where they were; rekordbox follows.
+#[tauri::command]
+async fn library_reorganize_undo(
+    state: State<'_, AppState>,
+    session: i64,
+) -> Result<reorganize::UndoneDto, String> {
+    let service = state.library()?;
+    let hold = state.scan.hold_files("putting files back")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _hold = hold;
+        reorganize::undo_sitting(&service, &rekordbox_db::Probe::installed(), session)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Tracks whose tags lack a title, artist, album, genre, label or year; newest first.
+#[tauri::command]
+async fn library_thin_tracks(state: State<'_, AppState>, limit: usize) -> Result<Vec<i64>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || reorganize::thin_tracks(&service, limit))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Look up library tracks on MusicBrainz (and Discogs with a token); nothing is written.
+#[tauri::command]
+async fn library_lookup_tracks(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+) -> Result<Vec<lookup::TrackLookupDto>, String> {
+    let service = state.library()?;
+    let client = Arc::clone(&state.lookups);
+    tauri::async_runtime::spawn_blocking(move || {
+        lookup::lookup_tracks(&service, &client, &track_ids)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -1850,6 +1918,11 @@ fn main() -> Result<(), tauri::Error> {
             library_moved_files,
             library_refile_plan,
             library_refile,
+            library_reorganize_begin,
+            library_reorganize_last,
+            library_reorganize_undo,
+            library_thin_tracks,
+            library_lookup_tracks,
             library_relink,
             library_relink_chosen,
             library_find_missing_in_folder,
