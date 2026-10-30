@@ -423,9 +423,9 @@ The browser tests need Playwright's browsers once:
 that need it pass without checking anything. The screenshot above comes from `scripts/screenshots/take.mjs`, run
 against `npm run preview`.
 
-On GitHub, the Rust checks (Windows and macOS) and the frontend checks (Linux) run for a pull request into `main`,
-or when started by hand; pushes start nothing. The Installers workflow runs only by hand. To save Actions minutes,
-run the checks locally before you push.
+On GitHub, the Rust checks (macOS) and the frontend checks (Linux) run for a pull request into `main`. The Rust
+checks also run on Windows when a release is published or when started by hand. Pushes start nothing, and the
+Installers workflow runs only by hand. Run the checks locally before you push.
 
 ### Rules for changes
 
