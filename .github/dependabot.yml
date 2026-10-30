@@ -6,11 +6,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    # The vendored rbxport crates declare their own workspace. Dependabot
-    # expands its "crates/*" members against the wrong base and then fails,
-    # and those crates stay as they are upstream in any case.
+    # The vendored rbxport tree declares a workspace of its own, and Dependabot
+    # expands its "crates/*" members against the wrong base and fails. Only that
+    # file is skipped: the crates under it are path dependencies of this
+    # workspace, so their manifests must stay visible for anything to resolve.
     exclude-paths:
-      - "vendor/**"
+      - "vendor/rbxport/Cargo.toml"
     groups:
       cargo:
         patterns: ["*"]
