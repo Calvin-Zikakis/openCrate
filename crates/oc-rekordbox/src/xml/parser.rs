@@ -64,7 +64,13 @@ pub(super) fn read(reader: impl BufRead, limits: Limits) -> Result<Collection, E
         if reader.buffer_position() > limits.input_bytes {
             return Err(Error::Limit("input bytes"));
         }
-        match event? {
+        // quick-xml decodes names and text itself, so bytes that are not UTF-8 surface here as
+        // its encoding error rather than as a syntax fault.
+        let event = event.map_err(|error| match error {
+            quick_xml::Error::Encoding(_) => Error::Encoding,
+            other => Error::Syntax(other),
+        })?;
+        match event {
             Event::Start(element) => parser.start(&element)?,
             Event::Empty(element) => {
                 parser.start(&element)?;
@@ -77,13 +83,13 @@ pub(super) fn read(reader: impl BufRead, limits: Limits) -> Result<Collection, E
                     return Err(Error::Structure("XML declaration inside document"));
                 }
                 declared = true;
-                if declaration.version().map_err(|_| Error::Encoding)?.as_ref() != b"1.0" {
+                if declaration.version().map_err(|_| Error::Encoding)? != "1.0" {
                     return Err(Error::Encoding);
                 }
                 if let Some(encoding) = declaration.encoding() {
                     let encoding = encoding.map_err(|_| Error::Encoding)?;
-                    if !encoding.eq_ignore_ascii_case(b"utf-8")
-                        && !encoding.eq_ignore_ascii_case(b"us-ascii")
+                    if !encoding.eq_ignore_ascii_case("utf-8")
+                        && !encoding.eq_ignore_ascii_case("us-ascii")
                     {
                         return Err(Error::Encoding);
                     }
@@ -96,7 +102,7 @@ pub(super) fn read(reader: impl BufRead, limits: Limits) -> Result<Collection, E
                 }
                 quick_xml::escape::unescape(text_value).map_err(|_| Error::Attributes)?;
                 if !matches!(parser.stack.last(), Some(Frame::Unknown))
-                    && !text.as_ref().iter().all(u8::is_ascii_whitespace)
+                    && !text.as_ref().chars().all(|c| c.is_ascii_whitespace())
                 {
                     return Err(Error::Structure("text outside metadata attributes"));
                 }
@@ -111,7 +117,7 @@ pub(super) fn read(reader: impl BufRead, limits: Limits) -> Result<Collection, E
                 let name = xml_text(reference.as_ref())?;
                 let escaped = format!("&{name};");
                 let value = quick_xml::escape::unescape(&escaped).map_err(|_| Error::Attributes)?;
-                xml_text(value.as_bytes())?;
+                xml_text(&value)?;
                 if !matches!(parser.stack.last(), Some(Frame::Unknown)) {
                     return Err(Error::Structure("text outside metadata attributes"));
                 }
@@ -156,7 +162,7 @@ impl Parser {
         let attributes = attributes(element)?;
         let frame = match self.stack.last() {
             None => {
-                if self.finished || name != b"DJ_PLAYLISTS" {
+                if self.finished || name != "DJ_PLAYLISTS" {
                     return Err(Error::Structure("expected one DJ_PLAYLISTS root"));
                 }
                 self.result.attributes = attributes;
@@ -164,7 +170,7 @@ impl Parser {
             }
             Some(Frame::Unknown) => Frame::Unknown,
             Some(Frame::Root) => self.root_child(name, attributes)?,
-            Some(Frame::Collection) if name == b"TRACK" => {
+            Some(Frame::Collection) if name == "TRACK" => {
                 if self.ids.len() >= self.limits.tracks {
                     return Err(Error::Limit("collection tracks"));
                 }
@@ -183,22 +189,22 @@ impl Parser {
                     tempos: Vec::new(),
                 })
             }
-            Some(Frame::Track(_)) if name == b"POSITION_MARK" => {
+            Some(Frame::Track(_)) if name == "POSITION_MARK" => {
                 let cue = cue(attributes)?;
                 if let Some(Frame::Track(track)) = self.stack.last_mut() {
                     track.cues.push(cue);
                 }
                 Frame::Cue
             }
-            Some(Frame::Track(_)) if name == b"TEMPO" => {
+            Some(Frame::Track(_)) if name == "TEMPO" => {
                 let tempo = tempo(attributes)?;
                 if let Some(Frame::Track(track)) = self.stack.last_mut() {
                     track.tempos.push(tempo);
                 }
                 Frame::Tempo
             }
-            Some(Frame::Playlists | Frame::Folder { .. }) if name == b"NODE" => node(attributes)?,
-            Some(Frame::Playlist { .. }) if name == b"TRACK" => {
+            Some(Frame::Playlists | Frame::Folder { .. }) if name == "NODE" => node(attributes)?,
+            Some(Frame::Playlist { .. }) if name == "TRACK" => {
                 if self.references >= self.limits.playlist_references {
                     return Err(Error::Limit("playlist references"));
                 }
@@ -218,16 +224,16 @@ impl Parser {
         Ok(())
     }
 
-    fn root_child(&mut self, name: &[u8], attributes: Attributes) -> Result<Frame, Error> {
+    fn root_child(&mut self, name: &str, attributes: Attributes) -> Result<Frame, Error> {
         match name {
-            b"PRODUCT" => {
+            "PRODUCT" => {
                 if self.result.product.is_some() {
                     return Err(Error::Structure("duplicate PRODUCT"));
                 }
                 self.result.product = Some(attributes);
                 Ok(Frame::Product)
             }
-            b"COLLECTION" => {
+            "COLLECTION" => {
                 if self.seen_collection {
                     return Err(Error::Structure("duplicate COLLECTION"));
                 }
@@ -236,7 +242,7 @@ impl Parser {
                 self.result.collection_attributes = attributes;
                 Ok(Frame::Collection)
             }
-            b"PLAYLISTS" => {
+            "PLAYLISTS" => {
                 if self.seen_playlists {
                     return Err(Error::Structure("duplicate PLAYLISTS"));
                 }
@@ -320,14 +326,13 @@ fn attributes(element: &BytesStart<'_>) -> Result<Attributes, Error> {
             return Err(Error::Attributes);
         }
         let value = quick_xml::escape::unescape(raw_value).map_err(|_| Error::Attributes)?;
-        xml_text(value.as_bytes())?;
+        xml_text(&value)?;
         values.insert(name.to_owned(), value.into_owned());
     }
     Ok(values)
 }
 
-fn xml_text(bytes: &[u8]) -> Result<&str, Error> {
-    let value = std::str::from_utf8(bytes).map_err(|_| Error::Encoding)?;
+fn xml_text(value: &str) -> Result<&str, Error> {
     if value
         .chars()
         .any(|value| !matches!(value, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}'))
@@ -422,17 +427,17 @@ fn node(attributes: Attributes) -> Result<Frame, Error> {
     }
 }
 
-fn unknown(name: &[u8]) -> Result<Frame, Error> {
+fn unknown(name: &str) -> Result<Frame, Error> {
     if matches!(
         name,
-        b"DJ_PLAYLISTS"
-            | b"PRODUCT"
-            | b"COLLECTION"
-            | b"PLAYLISTS"
-            | b"TRACK"
-            | b"NODE"
-            | b"POSITION_MARK"
-            | b"TEMPO"
+        "DJ_PLAYLISTS"
+            | "PRODUCT"
+            | "COLLECTION"
+            | "PLAYLISTS"
+            | "TRACK"
+            | "NODE"
+            | "POSITION_MARK"
+            | "TEMPO"
     ) {
         return Err(Error::Structure("known element in unexpected context"));
     }
