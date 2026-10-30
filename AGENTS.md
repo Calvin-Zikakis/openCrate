@@ -12,4 +12,4 @@ Read `docs/HANDOFF.md` first, then the newest entry in `docs/LOG.md`. The decisi
 6. Ask before committing or pushing, unless the owner has just told you to. Never change the repository's visibility or settings on GitHub.
 7. Keep the lints clean and measure before claiming speed. See the workspace `Cargo.toml` and decision 0004 in `docs/decisions/`.
 8. Contributors' instructions are in `CONTRIBUTING.md`; they apply here too.
-9. Save GitHub Actions minutes. CI runs only for a pull request into `main` or when started by hand, and the Installers workflow only by hand. Run the checks locally before every commit, and do not start a workflow unless the owner asks.
+9. Keep GitHub Actions quiet. CI runs for a pull request into `main` (macOS), for a published release (Windows and macOS) or when started by hand; the Installers workflow runs only by hand. Run the checks locally before every commit, and do not start a workflow or publish a release unless the owner asks.
