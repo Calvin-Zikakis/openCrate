@@ -6,7 +6,7 @@ and files across it, and works alongside rekordbox, which stays in charge of pla
 
 It runs on Windows and macOS, is built with Rust, Tauri 2 and React, and is licensed GPL-3.0-or-later.
 
-**Status: early test version (0.1.0).** It works on real music, but only its developer has used it so far, and the
+**Status: early test version (0.1.1).** It works on real music, but only its developer has used it so far, and the
 installers are unsigned. Try it on a copy of a small folder before you point it at the library you play from.
 
 ![The Tracks view of the demo library, with a track playing in the player bar](assets/library.png)
@@ -112,7 +112,7 @@ The first build compiles everything, including OpenSSL and SQLCipher, and takes 
 build folder and are much quicker. At the end the script prints the installer's path, normally:
 
 ```
-C:\t\release\bundle\nsis\openCrate_0.1.0_x64-setup.exe
+C:\t\release\bundle\nsis\openCrate_0.1.1_x64-setup.exe
 ```
 
 If the script stops, its red "Stopped:" line names the step that failed, and the messages above it say why.
@@ -129,7 +129,7 @@ scripts/mac/build.sh
 ```
 
 If the installed Node is not version 24, the script fetches Node 24 for this build only. It prints where the disk
-image is, normally `target/release/bundle/dmg/openCrate_0.1.0_aarch64.dmg` on an Apple silicon Mac. The app itself
+image is, normally `target/release/bundle/dmg/openCrate_0.1.1_aarch64.dmg` on an Apple silicon Mac. The app itself
 is at `target/release/bundle/macos/openCrate.app`. If `CARGO_TARGET_DIR` is set, both are under that folder
 instead of `target`.
 
