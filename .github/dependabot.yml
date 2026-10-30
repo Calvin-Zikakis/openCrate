@@ -23,6 +23,10 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+    # The Node major is pinned in .nvmrc; its types stay on the same line.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 2
 
   - package-ecosystem: "github-actions"

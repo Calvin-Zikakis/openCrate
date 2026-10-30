@@ -154,8 +154,10 @@ test("body text tokens meet contrast and system reduced motion is respected", as
   const ratios = await page.evaluate(() => {
     const styles = getComputedStyle(document.documentElement);
     const luminance = (value: string) => {
-      const parts = value.trim().replace("#", "").match(/.{2}/g);
-      if (!parts || parts.length !== 3) throw new Error("Expected RGB token");
+      // The bundler may shorten a token to three hex digits (#fff); expand it before reading channels.
+      const hex = value.trim().replace("#", "");
+      const parts = (hex.length === 3 ? hex.replace(/./g, "$&$&") : hex).match(/.{2}/g);
+      if (!parts || parts.length !== 3) throw new Error(`Expected RGB token, got ${value}`);
       const channels = parts.map((part) => parseInt(part, 16) / 255)
         .map((channel) => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4);
       return (channels[0] ?? 0) * .2126 + (channels[1] ?? 0) * .7152 + (channels[2] ?? 0) * .0722;
@@ -182,7 +184,9 @@ test("light theme text and state colours meet contrast on every surface", async 
   const ratios = await page.evaluate(() => {
     const styles = getComputedStyle(document.documentElement);
     const luminance = (value: string) => {
-      const parts = value.trim().replace("#", "").match(/.{2}/g);
+      // The bundler may shorten a token to three hex digits (#fff); expand it before reading channels.
+      const hex = value.trim().replace("#", "");
+      const parts = (hex.length === 3 ? hex.replace(/./g, "$&$&") : hex).match(/.{2}/g);
       if (!parts || parts.length !== 3) throw new Error(`Expected RGB token, got ${value}`);
       const channels = parts.map((part) => parseInt(part, 16) / 255)
         .map((channel) => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4);
