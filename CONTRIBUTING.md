@@ -45,9 +45,9 @@ it reports; where a lint is wrong for one spot, use `expect` with a reason, not 
 
 ## Continuous integration
 
-The checks run on GitHub for every pull request into `main`. The Installers workflow builds unsigned Windows and
-macOS installers and runs by hand only. Both use the maintainer's Actions minutes, so run the checks locally
-before you push.
+The checks run on GitHub for every pull request into `main`, and a pull request is merged only once they pass.
+The Installers workflow builds unsigned Windows and macOS installers and runs by hand only. Run the checks
+locally before you push.
 
 ## Scope
 
