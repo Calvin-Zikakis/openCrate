@@ -18,7 +18,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-rusqlite = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl"] }
 blowfish = "0.9"
 byteorder = "1"
 cipher = "0.4"
@@ -31,6 +30,16 @@ lofty = { version = "0.22", default-features = false }
 # Artwork: the library keeps every image at three sizes (the original, a
 # 240×240 and an 80×80), and a stick takes the two small ones.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+# SQLCipher for rekordbox's encrypted database. The crypto backend is target-specific
+# (openCrate change): Apple platforms use the system's CommonCrypto, so no OpenSSL is
+# built there; everywhere else OpenSSL is compiled from source, which keeps a Windows
+# build free of system dependencies.
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
+rusqlite = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+rusqlite = { version = "0.40", features = ["bundled-sqlcipher"] }
 
 # `rb_file_id` on Windows is the NTFS file index, read with
 # GetFileInformationByHandle.
