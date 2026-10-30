@@ -47,6 +47,14 @@ jobs:
         shell: pwsh
         run: echo "OPENSSL_SRC_PERL=C:/Strawberry/perl/bin/perl.exe" >> $env:GITHUB_ENV
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Cache the folder the build actually uses; without this the Windows job cached an
+          # empty "target" and rebuilt OpenSSL from source on every run.
+          workspaces: ${{ matrix.os == 'windows-latest' && '. -> C:/t' || '. -> target' }}
+          # One cache per platform for every installer run, rather than one per workflow trigger.
+          shared-key: installers
+          # A failed build still saves what it compiled, so the retry is not cold again.
+          cache-on-failure: true
       - name: Install packages
         run: npm ci
       - name: Build the installer
