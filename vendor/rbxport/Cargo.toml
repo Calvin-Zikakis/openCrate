@@ -1,5 +1,7 @@
 [workspace]
-members = ["crates/*"]
+# Named rather than globbed (openCrate change): Dependabot expands a glob in a nested
+# workspace against the wrong folder and aborts, which stopped every Cargo update.
+members = ["crates/rbl-core", "crates/rbl-anlz", "crates/rbl-db"]
 resolver = "2"
 
 [workspace.package]
