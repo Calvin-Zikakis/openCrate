@@ -551,6 +551,8 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return [{ value: "Test Label", tracks: 12 }, { value: "Night Shift", tracks: 3 }];
             case "library_artists":
               return [{ value: "Studio 001", tracks: 40 }, { value: "Night Drive", tracks: 12 }, { value: "Between Spaces", tracks: 3 }];
+            case "library_release_titles":
+              return [{ artist: "Studio 001", title: "Set" }, { artist: "Studio 001", title: "Second Light" }, { artist: "Night Drive", title: "Between Spaces" }];
             case "library_formats":
               return (window as any).__formats ?? [{ format: "AIFF", tracks: 1000 }, { format: "MP3", tracks: 200 }, { format: "M4A", tracks: 34 }];
             case "library_import_target":

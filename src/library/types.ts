@@ -689,6 +689,8 @@ export interface LibraryAdmin {
   labels(): Promise<{ value: string; tracks: number }[]>;
   /** Every artist name with a present track and how many, most first, for suggestions while typing. */
   artists(): Promise<{ value: string; tracks: number }[]>;
+  /** Every release with a present file, as artist and title, for album suggestions while typing. */
+  releaseTitles(): Promise<{ artist: string; title: string }[]>;
   /** Asks MusicBrainz about a release; only when the owner presses the button. Writes nothing. */
   lookupRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseLookup>;
   /** Which of the owner's lookup keys are saved, each shown by its last four characters only. */

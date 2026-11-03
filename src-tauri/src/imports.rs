@@ -78,6 +78,26 @@ pub struct ValueDto {
     pub tracks: i64,
 }
 
+/// A release the library holds, by its artist, for album suggestions while typing.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseTitleDto {
+    pub artist: String,
+    pub title: String,
+}
+
+/// Every release with a present file, as artist and title, for album suggestions while typing.
+pub fn release_titles(service: &LibraryService) -> Result<Vec<ReleaseTitleDto>, String> {
+    service
+        .releases_all()
+        .map(|rows| {
+            rows.into_iter()
+                .map(|(_, artist, title)| ReleaseTitleDto { artist, title })
+                .collect()
+        })
+        .map_err(|e| text(&e))
+}
+
 /// Every artist name in the library with its track count, for suggestions while typing.
 pub fn artists(service: &LibraryService) -> Result<Vec<ValueDto>, String> {
     service

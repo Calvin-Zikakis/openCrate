@@ -835,6 +835,14 @@ function adminFor(invoke: Invoke, persistent: boolean): LibraryAdmin {
         return { value: text(row.value, "artists"), tracks: whole(row.tracks, "artists") };
       });
     },
+    releaseTitles: async () => {
+      const response = await invoke("library_release_titles").catch((error: unknown) => { throw failure(error); });
+      if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of releases.");
+      return response.map((row: unknown) => {
+        if (!isRecord(row)) throw new Error("The library returned an unreadable list of releases.");
+        return { artist: text(row.artist, "releases"), title: text(row.title, "releases") };
+      });
+    },
     formats: async () => {
       const response = await invoke("library_formats").catch((error: unknown) => { throw failure(error); });
       if (!Array.isArray(response)) throw new Error("The library returned an unreadable list of formats.");
