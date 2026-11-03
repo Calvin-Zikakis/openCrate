@@ -1894,15 +1894,27 @@ test("editing: a cover is chosen, removed or taken from the folder, and waits fo
   await cover.getByRole("button", { name: "Choose image..." }).click();
   await expect(cover.locator("small")).toHaveText("The image you chose, written when you save.");
   // Artists, genres and labels the library knows are offered while typing; a title is free text.
-  await expect(editor.getByLabel("Artist", { exact: true })).toHaveAttribute("list", "editor-known-artists");
-  await expect(editor.locator("datalist#editor-known-artists option")).toHaveCount(3);
-  await expect(editor.getByLabel("Genre")).toHaveAttribute("list", "editor-known-genres");
-  await expect(editor.getByLabel("Title")).not.toHaveAttribute("list", /.+/);
-  await editor.getByLabel("Genre").fill("Techno");
-  await editor.getByRole("button", { name: "Save 2 changes" }).click();
+  const artistField = editor.getByLabel("Artist", { exact: true });
+  await expect(artistField).toHaveAttribute("role", "combobox");
+  await expect(editor.getByLabel("Title")).not.toHaveAttribute("role", "combobox");
+  // A near-miss spelling is pointed out under the field, with the library's spelling one click away.
+  await artistField.fill("night drive");
+  await artistField.press("Tab");
+  await expect(artistField).toHaveValue("night drive");
+  await editor.getByRole("button", { name: "Use Night Drive" }).click();
+  await expect(artistField).toHaveValue("Night Drive");
+  await expect(editor.getByRole("button", { name: "Use Night Drive" })).toHaveCount(0);
+  // "tech" finds Techno; Down and Enter take it.
+  const genre = editor.getByLabel("Genre");
+  await genre.fill("tech");
+  await expect(editor.getByRole("listbox").getByRole("option")).toHaveText(["Techno"]);
+  await genre.press("ArrowDown");
+  await genre.press("Enter");
+  await expect(genre).toHaveValue("Techno");
+  await editor.getByRole("button", { name: "Save 3 changes" }).click();
   await expect(editor).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__tracksArt)).toEqual([{ trackIds: [2], source: "picked" }]);
-  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([{ trackId: 2, changes: [{ field: "genre", value: "Techno" }] }]);
+  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([{ trackId: 2, changes: [{ field: "artist", value: "Night Drive" }, { field: "genre", value: "Techno" }] }]);
 
   // Several tracks with different pictures take each one's own folder image; a cover alone saves.
   await row("0002").click();
