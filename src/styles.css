@@ -85,6 +85,7 @@ nav .nav-divider { margin-top: 22px; }
 .search-box:focus-within { border-color: var(--accent); }
 .search-box input { width: 100%; min-width: 0; border: 0; background: transparent; color: var(--text); outline: none; font-size: 12px; }
 .search-box input::placeholder { color: var(--faint); }
+.search-box .suggest { flex: 1; min-width: 0; }
 kbd { font-size: 11px; padding: 1px 5px; border: 1px solid rgb(var(--ink) / 0.098); border-radius: 3px; }
 .demo-badge { margin-left: auto; font-size: 9px; letter-spacing: 1.5px; color: var(--faint); white-space: nowrap; }
 .icon-button { width: 32px; height: 32px; display: inline-grid; place-content: center; border-radius: 50%; flex-shrink: 0; }

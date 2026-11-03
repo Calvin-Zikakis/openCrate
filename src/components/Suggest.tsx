@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type InputHTMLAttributes, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useState, type InputHTMLAttributes, type KeyboardEvent, type Ref } from "react";
 import { rank } from "../library/suggest";
 
 interface Props {
@@ -10,6 +10,8 @@ interface Props {
   onPick: (text: string) => void;
   /** Everything else the input needs. Its own key, blur and change handlers run after the list's. */
   inputProps?: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "list" | "role"> & { "data-column"?: string };
+  /** The input itself, for a caller that focuses it from a shortcut. */
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 /** Rows visible at once; Down past the last scrolls the list on. */
@@ -19,7 +21,7 @@ const VISIBLE = 5;
  * list opens on typing, Down and Up move through it, Enter takes a row, Escape closes it and Tab
  * leaves with the text as typed. With the list closed every key reaches the input's own handler,
  * so a grid cell still moves between rows. */
-export function Suggest({ options, value, onChange, onPick, inputProps = {} }: Props) {
+export function Suggest({ options, value, onChange, onPick, inputProps = {}, inputRef }: Props) {
   const listId = useId();
   const rows = useMemo(() => rank(value, options), [value, options]);
   const [open, setOpen] = useState(false);
@@ -30,7 +32,7 @@ export function Suggest({ options, value, onChange, onPick, inputProps = {} }: P
     document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" });
   }, [shown, active, listId]);
   if (options.length === 0) {
-    return <input {...inputProps} value={value} onChange={(event) => onChange(event.target.value)} />;
+    return <input {...inputProps} ref={inputRef} value={value} onChange={(event) => onChange(event.target.value)} />;
   }
   const close = () => { setOpen(false); setActive(-1); };
   const pick = (text: string) => { close(); onPick(text); };
@@ -59,6 +61,7 @@ export function Suggest({ options, value, onChange, onPick, inputProps = {} }: P
   return <span className="suggest">
     <input
       {...inputProps}
+      ref={inputRef}
       role="combobox"
       aria-expanded={shown}
       aria-controls={listId}

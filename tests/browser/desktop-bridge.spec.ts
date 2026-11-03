@@ -794,7 +794,7 @@ test("a desktop app with a database shows rows read through the Rust commands", 
   });
   expect(firstRead?.args.count).toBeLessThanOrEqual(200);
 
-  await page.getByRole("textbox", { name: "Search library" }).fill("night");
+  await page.getByLabel("Search library").fill("night");
   await page.getByRole("button", { name: "MP3", exact: true }).click();
   await page.getByLabel("Sort library").selectOption("bpm");
   await expect
@@ -2215,7 +2215,7 @@ test("an empty library says there is no music yet, points to Settings and Import
   await expect(page.getByRole("heading", { name: "Import", level: 1 })).toBeVisible();
   // Once something is typed, an empty result is about the search, not about the library.
   await page.getByRole("button", { name: "Tracks" }).first().click();
-  await page.getByRole("textbox", { name: "Search library" }).fill("night");
+  await page.getByLabel("Search library").fill("night");
   await expect(page.locator(".empty-state").getByRole("heading", { name: "No matches this time" })).toBeVisible();
 });
 
@@ -2974,7 +2974,7 @@ test("names and tags are typed as they are: no autocorrect, capitals or spelling
   await stubBridge(page, "managed");
   await page.goto("/");
   await page.getByRole("navigation", { name: "Crates" }).getByRole("button", { name: "New crate" }).click();
-  for (const field of [page.getByRole("textbox", { name: "Search library" }), page.getByRole("textbox", { name: "New crate name" })]) {
+  for (const field of [page.getByLabel("Search library"), page.getByRole("textbox", { name: "New crate name" })]) {
     await expect(field).toHaveAttribute("autocorrect", "off");
     await expect(field).toHaveAttribute("autocapitalize", "off");
     await expect(field).toHaveAttribute("spellcheck", "false");
@@ -3787,6 +3787,27 @@ test("import: typed values and lookups outlive a trip to another screen and a re
   await rowOf(page, "01.mp3").getByRole("button", { name: /^Import Second Light/ }).click();
   await expect(noteOf(page, "Second Light")).toContainText("2 files are now in Music.");
   expect(await page.evaluate(() => localStorage.getItem("opencrate.importEdits"))).not.toContain("Opening Light");
+});
+
+test("search: artists and releases are offered while typing, and choosing one searches for it", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const search = page.getByLabel("Search library");
+  await search.click();
+  await search.fill("nig");
+  const list = page.getByRole("listbox");
+  await expect(list.getByRole("option")).toHaveText(["Night Drive"]);
+  await search.press("ArrowDown");
+  await search.press("Enter");
+  await expect(search).toHaveValue("Night Drive");
+  await expect(list).toHaveCount(0);
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query.search).toBe("Night Drive");
+  // A release title is offered too; the box only ever holds text, it never jumps to a page.
+  await search.fill("second");
+  await expect(list.getByRole("option")).toHaveText(["Second Light"]);
+  await search.press("Escape");
+  await expect(list).toHaveCount(0);
+  await expect(search).toHaveValue("second");
 });
 
 test("import: suggestions match anywhere in a name, a near-miss spelling is pointed out, and albums follow the artist", async ({ page }) => {
