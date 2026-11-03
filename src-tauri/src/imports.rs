@@ -78,6 +78,18 @@ pub struct ValueDto {
     pub tracks: i64,
 }
 
+/// Every artist name in the library with its track count, for suggestions while typing.
+pub fn artists(service: &LibraryService) -> Result<Vec<ValueDto>, String> {
+    service
+        .artists()
+        .map(|rows| {
+            rows.into_iter()
+                .map(|(value, tracks)| ValueDto { value, tracks })
+                .collect()
+        })
+        .map_err(|e| text(&e))
+}
+
 /// Every label in the library with its track count, for suggestions while typing.
 pub fn labels(service: &LibraryService) -> Result<Vec<ValueDto>, String> {
     service

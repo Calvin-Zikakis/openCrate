@@ -997,6 +997,52 @@ fn genres_are_counted_by_how_each_track_spells_them() {
     assert_eq!(ids.len(), 1);
 }
 
+#[test]
+fn artists_are_listed_with_release_artists_most_tracks_first() {
+    let fixture = fixture();
+    let root = fixture
+        .service
+        .add_root(fixture.folder.path(), "Library")
+        .unwrap();
+    let on_compilation = |title: &str, artist: &str| TagInfo {
+        album_artist: Some("Various Artists".into()),
+        ..tags(title, artist, "Compilation", 1)
+    };
+    put(
+        fixture.folder.path(),
+        "c/1.aif",
+        &aiff(1),
+        Some(&on_compilation("One", "Night Drive")),
+    );
+    put(
+        fixture.folder.path(),
+        "c/2.aif",
+        &aiff(1),
+        Some(&on_compilation("Two", "Night Drive")),
+    );
+    put(
+        fixture.folder.path(),
+        "s/1.aif",
+        &aiff(1),
+        Some(&tags("Three", "Studio 001", "Set", 1)),
+    );
+    scan(&fixture, root);
+    // A release artist counts for its tracks too, once; a track's own artist is never doubled.
+    let artists = fixture.service.artists().unwrap();
+    assert!(
+        artists.contains(&("Night Drive".to_owned(), 2)),
+        "{artists:?}"
+    );
+    assert!(
+        artists.contains(&("Various Artists".to_owned(), 2)),
+        "{artists:?}"
+    );
+    let counts: Vec<i64> = artists.iter().map(|(_, tracks)| *tracks).collect();
+    let mut sorted = counts.clone();
+    sorted.sort_unstable_by(|a, b| b.cmp(a));
+    assert_eq!(counts, sorted, "most tracks first: {artists:?}");
+}
+
 #[cfg(unix)]
 #[test]
 fn a_known_track_keeps_its_details_when_its_file_cannot_be_opened_and_is_read_again_later() {

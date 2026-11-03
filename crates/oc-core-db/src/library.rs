@@ -765,6 +765,16 @@ pub fn labels(connection: &Connection) -> Result<Vec<(String, i64)>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Every artist name tracks with a present file carry, as the track's artist or its release's,
+/// with how many tracks, most first. Offered while typing so one artist keeps one spelling.
+pub fn artists(connection: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut statement = connection.prepare(
+        "SELECT name, SUM(n) FROM (            SELECT a.name AS name, COUNT(DISTINCT t.id) AS n FROM track t            JOIN artist a ON a.id = t.artist_id            WHERE EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id              AND f.presence = 'present' AND f.lifecycle = 'active')            GROUP BY a.id            UNION ALL            SELECT a.name, COUNT(DISTINCT t.id) FROM track t            JOIN release r ON r.id = t.release_id JOIN artist a ON a.id = r.artist_id            WHERE r.artist_id <> t.artist_id              AND EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id              AND f.presence = 'present' AND f.lifecycle = 'active')            GROUP BY a.id)          WHERE name <> '' GROUP BY name ORDER BY SUM(n) DESC, name",
+    )?;
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// A present file that is the same size as one about to be imported and within a second of
 /// its length: the same recording already in the library, most likely.
 #[derive(Clone, Debug, PartialEq, Eq)]

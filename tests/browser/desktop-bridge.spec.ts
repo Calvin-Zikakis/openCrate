@@ -549,6 +549,8 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return (args?.fileIds as number[]).map((id) => 100 + id);
             case "library_labels":
               return [{ value: "Test Label", tracks: 12 }, { value: "Night Shift", tracks: 3 }];
+            case "library_artists":
+              return [{ value: "Studio 001", tracks: 40 }, { value: "Night Drive", tracks: 12 }, { value: "Between Spaces", tracks: 3 }];
             case "library_formats":
               return (window as any).__formats ?? [{ format: "AIFF", tracks: 1000 }, { format: "MP3", tracks: 200 }, { format: "M4A", tracks: 34 }];
             case "library_import_target":
@@ -1081,7 +1083,7 @@ test("import: every finished release's tags are read into one table, one row per
   await expect(fresh.locator("tr.plan-row")).toHaveCount(5);
   const first = rowOf(page, "01.flac").first();
   await expect(first.getByRole("textbox", { name: "Title of 01.flac" })).toHaveValue("Studio 001 - Night Drive.mp3");
-  await expect(first.getByRole("textbox", { name: "Artist of 01.flac" })).toHaveValue("Studio 001");
+  await expect(first.getByLabel("Artist of 01.flac")).toHaveValue("Studio 001");
   await expect(first.getByRole("textbox", { name: "Track of 01.flac" })).toHaveValue("1");
   await expect(first.locator(".grid-cell.is-guessed")).toHaveCount(1);
   await expect(first.locator(".grid-cell.is-tidied .grid-input")).toHaveValue("Studio 001");
@@ -1165,7 +1167,7 @@ test("import: typing over a value sends it with the plan and the import, and a r
     { source: "Second Light/02.mp3", album: "Second Light EP" },
   ]);
   // Escape puts the old value back without sending anything.
-  const artist = one.getByRole("textbox", { name: "Artist of 01.mp3" });
+  const artist = one.getByLabel("Artist of 01.mp3");
   await artist.click();
   await artist.fill("Someone else");
   await artist.press("Escape");
@@ -1889,6 +1891,11 @@ test("editing: a cover is chosen, removed or taken from the folder, and waits fo
   // A picked image is shown and saved with the typed changes.
   await cover.getByRole("button", { name: "Choose image..." }).click();
   await expect(cover.locator("small")).toHaveText("The image you chose, written when you save.");
+  // Artists, genres and labels the library knows are offered while typing; a title is free text.
+  await expect(editor.getByLabel("Artist", { exact: true })).toHaveAttribute("list", "editor-known-artists");
+  await expect(editor.locator("datalist#editor-known-artists option")).toHaveCount(3);
+  await expect(editor.getByLabel("Genre")).toHaveAttribute("list", "editor-known-genres");
+  await expect(editor.getByLabel("Title")).not.toHaveAttribute("list", /.+/);
   await editor.getByLabel("Genre").fill("Techno");
   await editor.getByRole("button", { name: "Save 2 changes" }).click();
   await expect(editor).toHaveCount(0);
@@ -3762,9 +3769,11 @@ test("import: typed values and lookups outlive a trip to another screen and a re
   await expect(rowOf(page, "01.mp3").getByRole("textbox", { name: "Title of 01.mp3" })).toHaveValue("Opening Light");
   // Remembered in this browser, so a restart keeps it too.
   expect(await page.evaluate(() => localStorage.getItem("opencrate.importEdits"))).toContain("Opening Light");
-  // Genres and labels the library knows are offered while typing.
+  // Genres, labels and artists the library knows are offered while typing.
   await expect(rowOf(page, "01.mp3").getByLabel("Label of 01.mp3")).toHaveAttribute("list", "import-known-labels");
   await expect(page.locator("datalist#import-known-labels option")).toHaveCount(2);
+  await expect(rowOf(page, "01.mp3").getByLabel("Artist of 01.mp3")).toHaveAttribute("list", "import-known-artists");
+  await expect(page.locator("datalist#import-known-artists option")).toHaveCount(3);
   // Imported, the typing is forgotten.
   await rowOf(page, "01.mp3").getByRole("button", { name: /^Import Second Light/ }).click();
   await expect(noteOf(page, "Second Light")).toContainText("2 files are now in Music.");
