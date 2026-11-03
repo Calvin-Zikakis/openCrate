@@ -1149,7 +1149,7 @@ test("import: typing over a value sends it with the plan and the import, and a r
   await expect(noteOf(page, "Second Light")).toContainText("1 value typed.");
 
   // A right-click on a release-level value offers it to every file of the release.
-  const album = one.getByRole("textbox", { name: "Album of 01.mp3" });
+  const album = one.getByLabel("Album of 01.mp3");
   await album.click();
   await album.fill("Second Light EP");
   await album.click({ button: "right" });
@@ -1158,7 +1158,7 @@ test("import: typing over a value sends it with the plan and the import, and a r
     { source: "Second Light/01.mp3", title: "Opening Light", album: "Second Light EP" },
     { source: "Second Light/02.mp3", album: "Second Light EP" },
   ]);
-  await expect(two.getByRole("textbox", { name: "Album of 02.mp3" })).toHaveValue("Second Light EP");
+  await expect(two.getByLabel("Album of 02.mp3")).toHaveValue("Second Light EP");
   // A year that is not a whole number says nothing.
   const year = two.getByRole("textbox", { name: "Year of 02.mp3" });
   await year.fill("20x");
@@ -3771,15 +3771,66 @@ test("import: typed values and lookups outlive a trip to another screen and a re
   await expect(rowOf(page, "01.mp3").getByRole("textbox", { name: "Title of 01.mp3" })).toHaveValue("Opening Light");
   // Remembered in this browser, so a restart keeps it too.
   expect(await page.evaluate(() => localStorage.getItem("opencrate.importEdits"))).toContain("Opening Light");
-  // Genres, labels and artists the library knows are offered while typing.
-  await expect(rowOf(page, "01.mp3").getByLabel("Label of 01.mp3")).toHaveAttribute("list", "import-known-labels");
-  await expect(page.locator("datalist#import-known-labels option")).toHaveCount(2);
-  await expect(rowOf(page, "01.mp3").getByLabel("Artist of 01.mp3")).toHaveAttribute("list", "import-known-artists");
-  await expect(page.locator("datalist#import-known-artists option")).toHaveCount(3);
   // Imported, the typing is forgotten.
   await rowOf(page, "01.mp3").getByRole("button", { name: /^Import Second Light/ }).click();
   await expect(noteOf(page, "Second Light")).toContainText("2 files are now in Music.");
   expect(await page.evaluate(() => localStorage.getItem("opencrate.importEdits"))).not.toContain("Opening Light");
+});
+
+test("import: suggestions match anywhere in a name, a near-miss spelling is pointed out, and albums follow the artist", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__twoReady = true; });
+  await openImportWithFolders(page);
+  const one = rowOf(page, "01.mp3");
+  const two = rowOf(page, "02.mp3");
+  // "drive" finds "Night Drive" though it is not the start of the name; Down and Enter take it.
+  const artist = one.getByLabel("Artist of 01.mp3");
+  await expect(artist).toHaveAttribute("role", "combobox");
+  await artist.click();
+  await artist.fill("drive");
+  const list = page.getByRole("listbox");
+  await expect(list.getByRole("option")).toHaveText(["Night Drive"]);
+  await artist.press("ArrowDown");
+  await artist.press("Enter");
+  await expect(artist).toHaveValue("Night Drive");
+  await expect(list).toHaveCount(0);
+  // Enter again, with the list closed, moves down a row as it always did.
+  await artist.press("Enter");
+  await expect(two.getByLabel("Artist of 02.mp3")).toBeFocused();
+  // A near-miss left in place by Tab keeps the typed text and gets a mark; one click takes the library's spelling.
+  const second = two.getByLabel("Artist of 02.mp3");
+  await second.fill("night drive");
+  await expect(list.getByRole("option").first()).toContainText("your library's spelling");
+  await second.press("Tab");
+  await expect(second).toHaveValue("night drive");
+  const mark = two.getByRole("button", { name: "Your library spells this Night Drive. Click to use it." });
+  await mark.click();
+  await expect(second).toHaveValue("Night Drive");
+  // Escape with the list open closes it and keeps the text; a second Escape puts the old value back.
+  await second.click();
+  await second.fill("stud");
+  await expect(list.getByRole("option")).toHaveText(["Studio 001"]);
+  await second.press("Escape");
+  await expect(list).toHaveCount(0);
+  await expect(second).toHaveValue("stud");
+  await second.press("Escape");
+  await expect(second).toHaveValue("Night Drive");
+  // The Album cell offers the row's artist's releases; an artist the library does not know gets every title.
+  const album = one.getByLabel("Album of 01.mp3");
+  await album.click();
+  await album.fill("e");
+  await expect(list.getByRole("option")).toHaveText(["Between Spaces"]);
+  await album.press("Escape");
+  await album.press("Escape");
+  const third = rowOf(page, "01.flac").first();
+  await third.getByLabel("Artist of 01.flac").fill("Nobody");
+  await third.getByLabel("Artist of 01.flac").press("Tab");
+  const anyAlbum = third.getByLabel("Album of 01.flac");
+  await anyAlbum.click();
+  await anyAlbum.fill("e");
+  await expect(list.getByRole("option")).toHaveText(["Set", "Second Light", "Between Spaces"]);
+  // The title cell stays free text.
+  await expect(one.getByLabel("Title of 01.mp3")).not.toHaveAttribute("role", "combobox");
 });
 
 test("import: a file already in the library by size and length is marked, and the whole release can be cleared", async ({ page }) => {
