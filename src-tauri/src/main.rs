@@ -15,6 +15,8 @@ mod export_tests;
 mod folders;
 mod import;
 mod imports;
+#[cfg(test)]
+mod imports_tests;
 mod ipc;
 mod layout;
 mod library_fix;
@@ -1217,6 +1219,17 @@ async fn library_artists(state: State<'_, AppState>) -> Result<Vec<imports::Valu
         .map_err(|error| error.to_string())?
 }
 
+/// Every release with a present file, as artist and title, for album suggestions while typing.
+#[tauri::command]
+async fn library_release_titles(
+    state: State<'_, AppState>,
+) -> Result<Vec<imports::ReleaseTitleDto>, String> {
+    let service = state.library()?;
+    tauri::async_runtime::spawn_blocking(move || imports::release_titles(&service))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Every container in the library with its track count, for the format filter.
 #[tauri::command]
 async fn library_formats(state: State<'_, AppState>) -> Result<Vec<imports::FormatDto>, String> {
@@ -1864,6 +1877,7 @@ fn main() -> Result<(), tauri::Error> {
             library_formats,
             library_labels,
             library_artists,
+            library_release_titles,
             library_import_target,
             library_set_import_target,
             library_folder_layout,

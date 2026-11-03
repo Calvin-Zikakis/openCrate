@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suggest } from "./components/Suggest";
 import { ArtistArtwork, Artwork } from "./components/Artwork";
 import { Icon, type IconName } from "./components/Icon";
 import { Analysis } from "./components/Analysis";
@@ -160,6 +161,18 @@ export function App({ api }: { api: LibraryApi }) {
   /** The open crate came from the crates page, so Back returns there. */
   const [fromCrates, setFromCrates] = useState(false);
   const [search, setSearch] = useState("");
+  /** Artist and release names offered under the search box, read once the box is first used. */
+  const [searchOptions, setSearchOptions] = useState<readonly string[]>([]);
+  const searchOptionsLoaded = useRef(false);
+  const loadSearchOptions = () => {
+    const admin = api.admin;
+    if (!admin || searchOptionsLoaded.current) return;
+    searchOptionsLoaded.current = true;
+    void Promise.all([admin.artists().catch(() => []), admin.releaseTitles().catch(() => [])]).then(([artists, releases]) => {
+      setSearchOptions(Array.from(new Set([...artists.map((item) => item.value), ...releases.map((item) => item.title)])));
+    });
+  };
+  const typeSearch = (text: string) => { setSearch(text); if (!isLibrary) setScreen("tracks"); };
   const [sort, setSort] = useState<Sort>("recent");
   /** The sort the other way round (oldest first, Z to A, BPM high to low). */
   const [reversed, setReversed] = useState(false);
@@ -586,12 +599,12 @@ export function App({ api }: { api: LibraryApi }) {
     </aside>
     <div className="workspace">
       <header className="topbar">
-        <div className="search-box"><Icon name="search" /><input {...PLAIN_TEXT} ref={searchInput} aria-label="Search library" placeholder="Search tracks, artists, releases" value={search} onChange={(event) => { setSearch(event.target.value); if (!isLibrary) setScreen("tracks"); }} onKeyDown={(event) => {
+        <div className="search-box"><Icon name="search" /><Suggest options={searchOptions} value={search} inputRef={searchInput} onChange={typeSearch} onPick={typeSearch} inputProps={{ ...PLAIN_TEXT, "aria-label": "Search library", placeholder: "Search tracks, artists, releases", onFocus: loadSearchOptions, onKeyDown: (event) => {
           // Escape clears the search, and a second one hands the keyboard back to the list.
           if (event.key !== "Escape") return;
           event.preventDefault();
           if (search) setSearch(""); else { event.currentTarget.blur(); document.querySelector<HTMLElement>("[data-testid=track-row]")?.focus(); }
-        }} /><kbd>/</kbd>{search && <button className="icon-button" aria-label="Clear search" onClick={() => setSearch("")}><Icon name="close" size={16} /></button>}</div>
+        } }} /><kbd>/</kbd>{search && <button className="icon-button" aria-label="Clear search" onClick={() => setSearch("")}><Icon name="close" size={16} /></button>}</div>
         <span className="demo-badge">{api.admin ? (api.admin.persistent ? "LOCAL LIBRARY" : "DEMO DATABASE") : "SYNTHETIC DEMO"}</span>
         <button className="icon-button settings-trigger" aria-label="Settings" title="Settings (Cmd+,)" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>
       </header>

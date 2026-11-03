@@ -176,7 +176,8 @@ music folder, and a second folder with a few downloads as the watch folder.
 ### Library and player
 
 - Search with the box at the top, or press `/`. It matches titles, artists and releases from the first letters of
-  each word.
+  each word. As you type, artist and release names from your library are offered underneath; Down and Enter put
+  one in the box and search for it.
 - The library has three views: Tracks, Releases and Artists. Open a release or an artist to see its tracks. A file
   that cannot be found is marked Missing; one on an unplugged drive is shown as offline instead.
 - In the track list you choose which columns show, drag a heading to move its column, drag a column's edge to
@@ -209,9 +210,13 @@ finished downloading.
 
 - Every tag is a cell you can type over; Enter moves down a row. The Whole release row fills every file of
   a release at once, and right-clicking a value applies it to the whole release. A mark beside a value says where it
-  came from when it is not the file's own tag: `?` the file name, `*` tidied, `•` a lookup, `✎` typed by you. Artist,
-  album artist, genre and label cells suggest values your library already uses as you type, so one artist keeps one
-  spelling. What you type goes into the imported copy only.
+  came from when it is not the file's own tag: `?` the file name, `*` tidied, `•` a lookup, `✎` typed by you. What
+  you type goes into the imported copy only.
+- As you type an artist, album artist, album, genre or label, values your library already uses appear underneath,
+  matched anywhere in the name ("drive" finds "Night Drive"). Down and Enter take one; Tab keeps exactly what you
+  typed. A spelling that differs from the library's only in case or separators is listed first and, if you leave it
+  in place, the cell gets a `≈` mark: one click swaps in the library's spelling. The Album cell offers the releases
+  the library holds for that row's artist, so a track joins its release instead of starting a second one.
 - **Look up** asks MusicBrainz about one release, and **Look up all** asks about every one. What it finds fills the
   cells, marked as a lookup, and can still be typed over. With a Discogs token in Settings, Discogs is asked when
   MusicBrainz has nothing.
@@ -235,7 +240,9 @@ finished downloading.
 
 Choose one or more tracks and press Cmd/Ctrl+I, or right-click and choose **Edit details**. A field every chosen
 track shares shows its value; one that differs shows "Several values" and is left alone unless you type in it. The
-artist, album artist, genre and label fields suggest values your library already uses as you type.
+artist, album artist, album, genre and label fields offer values your library already uses as you type, matched
+anywhere in the name; a spelling that differs from the library's only in case or separators is pointed out under the
+field with a one-click swap.
 Cleanup buttons (number prefixes, casing, links and junk, separators) list what they would change before you save.
 Saving writes the files' tags. **Save as recipe** keeps the typed values and cleanup rules under a name to use
 again. **Your fields** are fields of your own, such as an energy or a mood, kept in openCrate rather than in the

@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { loadRecipes, RULES, saveRecipes, type Recipe } from "../library/recipes";
 import type { CustomFields, EditField, LibraryAdmin, TrackArt, TrackCovers, TrackTags } from "../library/types";
 import { Artwork } from "./Artwork";
 import { Icon } from "./Icon";
 import { PLAIN_TEXT } from "./plainText";
+import { Suggest } from "./Suggest";
+import { alikeKey } from "../library/suggest";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong.");
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
@@ -47,6 +49,8 @@ interface Props {
  * track's own values, shown before saving. Changes go into the files' tags. */
 export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
+  /** Prefix of the field inputs' ids, so each label names its own field and nothing more. */
+  const ids = useId();
   const [tracks, setTracks] = useState<TrackTags[] | null>(null);
   /** Fields typed in, applied to every track. */
   const [typed, setTyped] = useState<Partial<Record<EditField, string>>>({});
@@ -77,21 +81,16 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
   /** Closing with changes not saved waits for a yes. */
   const [discarding, setDiscarding] = useState(false);
 
-  /** Artists, genres and labels the library already has, offered while typing so spellings stay one. */
-  const [known, setKnown] = useState<{ artist: string[]; genre: string[]; label: string[] }>({ artist: [], genre: [], label: [] });
+  /** Artists, genres, labels and releases the library already has, offered while typing so spellings stay one. */
+  const [known, setKnown] = useState<{ artist: string[]; genre: string[]; label: string[]; releases: { artist: string; title: string }[] }>({ artist: [], genre: [], label: [], releases: [] });
   useEffect(() => {
     let live = true;
     void (async () => {
-      const [artists, genres, labels] = await Promise.all([admin.artists().catch(() => []), admin.genres().catch(() => null), admin.labels().catch(() => [])]);
-      if (live) setKnown({ artist: artists.map((item) => item.value), genre: genres?.genres.map((item) => item.name) ?? [], label: labels.map((item) => item.value) });
+      const [artists, genres, labels, releases] = await Promise.all([admin.artists().catch(() => []), admin.genres().catch(() => null), admin.labels().catch(() => []), admin.releaseTitles().catch(() => [])]);
+      if (live) setKnown({ artist: artists.map((item) => item.value), genre: genres?.genres.map((item) => item.name) ?? [], label: labels.map((item) => item.value), releases });
     })();
     return () => { live = false; };
   }, [admin]);
-  /** The list of known values a field is completed from, when the library has any. */
-  const knownList = (field: EditField): string | undefined => {
-    const kind = field === "artist" || field === "albumArtist" ? "artist" : field === "genre" ? "genre" : field === "label" ? "label" : null;
-    return kind && known[kind].length > 0 ? `editor-known-${kind}s` : undefined;
-  };
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -213,6 +212,31 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
 
   const label = (field: EditField) => FIELDS.find((found) => found.id === field)?.label ?? field;
 
+  /** What a field holds right now: typed, or shared by every chosen track. */
+  const textOf = (field: EditField) => typed[field] ?? shared(field) ?? "";
+  /** The library values offered for a field. The Album field offers the releases of the album
+   * artist, else the artist; every release when the library knows neither. */
+  const optionsFor = (field: EditField): readonly string[] => {
+    if (field === "artist" || field === "albumArtist") return known.artist;
+    if (field === "genre") return known.genre;
+    if (field === "label") return known.label;
+    if (field !== "album") return [];
+    for (const by of [textOf("albumArtist"), textOf("artist")]) {
+      const key = alikeKey(by);
+      if (key === "") continue;
+      const own = known.releases.filter((entry) => alikeKey(entry.artist) === key).map((entry) => entry.title);
+      if (own.length > 0) return own;
+    }
+    return known.releases.map((entry) => entry.title);
+  };
+  /** The library's spelling of a typed value, when it differs only in case or separators. */
+  const nearMissOf = (field: EditField): string | undefined => {
+    const text = typed[field];
+    if (text === undefined || text.trim() === "") return undefined;
+    const key = alikeKey(text);
+    return optionsFor(field).find((option) => option !== text && alikeKey(option) === key);
+  };
+
   /** A custom field's value when every chosen track has the same one; "" when none has it. */
   const customShared = (name: string): string | null => {
     const values = trackIds.map((id) => custom?.fields.find((field) => field.trackId === id && field.name === name)?.value ?? "");
@@ -265,24 +289,25 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
         </div>
         <div className="editor-fields">{FIELDS.filter((field) => single || !field.single).map((field) => {
           const common = shared(field.id);
-          return <label key={field.id} className="editor-field">
-            <span>{field.label}</span>
-            <input {...PLAIN_TEXT} value={typed[field.id] ?? common ?? ""} inputMode={field.numeric ? "numeric" : undefined} list={knownList(field.id)}
-              placeholder={common === null ? "Several values" : ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                setTyped((before) => {
-                  // Emptied again on a field the tracks differ in: back to "Several values",
-                  // not a blank written over every one of them.
-                  if (value.trim() === "" && common === null) {
-                    const rest = { ...before };
-                    delete rest[field.id];
-                    return rest;
-                  }
-                  return { ...before, [field.id]: value };
-                });
-              }} />
-          </label>;
+          const type = (value: string) => setTyped((before) => {
+            // Emptied again on a field the tracks differ in: back to "Several values",
+            // not a blank written over every one of them.
+            if (value.trim() === "" && common === null) {
+              const rest = { ...before };
+              delete rest[field.id];
+              return rest;
+            }
+            return { ...before, [field.id]: value };
+          });
+          const nearMiss = nearMissOf(field.id);
+          return <div key={field.id} className="editor-field">
+            <label htmlFor={`${ids}-${field.id}`}>{field.label}</label>
+            <span className="editor-value">
+              <Suggest options={optionsFor(field.id)} value={typed[field.id] ?? common ?? ""} onChange={type} onPick={type}
+                inputProps={{ ...PLAIN_TEXT, id: `${ids}-${field.id}`, inputMode: field.numeric ? "numeric" : undefined, placeholder: common === null ? "Several values" : "" }} />
+              {nearMiss && <small className="editor-near-miss">Your library spells this <button type="button" className="link-button" onClick={() => type(nearMiss)}>Use {nearMiss}</button></small>}
+            </span>
+          </div>;
         })}</div>
         {(recipes.length > 0 || naming || Object.keys(typed).length > 0 || applied.length > 0) && <div className="recipes">
           {recipes.length > 0 && <label className="crate-pick">Recipe
@@ -377,8 +402,5 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
       </>}
       {error && !tracks && <p role="alert" className="inline-error">{error}</p>}
     </div>
-    {known.artist.length > 0 && <datalist id="editor-known-artists">{known.artist.map((value) => <option key={value} value={value} />)}</datalist>}
-    {known.genre.length > 0 && <datalist id="editor-known-genres">{known.genre.map((value) => <option key={value} value={value} />)}</datalist>}
-    {known.label.length > 0 && <datalist id="editor-known-labels">{known.label.map((value) => <option key={value} value={value} />)}</datalist>}
   </dialog>;
 }

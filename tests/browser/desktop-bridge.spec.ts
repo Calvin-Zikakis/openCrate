@@ -551,6 +551,8 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
               return [{ value: "Test Label", tracks: 12 }, { value: "Night Shift", tracks: 3 }];
             case "library_artists":
               return [{ value: "Studio 001", tracks: 40 }, { value: "Night Drive", tracks: 12 }, { value: "Between Spaces", tracks: 3 }];
+            case "library_release_titles":
+              return [{ artist: "Studio 001", title: "Set" }, { artist: "Studio 001", title: "Second Light" }, { artist: "Night Drive", title: "Between Spaces" }];
             case "library_formats":
               return (window as any).__formats ?? [{ format: "AIFF", tracks: 1000 }, { format: "MP3", tracks: 200 }, { format: "M4A", tracks: 34 }];
             case "library_import_target":
@@ -792,7 +794,7 @@ test("a desktop app with a database shows rows read through the Rust commands", 
   });
   expect(firstRead?.args.count).toBeLessThanOrEqual(200);
 
-  await page.getByRole("textbox", { name: "Search library" }).fill("night");
+  await page.getByLabel("Search library").fill("night");
   await page.getByRole("button", { name: "MP3", exact: true }).click();
   await page.getByLabel("Sort library").selectOption("bpm");
   await expect
@@ -1147,7 +1149,7 @@ test("import: typing over a value sends it with the plan and the import, and a r
   await expect(noteOf(page, "Second Light")).toContainText("1 value typed.");
 
   // A right-click on a release-level value offers it to every file of the release.
-  const album = one.getByRole("textbox", { name: "Album of 01.mp3" });
+  const album = one.getByLabel("Album of 01.mp3");
   await album.click();
   await album.fill("Second Light EP");
   await album.click({ button: "right" });
@@ -1156,7 +1158,7 @@ test("import: typing over a value sends it with the plan and the import, and a r
     { source: "Second Light/01.mp3", title: "Opening Light", album: "Second Light EP" },
     { source: "Second Light/02.mp3", album: "Second Light EP" },
   ]);
-  await expect(two.getByRole("textbox", { name: "Album of 02.mp3" })).toHaveValue("Second Light EP");
+  await expect(two.getByLabel("Album of 02.mp3")).toHaveValue("Second Light EP");
   // A year that is not a whole number says nothing.
   const year = two.getByRole("textbox", { name: "Year of 02.mp3" });
   await year.fill("20x");
@@ -1892,15 +1894,27 @@ test("editing: a cover is chosen, removed or taken from the folder, and waits fo
   await cover.getByRole("button", { name: "Choose image..." }).click();
   await expect(cover.locator("small")).toHaveText("The image you chose, written when you save.");
   // Artists, genres and labels the library knows are offered while typing; a title is free text.
-  await expect(editor.getByLabel("Artist", { exact: true })).toHaveAttribute("list", "editor-known-artists");
-  await expect(editor.locator("datalist#editor-known-artists option")).toHaveCount(3);
-  await expect(editor.getByLabel("Genre")).toHaveAttribute("list", "editor-known-genres");
-  await expect(editor.getByLabel("Title")).not.toHaveAttribute("list", /.+/);
-  await editor.getByLabel("Genre").fill("Techno");
-  await editor.getByRole("button", { name: "Save 2 changes" }).click();
+  const artistField = editor.getByLabel("Artist", { exact: true });
+  await expect(artistField).toHaveAttribute("role", "combobox");
+  await expect(editor.getByLabel("Title")).not.toHaveAttribute("role", "combobox");
+  // A near-miss spelling is pointed out under the field, with the library's spelling one click away.
+  await artistField.fill("night drive");
+  await artistField.press("Tab");
+  await expect(artistField).toHaveValue("night drive");
+  await editor.getByRole("button", { name: "Use Night Drive" }).click();
+  await expect(artistField).toHaveValue("Night Drive");
+  await expect(editor.getByRole("button", { name: "Use Night Drive" })).toHaveCount(0);
+  // "tech" finds Techno; Down and Enter take it.
+  const genre = editor.getByLabel("Genre");
+  await genre.fill("tech");
+  await expect(editor.getByRole("listbox").getByRole("option")).toHaveText(["Techno"]);
+  await genre.press("ArrowDown");
+  await genre.press("Enter");
+  await expect(genre).toHaveValue("Techno");
+  await editor.getByRole("button", { name: "Save 3 changes" }).click();
   await expect(editor).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__tracksArt)).toEqual([{ trackIds: [2], source: "picked" }]);
-  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([{ trackId: 2, changes: [{ field: "genre", value: "Techno" }] }]);
+  expect(await page.evaluate(() => (window as any).__editEach)).toEqual([{ trackId: 2, changes: [{ field: "artist", value: "Night Drive" }, { field: "genre", value: "Techno" }] }]);
 
   // Several tracks with different pictures take each one's own folder image; a cover alone saves.
   await row("0002").click();
@@ -2201,7 +2215,7 @@ test("an empty library says there is no music yet, points to Settings and Import
   await expect(page.getByRole("heading", { name: "Import", level: 1 })).toBeVisible();
   // Once something is typed, an empty result is about the search, not about the library.
   await page.getByRole("button", { name: "Tracks" }).first().click();
-  await page.getByRole("textbox", { name: "Search library" }).fill("night");
+  await page.getByLabel("Search library").fill("night");
   await expect(page.locator(".empty-state").getByRole("heading", { name: "No matches this time" })).toBeVisible();
 });
 
@@ -2960,7 +2974,7 @@ test("names and tags are typed as they are: no autocorrect, capitals or spelling
   await stubBridge(page, "managed");
   await page.goto("/");
   await page.getByRole("navigation", { name: "Crates" }).getByRole("button", { name: "New crate" }).click();
-  for (const field of [page.getByRole("textbox", { name: "Search library" }), page.getByRole("textbox", { name: "New crate name" })]) {
+  for (const field of [page.getByLabel("Search library"), page.getByRole("textbox", { name: "New crate name" })]) {
     await expect(field).toHaveAttribute("autocorrect", "off");
     await expect(field).toHaveAttribute("autocapitalize", "off");
     await expect(field).toHaveAttribute("spellcheck", "false");
@@ -3769,15 +3783,91 @@ test("import: typed values and lookups outlive a trip to another screen and a re
   await expect(rowOf(page, "01.mp3").getByRole("textbox", { name: "Title of 01.mp3" })).toHaveValue("Opening Light");
   // Remembered in this browser, so a restart keeps it too.
   expect(await page.evaluate(() => localStorage.getItem("opencrate.importEdits"))).toContain("Opening Light");
-  // Genres, labels and artists the library knows are offered while typing.
-  await expect(rowOf(page, "01.mp3").getByLabel("Label of 01.mp3")).toHaveAttribute("list", "import-known-labels");
-  await expect(page.locator("datalist#import-known-labels option")).toHaveCount(2);
-  await expect(rowOf(page, "01.mp3").getByLabel("Artist of 01.mp3")).toHaveAttribute("list", "import-known-artists");
-  await expect(page.locator("datalist#import-known-artists option")).toHaveCount(3);
   // Imported, the typing is forgotten.
   await rowOf(page, "01.mp3").getByRole("button", { name: /^Import Second Light/ }).click();
   await expect(noteOf(page, "Second Light")).toContainText("2 files are now in Music.");
   expect(await page.evaluate(() => localStorage.getItem("opencrate.importEdits"))).not.toContain("Opening Light");
+});
+
+test("search: artists and releases are offered while typing, and choosing one searches for it", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const search = page.getByLabel("Search library");
+  await search.click();
+  await search.fill("nig");
+  const list = page.getByRole("listbox");
+  await expect(list.getByRole("option")).toHaveText(["Night Drive"]);
+  await search.press("ArrowDown");
+  await search.press("Enter");
+  await expect(search).toHaveValue("Night Drive");
+  await expect(list).toHaveCount(0);
+  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_read").at(-1)?.args.query.search).toBe("Night Drive");
+  // A release title is offered too; the box only ever holds text, it never jumps to a page.
+  await search.fill("second");
+  await expect(list.getByRole("option")).toHaveText(["Second Light"]);
+  await search.press("Escape");
+  await expect(list).toHaveCount(0);
+  await expect(search).toHaveValue("second");
+});
+
+test("import: suggestions match anywhere in a name, a near-miss spelling is pointed out, and albums follow the artist", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.addInitScript(() => { (window as any).__twoReady = true; });
+  await openImportWithFolders(page);
+  const one = rowOf(page, "01.mp3");
+  const two = rowOf(page, "02.mp3");
+  // "drive" finds "Night Drive" though it is not the start of the name; Down and Enter take it.
+  const artist = one.getByLabel("Artist of 01.mp3");
+  await expect(artist).toHaveAttribute("role", "combobox");
+  await artist.click();
+  await artist.fill("drive");
+  const list = page.getByRole("listbox");
+  await expect(list.getByRole("option")).toHaveText(["Night Drive"]);
+  // The list is not clipped by the table cell: the row is what sits under its own centre.
+  const box = (await list.getByRole("option").first().boundingBox())!;
+  const centre: [number, number] = [box.x + box.width / 2, box.y + box.height / 2];
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("[role=option]")?.textContent ?? null, centre)).toContain("Night Drive");
+  await artist.press("ArrowDown");
+  await artist.press("Enter");
+  await expect(artist).toHaveValue("Night Drive");
+  await expect(list).toHaveCount(0);
+  // Enter again, with the list closed, moves down a row as it always did.
+  await artist.press("Enter");
+  await expect(two.getByLabel("Artist of 02.mp3")).toBeFocused();
+  // A near-miss left in place by Tab keeps the typed text and gets a mark; one click takes the library's spelling.
+  const second = two.getByLabel("Artist of 02.mp3");
+  await second.fill("night drive");
+  await expect(list.getByRole("option").first()).toContainText("your library's spelling");
+  await second.press("Tab");
+  await expect(second).toHaveValue("night drive");
+  const mark = two.getByRole("button", { name: "Your library spells this Night Drive. Click to use it." });
+  await mark.click();
+  await expect(second).toHaveValue("Night Drive");
+  // Escape with the list open closes it and keeps the text; a second Escape puts the old value back.
+  await second.click();
+  await second.fill("stud");
+  await expect(list.getByRole("option")).toHaveText(["Studio 001"]);
+  await second.press("Escape");
+  await expect(list).toHaveCount(0);
+  await expect(second).toHaveValue("stud");
+  await second.press("Escape");
+  await expect(second).toHaveValue("Night Drive");
+  // The Album cell offers the row's artist's releases; an artist the library does not know gets every title.
+  const album = one.getByLabel("Album of 01.mp3");
+  await album.click();
+  await album.fill("e");
+  await expect(list.getByRole("option")).toHaveText(["Between Spaces"]);
+  await album.press("Escape");
+  await album.press("Escape");
+  const third = rowOf(page, "01.flac").first();
+  await third.getByLabel("Artist of 01.flac").fill("Nobody");
+  await third.getByLabel("Artist of 01.flac").press("Tab");
+  const anyAlbum = third.getByLabel("Album of 01.flac");
+  await anyAlbum.click();
+  await anyAlbum.fill("e");
+  await expect(list.getByRole("option")).toHaveText(["Set", "Second Light", "Between Spaces"]);
+  // The title cell stays free text.
+  await expect(one.getByLabel("Title of 01.mp3")).not.toHaveAttribute("role", "combobox");
 });
 
 test("import: a file already in the library by size and length is marked, and the whole release can be cleared", async ({ page }) => {

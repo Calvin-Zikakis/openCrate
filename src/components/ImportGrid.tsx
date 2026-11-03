@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { Suggest } from "./Suggest";
+import { alikeKey } from "../library/suggest";
 import { RELEASE_FIELDS, TAG_NAMES, sourceOf, tagOf, type Edit, type GridField, type Source } from "../library/importEdits";
 import type { PlanFile, TagField } from "../library/types";
 import { Icon } from "./Icon";
@@ -98,20 +100,23 @@ export interface CellProps {
   onCommit: (text: string) => void;
   /** Right-click: offer the value to the whole release. */
   onMenu?: (event: MouseEvent<HTMLInputElement>, text: string) => void;
-  /** The id of a datalist of known values. */
-  list?: string;
+  /** Values the library already holds for this field, offered while typing. */
+  options?: readonly string[];
 }
 
 /** One value the owner can type over. The text is theirs while the cell has focus; otherwise it
  * follows what the host last said. Enter keeps the value and moves down a row; Escape puts the
  * old value back. */
-export function EditableCell({ column, label, value, source, placeholder, note, disabled = false, onCommit, onMenu, list }: CellProps) {
+export function EditableCell({ column, label, value, source, placeholder, note, disabled = false, onCommit, onMenu, options = [] }: CellProps) {
   const [text, setText] = useState(value);
   const [focused, setFocused] = useState(false);
   /** Set by Escape: the blur that follows must not keep what was typed. */
   const dropped = useRef(false);
   useEffect(() => { if (!focused) setText(value); }, [value, focused]);
   const commit = () => { if (text !== value) onCommit(text); };
+  /** The library's spelling of the value the cell holds, when it differs only in case or separators. */
+  const key = focused || text.trim() === "" ? "" : alikeKey(text);
+  const nearMiss = key === "" ? undefined : options.find((option) => option !== text && alikeKey(option) === key);
   const keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter" || event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -124,31 +129,30 @@ export function EditableCell({ column, label, value, source, placeholder, note, 
       event.currentTarget.blur();
     }
   };
-  return <span className={`grid-cell is-${source}`} title={note ?? SOURCE_NOTE[source]}>
-    <input
-      className="grid-input"
-      data-column={column}
-      list={list}
-      aria-label={label}
-      value={text}
-      placeholder={placeholder}
-      disabled={disabled}
-      spellCheck={false}
-      onChange={(event) => setText(event.target.value)}
+  return <span className={`grid-cell is-${source}`} title={nearMiss ? undefined : (note ?? SOURCE_NOTE[source])}>
+    <Suggest options={options} value={text} onChange={setText} onPick={setText} inputProps={{
+      className: "grid-input",
+      "data-column": column,
+      "aria-label": label,
+      placeholder,
+      disabled,
+      spellCheck: false,
       // A click into a cell takes the whole value, as a spreadsheet does, so typing replaces it;
       // the default would leave the caret where the click landed and keep the old text.
-      onMouseDown={(event) => {
+      onMouseDown: (event) => {
         if (event.button !== 0 || document.activeElement === event.currentTarget) return;
         event.preventDefault();
         event.currentTarget.focus();
         event.currentTarget.select();
-      }}
-      onContextMenu={onMenu ? (event) => { event.preventDefault(); onMenu(event, text); } : undefined}
-      onFocus={(event) => { setFocused(true); event.target.select(); }}
-      onBlur={() => { setFocused(false); if (dropped.current) { dropped.current = false; return; } commit(); }}
-      onKeyDown={keys}
-    />
-    {MARK[source] && <span className="grid-mark" aria-hidden="true">{MARK[source]}</span>}
+      },
+      onContextMenu: onMenu ? (event) => { event.preventDefault(); onMenu(event, text); } : undefined,
+      onFocus: (event) => { setFocused(true); event.target.select(); },
+      onBlur: () => { setFocused(false); if (dropped.current) { dropped.current = false; return; } commit(); },
+      onKeyDown: keys,
+    }} />
+    {nearMiss
+      ? <button type="button" className="grid-mark is-near-miss" title={`Your library spells this ${nearMiss}. Click to use it.`} aria-label={`Your library spells this ${nearMiss}. Click to use it.`} onClick={() => onCommit(nearMiss)}>≈</button>
+      : MARK[source] && <span className="grid-mark" aria-hidden="true">{MARK[source]}</span>}
   </span>;
 }
 
@@ -181,8 +185,9 @@ interface Props {
   releases: GridRelease[];
   /** A value was typed for these files of a release. Blank text takes a typed value back. */
   onEdit: (releaseKey: string, sources: string[], field: GridField, text: string) => void;
-  /** Values the library already has, offered while typing a genre, a label or an artist. */
-  suggestions?: { genre: string[]; label: string[]; artist: string[] };
+  /** Values the library already has, offered while typing: artists, genres, labels, and the
+   * releases each artist has, for the Album cell. */
+  suggestions?: { genre: string[]; label: string[]; artist: string[]; releases: { artist: string; title: string }[] };
 }
 
 type CellMenu = { x: number; y: number; release: GridRelease; field: GridField; text: string };
@@ -335,6 +340,26 @@ export function ImportGrid({ releases, onEdit, suggestions }: Props) {
     </span>;
   };
 
+  /** What a row's text for a field is right now: typed over, or from the file. */
+  const textOf = (field: GridField, file: PlanFile, release: GridRelease) =>
+    release.edits.get(file.source)?.[field] ?? tagOf(file.tags, field)?.value ?? "";
+  /** The library values offered in a field's cell. The Album cell offers the releases of the
+   * row's album artist, else its artist; every release when the library knows neither. */
+  const optionsFor = (field: GridField, file: PlanFile, release: GridRelease): readonly string[] => {
+    if (!suggestions) return [];
+    if (field === "artist" || field === "albumArtist") return suggestions.artist;
+    if (field === "genre") return suggestions.genre;
+    if (field === "label") return suggestions.label;
+    if (field !== "album") return [];
+    for (const by of [textOf("albumArtist", file, release), textOf("artist", file, release)]) {
+      const key = alikeKey(by);
+      if (key === "") continue;
+      const own = suggestions.releases.filter((entry) => alikeKey(entry.artist) === key).map((entry) => entry.title);
+      if (own.length > 0) return own;
+    }
+    return suggestions.releases.map((entry) => entry.title);
+  };
+
   const cell = (column: Column, file: PlanFile, release: GridRelease) => {
     const tags = file.tags;
     if ("field" in column) {
@@ -350,7 +375,7 @@ export function ImportGrid({ releases, onEdit, suggestions }: Props) {
       return <EditableCell column={column.id} label={`${column.label === "#" ? "Track" : column.label} of ${fileName(file.source)}`} value={shownText} source={source} note={note}
         placeholder={field === "track" ? "-" : `Add ${TAG_NAMES[field].toLowerCase()}`}
         onCommit={(text) => onEdit(release.key, [file.source], field, text)}
-        list={field === "genre" && (suggestions?.genre.length ?? 0) > 0 ? "import-known-genres" : field === "label" && (suggestions?.label.length ?? 0) > 0 ? "import-known-labels" : (field === "artist" || field === "albumArtist") && (suggestions?.artist.length ?? 0) > 0 ? "import-known-artists" : undefined}
+        options={optionsFor(field, file, release)}
         onMenu={forRelease ? (event, text) => setCellMenu({ x: event.clientX, y: event.clientY, release, field, text }) : undefined} />;
     }
     const fixed = (() => {
