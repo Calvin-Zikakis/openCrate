@@ -3823,6 +3823,10 @@ test("import: suggestions match anywhere in a name, a near-miss spelling is poin
   await artist.fill("drive");
   const list = page.getByRole("listbox");
   await expect(list.getByRole("option")).toHaveText(["Night Drive"]);
+  // The list is not clipped by the table cell: the row is what sits under its own centre.
+  const box = (await list.getByRole("option").first().boundingBox())!;
+  const centre: [number, number] = [box.x + box.width / 2, box.y + box.height / 2];
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("[role=option]")?.textContent ?? null, centre)).toContain("Night Drive");
   await artist.press("ArrowDown");
   await artist.press("Enter");
   await expect(artist).toHaveValue("Night Drive");

@@ -790,7 +790,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .grid-cell { position: relative; display: block; }
 /* The suggestion list under a field: five rows tall, the rest by scrolling. */
 .suggest { position: relative; display: block; }
-.suggest-list { position: absolute; z-index: 30; top: 100%; left: 0; min-width: 100%; margin: 2px 0 0; padding: 4px; list-style: none; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px #0006; }
+.suggest-list { z-index: 30; margin: 0; padding: 4px; list-style: none; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px #0006; }
 .suggest-row { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; color: var(--text); }
 .suggest-row.is-active { background: var(--hover); }
 .suggest-note { color: var(--accent-text); font-size: 11px; }

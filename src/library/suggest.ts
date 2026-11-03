@@ -21,7 +21,10 @@ export function rank(query: string, options: readonly string[], limit = 50): Sug
   if (needle === "") return [];
   const key = alikeKey(query);
   const tiers: Suggestion[][] = [[], [], [], [], []];
+  const seen = new Set<string>();
   for (const value of options) {
+    if (seen.has(value)) continue;
+    seen.add(value);
     const lowered = value.toLowerCase();
     const at = lowered.indexOf(needle);
     const nearMiss = key !== "" && value !== query && alikeKey(value) === key;

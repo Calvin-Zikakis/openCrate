@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type InputHTMLAttributes, type KeyboardEvent, type Ref } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type InputHTMLAttributes, type KeyboardEvent, type Ref } from "react";
 import { rank } from "../library/suggest";
 
 interface Props {
@@ -31,8 +31,27 @@ export function Suggest({ options, value, onChange, onPick, inputProps = {}, inp
     if (!shown || active < 0) return;
     document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" });
   }, [shown, active, listId]);
+  /** The input, for placing the list under it. The list is fixed to the viewport, so a table cell
+   * or dialog body that hides its overflow cannot cut it off. */
+  const input = useRef<HTMLInputElement | null>(null);
+  const [place, setPlace] = useState<CSSProperties>({});
+  useLayoutEffect(() => {
+    if (!shown) return;
+    const rect = input.current?.getBoundingClientRect();
+    if (rect) setPlace({ position: "fixed", top: rect.bottom + 2, left: rect.left, minWidth: rect.width });
+    // Scrolling or resizing would leave the list behind; it closes and reopens on the next keystroke.
+    const away = () => { setOpen(false); setActive(-1); };
+    window.addEventListener("scroll", away, true);
+    window.addEventListener("resize", away);
+    return () => { window.removeEventListener("scroll", away, true); window.removeEventListener("resize", away); };
+  }, [shown]);
+  const attach = (element: HTMLInputElement | null) => {
+    input.current = element;
+    if (typeof inputRef === "function") inputRef(element);
+    else if (inputRef) inputRef.current = element;
+  };
   if (options.length === 0) {
-    return <input {...inputProps} ref={inputRef} value={value} onChange={(event) => onChange(event.target.value)} />;
+    return <input {...inputProps} ref={attach} value={value} onChange={(event) => onChange(event.target.value)} />;
   }
   const close = () => { setOpen(false); setActive(-1); };
   const pick = (text: string) => { close(); onPick(text); };
@@ -61,7 +80,7 @@ export function Suggest({ options, value, onChange, onPick, inputProps = {}, inp
   return <span className="suggest">
     <input
       {...inputProps}
-      ref={inputRef}
+      ref={attach}
       role="combobox"
       aria-expanded={shown}
       aria-controls={listId}
@@ -72,7 +91,7 @@ export function Suggest({ options, value, onChange, onPick, inputProps = {}, inp
       onKeyDown={keys}
       onBlur={(event) => { close(); inputProps.onBlur?.(event); }}
     />
-    {shown && <ul className="suggest-list" role="listbox" id={listId} style={{ maxHeight: `${VISIBLE * 26 + 8}px` }}>
+    {shown && <ul className="suggest-list" role="listbox" id={listId} style={{ ...place, maxHeight: `${VISIBLE * 26 + 8}px` }}>
       {rows.map((row, index) => <li
         key={row.value}
         id={`${listId}-${index}`}

@@ -29,6 +29,10 @@ describe("rank", () => {
     expect(rank("(original mix)", ["Title (Original Mix)", "Other"]).map((row) => row.value)).toEqual(["Title (Original Mix)"]);
   });
 
+  test("a value listed twice is offered once", () => {
+    expect(rank("set", ["Set", "Set", "Sunset"]).map((row) => row.value)).toEqual(["Set", "Sunset"]);
+  });
+
   test("caps the result at the limit and gives nothing for a blank query", () => {
     const many = Array.from({ length: 60 }, (_, index) => `a${index}`);
     expect(rank("a", many)).toHaveLength(50);
