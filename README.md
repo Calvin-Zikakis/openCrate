@@ -138,9 +138,16 @@ instead of `target`.
 - On Windows, run the `-setup.exe`. It installs for your user only and needs no administrator rights. It is
   unsigned, so SmartScreen warns when you open it: choose More info, then Run anyway. To remove openCrate, use
   Settings, Apps.
-- On macOS, open the `.dmg` and drag openCrate to Applications. A build copied from another Mac is blocked the
-  first time because it is unsigned: open it once, then allow it under System Settings, Privacy & Security, Open
-  Anyway. To remove it, move it to the Trash.
+- On macOS, open the `.dmg` and drag openCrate to Applications. The app is not notarized, so a copy that came
+  through a browser or AirDrop carries the quarantine mark and macOS reports it as "damaged". Clear the mark once
+  from Terminal, then it opens like any other app:
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/openCrate.app
+  ```
+
+  A build you made yourself on the same Mac has no mark and opens straight away. To remove the app, move it to
+  the Trash.
 
 Removing the app leaves its data folder (see above) in place.
 
