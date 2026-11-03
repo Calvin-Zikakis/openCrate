@@ -785,6 +785,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .grid-state.is-waiting { color: var(--secondary); border-color: transparent; }
 .grid-state.is-duplicate { color: var(--accent-text); }
 .grid-cell { position: relative; display: block; }
+/* The suggestion list under a field: five rows tall, the rest by scrolling. */
+.suggest { position: relative; display: block; }
+.suggest-list { position: absolute; z-index: 30; top: 100%; left: 0; min-width: 100%; margin: 2px 0 0; padding: 4px; list-style: none; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px #0006; }
+.suggest-row { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; color: var(--text); }
+.suggest-row.is-active { background: var(--hover); }
+.suggest-note { color: var(--accent-text); font-size: 11px; }
 .grid-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 5px 6px 5px 6px; margin-left: -6px; font-variant-numeric: tabular-nums; }
 /* A marked value makes room for its mark, which sits just before the text, inside the cell. */
 .grid-cell.is-guessed .grid-input, .grid-cell.is-tidied .grid-input, .grid-cell.is-lookedUp .grid-input, .grid-cell.is-edited .grid-input { padding-left: 14px; }
@@ -797,6 +803,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .grid-cell.is-lookedUp .grid-input { color: #7cc4ff; }
 .grid-cell.is-edited .grid-input { color: var(--text); border-bottom-color: var(--accent); }
 .grid-mark { position: absolute; left: -2px; top: 4px; width: 12px; text-align: center; font-size: 9px; pointer-events: none; }
+/* The near-miss mark is a button: the library's spelling, one click away. */
+.grid-mark.is-near-miss { font: inherit; font-size: 12px; line-height: 1; top: 6px; color: var(--accent-text); background: none; border: 0; padding: 0; cursor: pointer; pointer-events: auto; }
+.grid-cell:has(.is-near-miss) .grid-input { padding-left: 14px; }
 .grid-cell.is-guessed .grid-mark { color: var(--warn); }
 .grid-cell.is-tidied .grid-mark { color: var(--accent); }
 .grid-cell.is-lookedUp .grid-mark { color: #7cc4ff; }
