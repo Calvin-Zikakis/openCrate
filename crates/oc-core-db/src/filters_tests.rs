@@ -113,6 +113,7 @@ fn tracks_filter_by_genre_year_and_date_added_and_labels_are_listed() {
         service.labels().unwrap(),
         [("Label A".to_owned(), 2), ("Label B".to_owned(), 1)]
     );
+    assert_eq!(service.artists().unwrap(), [("Studio 001".to_owned(), 3)]);
 
     // A file of the same size and length as one in the library is found; another length is not.
     let size = i64::try_from(fs::metadata(music.path().join("b.aif")).unwrap().len()).unwrap();

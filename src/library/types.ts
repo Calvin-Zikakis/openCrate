@@ -687,6 +687,8 @@ export interface LibraryAdmin {
   formats(): Promise<FormatCount[]>;
   /** Every label in the library with its track count, most common first. */
   labels(): Promise<{ value: string; tracks: number }[]>;
+  /** Every artist name with a present track and how many, most first, for suggestions while typing. */
+  artists(): Promise<{ value: string; tracks: number }[]>;
   /** Asks MusicBrainz about a release; only when the owner presses the button. Writes nothing. */
   lookupRelease(folderId: number, name: string, rootId: number, options?: ImportOptions): Promise<ReleaseLookup>;
   /** Which of the owner's lookup keys are saved, each shown by its last four characters only. */

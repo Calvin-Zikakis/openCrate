@@ -209,8 +209,9 @@ finished downloading.
 
 - Every tag is a cell you can type over; Enter moves down a row. The Whole release row fills every file of
   a release at once, and right-clicking a value applies it to the whole release. A mark beside a value says where it
-  came from when it is not the file's own tag: `?` the file name, `*` tidied, `•` a lookup, `✎` typed by you. Genre
-  and label cells suggest values your library already uses. What you type goes into the imported copy only.
+  came from when it is not the file's own tag: `?` the file name, `*` tidied, `•` a lookup, `✎` typed by you. Artist,
+  album artist, genre and label cells suggest values your library already uses as you type, so one artist keeps one
+  spelling. What you type goes into the imported copy only.
 - **Look up** asks MusicBrainz about one release, and **Look up all** asks about every one. What it finds fills the
   cells, marked as a lookup, and can still be typed over. With a Discogs token in Settings, Discogs is asked when
   MusicBrainz has nothing.
@@ -233,7 +234,8 @@ finished downloading.
 ### Editing tracks
 
 Choose one or more tracks and press Cmd/Ctrl+I, or right-click and choose **Edit details**. A field every chosen
-track shares shows its value; one that differs shows "Several values" and is left alone unless you type in it.
+track shares shows its value; one that differs shows "Several values" and is left alone unless you type in it. The
+artist, album artist, genre and label fields suggest values your library already uses as you type.
 Cleanup buttons (number prefixes, casing, links and junk, separators) list what they would change before you save.
 Saving writes the files' tags. **Save as recipe** keeps the typed values and cleanup rules under a name to use
 again. **Your fields** are fields of your own, such as an energy or a mood, kept in openCrate rather than in the

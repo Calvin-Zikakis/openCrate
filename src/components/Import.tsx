@@ -146,13 +146,13 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
   const [lookups, setLookups] = useState<Map<string, Lookup>>(loadLookups);
   useEffect(() => { saveEdits(edits); }, [edits]);
   useEffect(() => { saveLookups(lookups); }, [lookups]);
-  /** Genres and labels the library already has, offered while typing so spellings stay one. */
-  const [known, setKnown] = useState<{ genre: string[]; label: string[] }>({ genre: [], label: [] });
+  /** Genres, labels and artists the library already has, offered while typing so spellings stay one. */
+  const [known, setKnown] = useState<{ genre: string[]; label: string[]; artist: string[] }>({ genre: [], label: [], artist: [] });
   useEffect(() => {
     let live = true;
     void (async () => {
-      const [genres, labels] = await Promise.all([admin.genres().catch(() => null), admin.labels().catch(() => [])]);
-      if (live) setKnown({ genre: genres?.genres.map((item) => item.name) ?? [], label: labels.map((item) => item.value) });
+      const [genres, labels, artists] = await Promise.all([admin.genres().catch(() => null), admin.labels().catch(() => []), admin.artists().catch(() => [])]);
+      if (live) setKnown({ genre: genres?.genres.map((item) => item.name) ?? [], label: labels.map((item) => item.value), artist: artists.map((item) => item.value) });
     })();
     return () => { live = false; };
   }, [admin]);
@@ -468,6 +468,7 @@ export function Import({ admin, auto, onOpenSettings, onImported, onCratesChange
       {/* One list each for the whole screen; the grid's genre and label cells point at them. */}
       {known.genre.length > 0 && <datalist id="import-known-genres">{known.genre.map((value) => <option key={value} value={value} />)}</datalist>}
       {known.label.length > 0 && <datalist id="import-known-labels">{known.label.map((value) => <option key={value} value={value} />)}</datalist>}
+      {known.artist.length > 0 && <datalist id="import-known-artists">{known.artist.map((value) => <option key={value} value={value} />)}</datalist>}
     </div>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {!snapshot && !error && <p className="settings-copy" role="status">Looking at your watch folders...</p>}

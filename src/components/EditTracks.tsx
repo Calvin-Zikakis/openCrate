@@ -77,6 +77,22 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
   /** Closing with changes not saved waits for a yes. */
   const [discarding, setDiscarding] = useState(false);
 
+  /** Artists, genres and labels the library already has, offered while typing so spellings stay one. */
+  const [known, setKnown] = useState<{ artist: string[]; genre: string[]; label: string[] }>({ artist: [], genre: [], label: [] });
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const [artists, genres, labels] = await Promise.all([admin.artists().catch(() => []), admin.genres().catch(() => null), admin.labels().catch(() => [])]);
+      if (live) setKnown({ artist: artists.map((item) => item.value), genre: genres?.genres.map((item) => item.name) ?? [], label: labels.map((item) => item.value) });
+    })();
+    return () => { live = false; };
+  }, [admin]);
+  /** The list of known values a field is completed from, when the library has any. */
+  const knownList = (field: EditField): string | undefined => {
+    const kind = field === "artist" || field === "albumArtist" ? "artist" : field === "genre" ? "genre" : field === "label" ? "label" : null;
+    return kind && known[kind].length > 0 ? `editor-known-${kind}s` : undefined;
+  };
+
   useEffect(() => {
     dialog.current?.showModal();
     admin.trackTags(trackIds).then(setTracks, (reason: unknown) => setError(message(reason)));
@@ -251,7 +267,7 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
           const common = shared(field.id);
           return <label key={field.id} className="editor-field">
             <span>{field.label}</span>
-            <input {...PLAIN_TEXT} value={typed[field.id] ?? common ?? ""} inputMode={field.numeric ? "numeric" : undefined}
+            <input {...PLAIN_TEXT} value={typed[field.id] ?? common ?? ""} inputMode={field.numeric ? "numeric" : undefined} list={knownList(field.id)}
               placeholder={common === null ? "Several values" : ""}
               onChange={(event) => {
                 const value = event.target.value;
@@ -361,5 +377,8 @@ export function EditTracks({ admin, coverUrl, trackIds, onClose, onSaved }: Prop
       </>}
       {error && !tracks && <p role="alert" className="inline-error">{error}</p>}
     </div>
+    {known.artist.length > 0 && <datalist id="editor-known-artists">{known.artist.map((value) => <option key={value} value={value} />)}</datalist>}
+    {known.genre.length > 0 && <datalist id="editor-known-genres">{known.genre.map((value) => <option key={value} value={value} />)}</datalist>}
+    {known.label.length > 0 && <datalist id="editor-known-labels">{known.label.map((value) => <option key={value} value={value} />)}</datalist>}
   </dialog>;
 }

@@ -181,8 +181,8 @@ interface Props {
   releases: GridRelease[];
   /** A value was typed for these files of a release. Blank text takes a typed value back. */
   onEdit: (releaseKey: string, sources: string[], field: GridField, text: string) => void;
-  /** Values the library already has, offered while typing a genre or a label. */
-  suggestions?: { genre: string[]; label: string[] };
+  /** Values the library already has, offered while typing a genre, a label or an artist. */
+  suggestions?: { genre: string[]; label: string[]; artist: string[] };
 }
 
 type CellMenu = { x: number; y: number; release: GridRelease; field: GridField; text: string };
@@ -350,7 +350,7 @@ export function ImportGrid({ releases, onEdit, suggestions }: Props) {
       return <EditableCell column={column.id} label={`${column.label === "#" ? "Track" : column.label} of ${fileName(file.source)}`} value={shownText} source={source} note={note}
         placeholder={field === "track" ? "-" : `Add ${TAG_NAMES[field].toLowerCase()}`}
         onCommit={(text) => onEdit(release.key, [file.source], field, text)}
-        list={field === "genre" && (suggestions?.genre.length ?? 0) > 0 ? "import-known-genres" : field === "label" && (suggestions?.label.length ?? 0) > 0 ? "import-known-labels" : undefined}
+        list={field === "genre" && (suggestions?.genre.length ?? 0) > 0 ? "import-known-genres" : field === "label" && (suggestions?.label.length ?? 0) > 0 ? "import-known-labels" : (field === "artist" || field === "albumArtist") && (suggestions?.artist.length ?? 0) > 0 ? "import-known-artists" : undefined}
         onMenu={forRelease ? (event, text) => setCellMenu({ x: event.clientX, y: event.clientY, release, field, text }) : undefined} />;
     }
     const fixed = (() => {

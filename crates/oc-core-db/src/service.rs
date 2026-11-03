@@ -1024,6 +1024,12 @@ impl LibraryService {
         crate::library::labels(self.pool.lease().connection())
     }
 
+    /// Every artist name with a present track (as track artist or release artist), with how
+    /// many tracks, most first.
+    pub fn artists(&self) -> Result<Vec<(String, i64)>> {
+        crate::library::artists(self.pool.lease().connection())
+    }
+
     /// Present files of this size and within a second of this length: a recording already in
     /// the library, most likely.
     pub fn files_like(&self, size: i64, duration_ms: i64) -> Result<Vec<crate::library::LikeFile>> {
