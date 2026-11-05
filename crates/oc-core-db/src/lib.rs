@@ -74,6 +74,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("schema/026_dismissed_release.sql"),
     include_str!("schema/027_reorganize.sql"),
     include_str!("schema/028_reorganize_undone.sql"),
+    include_str!("schema/029_credit.sql"),
 ];
 
 #[derive(Debug, Error)]
@@ -235,6 +236,14 @@ impl Database {
             set_clean_shutdown(&connection, false)?;
         }
         migrate(&mut connection, MIGRATIONS, &directory.join("snapshots"))?;
+        // A library from before the credit table, or one whose credits were lost, gets them
+        // back from the rows it already holds; no file is read.
+        {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            catalog::rebuild_credits(&transaction)?;
+            transaction.commit()?;
+        }
         set_clean_shutdown(&connection, false)?;
         Ok(Self {
             connection,

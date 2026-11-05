@@ -789,3 +789,36 @@ fn every_page_is_a_slice_of_the_whole_list() {
         }
     }
 }
+
+fn credit_count(database: &Database) -> i64 {
+    database
+        .connection
+        .query_row("SELECT COUNT(*) FROM credit", [], |row| row.get(0))
+        .unwrap()
+}
+
+#[test]
+fn credits_are_written_by_seed_and_rebuilt_when_the_table_is_empty() {
+    let directory = tempdir().unwrap();
+    let mut database = Database::open(directory.path()).unwrap();
+    seed(&mut database, 50).unwrap();
+    assert_eq!(credit_count(&database), 50);
+    database
+        .connection
+        .execute("DELETE FROM credit", [])
+        .unwrap();
+    drop(database);
+    let database = Database::open(directory.path()).unwrap();
+    assert_eq!(credit_count(&database), 50);
+}
+
+#[test]
+fn credits_go_with_their_tracks() {
+    let directory = tempdir().unwrap();
+    let mut database = Database::open(directory.path()).unwrap();
+    seed(&mut database, 10).unwrap();
+    assert_eq!(credit_count(&database), 10);
+    // The seed's one music folder; removing it is the path that deletes tracks.
+    assert_eq!(database.remove_root(1).unwrap(), 10);
+    assert_eq!(credit_count(&database), 0);
+}

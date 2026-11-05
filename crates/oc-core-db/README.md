@@ -1,6 +1,6 @@
 # oc-core-db
 
-The library database: SQLite in the app data folder, its schema (v28, one migration per file in `src/schema`),
+The library database: SQLite in the app data folder, its schema (v29, one migration per file in `src/schema`),
 recovery, and the library service the desktop app talks to. It holds metadata only; the audio stays in the files.
 The workspace uses bundled SQLite with the online backup feature. rekordbox's encrypted database belongs to
 `oc-rekordbox`.
@@ -14,6 +14,7 @@ talks to the service, never to SQLite. Its methods follow the modules:
 | Module | What it holds |
 | --- | --- |
 | `library` | Windowed queries for the track, release and artist lists: search, filters, sorts and pages of rows |
+| `catalog` (credits) | Who is on each track, in the `credit` table: main artists, featured names and the remixer, read from the artist field and the title by `oc-organize`. The `live_credit` view settles collaborations: a half of "A & B" counts once that name is an artist on its own, and the whole text counts only until then. Rebuilt from the stored rows when the table is empty |
 | `roots`, `scan`, `catalog` | Music folders and whether each is online; applying a scan; reading new or changed files' tags into artists, releases and tracks |
 | `downloads`, `imports`, `publish_store` | Watch folders; what was imported, grouped into batches; the `oc-publish` journal on SQLite |
 | `crates`, `fields`, `edits` | The owner's crates, custom fields, and the history of tag edits for undo |

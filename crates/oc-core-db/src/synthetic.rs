@@ -171,6 +171,7 @@ pub fn seed(database: &mut Database, tracks: u32) -> Result<()> {
             ])?;
         }
     }
+    crate::catalog::rebuild_credits(&transaction)?;
     transaction.commit()?;
     Ok(())
 }
