@@ -1314,3 +1314,32 @@ fn an_artist_shows_in_search_for_a_track_they_are_credited_on() {
         ["Guest", "Studio 001"]
     );
 }
+
+#[test]
+fn a_credit_does_not_respell_an_artist_the_library_already_has() {
+    let fixture = fixture();
+    let folder = tempdir().unwrap();
+    let root = fixture.service.add_root(folder.path(), "Credits").unwrap();
+    put(
+        folder.path(),
+        "e/1.aif",
+        &aiff(1),
+        Some(&tags("Night Shift", "Studio 001", "Solo", 1)),
+    );
+    put(
+        folder.path(),
+        "e/2.aif",
+        &aiff(1),
+        Some(&tags("Set (feat. studio 001)", "Night Drive", "Set", 1)),
+    );
+    scan(&fixture, root);
+    // Only a track's own artist field respells an artist; a mention in a title does not.
+    assert_eq!(
+        names(&read(&fixture, &query(View::Artists, "")).1),
+        ["Night Drive", "Studio 001"]
+    );
+    assert_eq!(
+        by_artist(&fixture, "Studio 001"),
+        ["Night Shift", "Set (feat. studio 001)"]
+    );
+}

@@ -146,9 +146,27 @@ struct FileRow {
     mtime_ms: i64,
 }
 
+/// Whether a name read from the tags may change how an artist already known is spelled.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Spelling {
+    /// A track's own artist field: the newest read spelling is the one shown and searched.
+    Newest,
+    /// A credit (a guest in a title, a half of a pair): the library's spelling stands.
+    Keep,
+}
+
 fn find_or_create_artist(
     connection: &Connection,
     name: &str,
+    outcome: &mut CatalogOutcome,
+) -> Result<i64> {
+    find_or_create_artist_spelled(connection, name, Spelling::Newest, outcome)
+}
+
+fn find_or_create_artist_spelled(
+    connection: &Connection,
+    name: &str,
+    spelling: Spelling,
     outcome: &mut CatalogOutcome,
 ) -> Result<i64> {
     let key = sort_key(name);
@@ -160,9 +178,8 @@ fn find_or_create_artist(
         )
         .optional()?
     {
-        // The same artist spelled anew ("daft punk" retagged "Daft Punk"): the newest read
-        // spelling is the one shown and searched.
-        if stored != name {
+        // The same artist spelled anew ("daft punk" retagged "Daft Punk").
+        if stored != name && spelling == Spelling::Newest {
             connection.execute(
                 "UPDATE artist SET name = ?2 WHERE id = ?1",
                 params![id, name],
@@ -383,7 +400,8 @@ pub(crate) fn write_credits(
 ) -> Result<()> {
     connection.execute("DELETE FROM credit WHERE track_id = ?1", [track_id])?;
     for (position, credit) in oc_organize::credits(artist, title).into_iter().enumerate() {
-        let artist_id = find_or_create_artist(connection, &credit.name, outcome)?;
+        let artist_id =
+            find_or_create_artist_spelled(connection, &credit.name, Spelling::Keep, outcome)?;
         let kind = match credit.role {
             Role::Remixer(kind) => kind.word(),
             Role::Artist | Role::Featured => "",
