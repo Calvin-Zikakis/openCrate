@@ -1183,6 +1183,48 @@ fn the_artists_screen_lists_everyone_credited_and_their_pages_show_every_track()
     let mut releases = query(View::Releases, "");
     releases.artist_id = Some(artist_id(&fixture, "Night Drive"));
     assert_eq!(names(&read(&fixture, &releases).1), ["Remixes", "Set"]);
+    // Each track row carries its credits, main artists first, for the shell's menu and note.
+    let mut studio = query(View::Tracks, "");
+    studio.artist_id = Some(artist_id(&fixture, "Studio 001"));
+    let rows = read(&fixture, &studio).1;
+    let credits = |title: &str| -> Vec<(String, String, String)> {
+        rows.iter()
+            .find(|row| row.title == title)
+            .unwrap()
+            .credits
+            .iter()
+            .map(|credit| {
+                (
+                    credit.name.clone(),
+                    credit.role.clone(),
+                    credit.kind.clone(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        credits("Second Light"),
+        [
+            ("Studio 001".to_owned(), "artist".to_owned(), String::new()),
+            ("Guest".to_owned(), "featured".to_owned(), String::new())
+        ]
+    );
+    assert_eq!(
+        credits("Between Spaces (Night Drive Remix)"),
+        [
+            ("Studio 001".to_owned(), "artist".to_owned(), String::new()),
+            (
+                "Night Drive".to_owned(),
+                "remixer".to_owned(),
+                "remix".to_owned()
+            )
+        ]
+    );
+    assert_eq!(
+        read(&fixture, &query(View::Artists, "")).1[0].credits,
+        Vec::new(),
+        "a card has no credits of its own"
+    );
 }
 
 #[test]

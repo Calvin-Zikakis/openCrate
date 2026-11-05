@@ -135,6 +135,20 @@ pub struct LibraryItem {
     pub year: Option<i32>,
     /// When the track joined the library.
     pub added_ms: i64,
+    /// Tracks only: everyone credited on the track, main artists first; empty for a release
+    /// or an artist.
+    pub credits: Vec<TrackCredit>,
+}
+
+/// One name on a track, for the shell's menu and the note on an artist's page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrackCredit {
+    pub artist_id: i64,
+    pub name: String,
+    /// `artist`, `featured` or `remixer`.
+    pub role: String,
+    /// The remix kind as a word (`remix`, `edit`...), else empty.
+    pub kind: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -459,7 +473,11 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                       (EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id AND f.lifecycle = 'active') \
                        AND NOT EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id \
                                        AND f.lifecycle = 'active' AND f.presence = 'present')), \
-                      t.bpm IS NOT NULL, t.musical_key <> '', t.genre, t.label, t.year, t.added_ms",
+                      t.bpm IS NOT NULL, t.musical_key <> '', t.genre, t.label, t.year, t.added_ms, \
+                      (SELECT json_group_array(json_array(x.artist_id, x.name, x.role, x.kind)) \
+                       FROM (SELECT c.artist_id, a2.name, c.role, c.kind FROM live_credit c \
+                             JOIN artist a2 ON a2.id = c.artist_id WHERE c.track_id = t.id \
+                             ORDER BY c.position) x)",
             order: match (query.sort, query.playlist_id) {
                 (Sort::Playlist, Some(_)) => {
                     "(SELECT MIN(i.position) FROM playlist_item i \
@@ -501,7 +519,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             joined: "release r JOIN artist a ON a.id = r.artist_id",
             columns: "r.id, r.title, a.name, r.artist_id, r.title, r.id, NULL, '', 0, NULL, \
                       (SELECT COUNT(*) FROM track t WHERE t.release_id = r.id), 0, 0, 0, '', '', NULL, \
-                      r.added_ms",
+                      r.added_ms, '[]'",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => {
                     "r.added_ms DESC, r.id DESC"
@@ -517,7 +535,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             joined: "artist a",
             columns: "a.id, a.name, a.name, a.id, '', 0, NULL, '', 0, NULL, \
                       (SELECT COUNT(DISTINCT c.track_id) FROM live_credit c WHERE c.artist_id = a.id), \
-                      0, 0, 0, '', '', NULL, 0",
+                      0, 0, 0, '', '', NULL, 0, '[]'",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => "a.id DESC",
                 Sort::Title | Sort::Artist | Sort::Bpm | Sort::Track | Sort::Format => {
@@ -605,7 +623,23 @@ fn item_from_row(kind: View, row: &rusqlite::Row<'_>) -> rusqlite::Result<Librar
         label: row.get(15)?,
         year: row.get(16)?,
         added_ms: row.get(17)?,
+        credits: credits_from_json(&row.get::<_, String>(18)?)?,
     })
+}
+
+fn credits_from_json(text: &str) -> rusqlite::Result<Vec<TrackCredit>> {
+    let rows: Vec<(i64, String, String, String)> = serde_json::from_str(text).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(18, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+    Ok(rows
+        .into_iter()
+        .map(|(artist_id, name, role, kind)| TrackCredit {
+            artist_id,
+            name,
+            role,
+            kind,
+        })
+        .collect())
 }
 
 /// Ids of the whole filtered list, in display order.

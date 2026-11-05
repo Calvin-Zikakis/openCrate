@@ -29,6 +29,16 @@ export interface LibraryItem {
   /** The key is rekordbox's, not the file's tags'. */
   rekordboxKey: boolean;
   color: number;
+  /** Tracks only: everyone on the track, main artists first; empty for a release or an artist. */
+  credits: Credit[];
+}
+
+/** One name on a track. A guest shows as "feat."; a remixer's `kind` is the word to show. */
+export interface Credit {
+  artistId: number;
+  name: string;
+  role: "artist" | "featured" | "remixer";
+  kind: string;
 }
 
 export interface LibraryQuery {

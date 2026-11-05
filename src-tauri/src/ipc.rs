@@ -156,6 +156,16 @@ pub struct ItemDto {
     pub label: String,
     pub year: Option<i32>,
     pub added_ms: i64,
+    pub credits: Vec<CreditDto>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditDto {
+    pub artist_id: i64,
+    pub name: String,
+    pub role: String,
+    pub kind: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -192,6 +202,16 @@ impl From<LibraryItem> for ItemDto {
             label: item.label,
             year: item.year,
             added_ms: item.added_ms,
+            credits: item
+                .credits
+                .into_iter()
+                .map(|credit| CreditDto {
+                    artist_id: credit.artist_id,
+                    name: credit.name,
+                    role: credit.role,
+                    kind: credit.kind,
+                })
+                .collect(),
         }
     }
 }
@@ -352,11 +372,24 @@ mod tests {
             "label",
             "year",
             "addedMs",
+            "credits",
         ] {
             assert!(first.get(key).is_some(), "missing {key}");
         }
         assert_eq!(first["kind"], "tracks");
-        assert_eq!(first.as_object().unwrap().len(), 19, "no stray fields");
+        assert_eq!(first.as_object().unwrap().len(), 20, "no stray fields");
+        // A seeded track's one credit is its artist, with the names the UI reads.
+        assert_eq!(
+            first["credits"][0]["role"], "artist",
+            "{:?}",
+            first["credits"]
+        );
+        for key in ["artistId", "name", "role", "kind"] {
+            assert!(
+                first["credits"][0].get(key).is_some(),
+                "missing credit {key}"
+            );
+        }
         assert!(first["format"].is_string());
         assert_eq!(value["items"].as_array().unwrap().len(), 3);
         service.shutdown().unwrap();

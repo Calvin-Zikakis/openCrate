@@ -29,11 +29,19 @@ describe("reading through the Rust backend", () => {
         id: 7, kind: "tracks", title: "After Hours 000007", artist: "Studio 001", artistId: 1,
         release: "Between Spaces 0001", releaseId: 10, bpm: 128, musicalKey: "8A",
         duration: 211, format: "AIFF", trackCount: 1, missing: false, analysed: false, rekordboxKey: false, color: 2,
-        genre: "", label: "", year: null, addedMs: 0,
+        genre: "", label: "", year: null, addedMs: 0, credits: [],
       }],
     });
     await api.read({ ...DEFAULT_QUERY, format: "FLAC" }, 0, 1, live());
     expect(invoke.mock.lastCall?.[1]).toMatchObject({ query: { format: "FLAC" } });
+  });
+
+  it("carries each row's credits and leaves out one it cannot read", async () => {
+    const credited = { ...row, credits: [{ artistId: 1, name: "Studio 001", role: "artist", kind: "" }, { artistId: 5, name: "Guest", role: "featured", kind: "" }, { artistId: 6, name: "Night Drive", role: "remixer", kind: "remix" }, { artistId: 7, name: "Odd", role: "producer", kind: "" }] };
+    const api = new TauriLibraryApi(vi.fn().mockResolvedValue({ items: [credited, { ...row, id: 8 }], total: 2, start: 0 }));
+    const [first, second] = (await api.read(DEFAULT_QUERY, 0, 2, live())).items;
+    expect(first?.credits).toEqual([{ artistId: 1, name: "Studio 001", role: "artist", kind: "" }, { artistId: 5, name: "Guest", role: "featured", kind: "" }, { artistId: 6, name: "Night Drive", role: "remixer", kind: "remix" }]);
+    expect(second?.credits).toEqual([]);
   });
 
   it("carries the missing flag and treats anything but true as present", async () => {
