@@ -180,6 +180,12 @@ music folder, and a second folder with a few downloads as the watch folder.
   one in the box and search for it.
 - The library has three views: Tracks, Releases and Artists. Open a release or an artist to see its tracks. A file
   that cannot be found is marked Missing; one on an unplugged drive is shown as offline instead.
+- Artists lists everyone credited on a track: the artists in the tag, anyone named after `feat.` in the artist
+  field or the title, and the remixer named in the title. An artist's page shows all of their tracks, with a small
+  `feat.` or `remix` note on the ones that are not their own. Names separated by a comma are always separate
+  artists; `Studio 001 & Night Drive` becomes two only when both are already artists in your library on their own,
+  so a duo's name stays whole. A track's right-click menu has a "Go to" entry for each credited artist. Tags are
+  not changed by any of this.
 - In the track list you choose which columns show, drag a heading to move its column, drag a column's edge to
   resize it, and click a heading to sort. The reset icon puts the columns back. **Filter** narrows the list by
   genre, a year range and when tracks were added, and the format filter lists every format in your library.
