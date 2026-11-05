@@ -81,6 +81,14 @@ const EDGE = 48;
 const EDGE_STEP = 18;
 
 /** A small label to drag instead of a picture of the whole row. */
+/** What the opened artist did on this track when it is not their own: "feat." or the remix kind. */
+function creditNote(item: LibraryItem, artistId: number | null): string {
+  if (artistId === null) return "";
+  const credit = item.credits.find((found) => found.artistId === artistId);
+  if (!credit || credit.role === "artist") return "";
+  return credit.role === "featured" ? "feat." : credit.kind || "remix";
+}
+
 function dragPreview(data: DataTransfer, title: string, artist: string) {
   const label = document.createElement("div");
   label.className = "drag-preview";
@@ -208,6 +216,14 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
   const anchor = useRef<number | null>(null);
   /** The tracks an action on `item` covers: the whole selection when the item is in it. */
   const chosen = (item: LibraryItem) => (selection?.has(item.id) && selection.size > 1 ? [...selection] : [item.id]);
+  /** The menu's way to an artist: one entry per credited name when a track has several (leaving
+   * out the artist whose page this is), else the single entry as before. */
+  const goToArtists = (item: LibraryItem, go: (item: LibraryItem, kind: "releases" | "artists") => void) => {
+    if (item.credits.length > 1) {
+      return item.credits.filter((credit) => credit.artistId !== query.artistId).map((credit) => ({ label: `Go to ${credit.name}`, run: () => go({ ...item, artistId: credit.artistId, artist: credit.name }, "artists") }));
+    }
+    return query.artistId === null ? [{ label: `Go to the artist (${item.artist})`, run: () => go(item, "artists") }] : [];
+  };
   /** What shows as chosen is what Edit, a drag and the menu act on: the chosen tracks, or the
    * selected one when none are. */
   const isChosen = (item: LibraryItem) => (selection && selection.size > 0 ? selection.has(item.id) : selected?.id === item.id);
@@ -644,7 +660,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
                       case "number": return <span key={column.id} className="track-number">{nowPlaying?.id === item.id
                         ? <span className={`now-bars${nowPlaying.playing ? " is-playing" : ""}`} role="img" aria-label={nowPlaying.playing ? "Now playing" : "Paused"}><i /><i /><i /></span>
                         : index + 1}</span>;
-                      case "title": return <span key={column.id} className="track-identity"><Artwork color={item.color} src={(item.kind === "tracks" ? api.coverUrl?.(item.id) : null) ?? api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate" title={`${item.title} - ${item.artist}`}><strong>{item.title}</strong>{item.missing && <span className="missing-tag" title="The file is not on disk right now">Missing</span>}<small>{item.artist}</small></span></span>;
+                      case "title": return <span key={column.id} className="track-identity"><Artwork color={item.color} src={(item.kind === "tracks" ? api.coverUrl?.(item.id) : null) ?? api.artworkUrl?.(item.releaseId) ?? null} /><span className="truncate" title={`${item.title} - ${item.artist}${creditNote(item, query.artistId) ? ` (${creditNote(item, query.artistId)})` : ""}`}><strong>{item.title}</strong>{item.missing && <span className="missing-tag" title="The file is not on disk right now">Missing</span>}<small>{item.artist}{creditNote(item, query.artistId) && <span className="credit-note">{creditNote(item, query.artistId)}</span>}</small></span></span>;
                       case "release": return <span key={column.id} className="track-release" title={item.release}>{item.release}</span>;
                       case "genre": return <span key={column.id} className="track-release track-genre" title={item.genre}>{item.genre}</span>;
                       case "label": return <span key={column.id} className="track-release track-label" title={item.label}>{item.label}</span>;
@@ -689,7 +705,7 @@ export function Library({ api, query, compact, brief = false, keyNotation = "rek
       ...(onRemoveFromCrate ? [{ label: chosen(menu.item).length > 1 ? `Remove ${chosen(menu.item).length} tracks from the crate...` : "Remove from the crate", run: () => { const at = menu.index; if (!onRemoveFromCrate(chosen(menu.item))) requestAnimationFrame(() => focusRow(Math.min(at, page.total - 2))); } }] : []),
       ...(onGoTo ? [
         ...(query.releaseId === null ? [{ label: `Go to the release (${menu.item.release})`, run: () => onGoTo(menu.item, "releases") }] : []),
-        ...(query.artistId === null ? [{ label: `Go to the artist (${menu.item.artist})`, run: () => onGoTo(menu.item, "artists") }] : []),
+        ...goToArtists(menu.item, onGoTo),
       ] : []),
     ]} />}
   </section>;

@@ -1108,3 +1108,238 @@ fn an_artist_and_release_retagged_in_other_capitals_show_the_new_spelling() {
         "{releases:?}"
     );
 }
+
+/// The titles of an artist's tracks, found through their card on the Artists screen.
+fn by_artist(fixture: &Fixture, name: &str) -> Vec<String> {
+    let id = artist_id(fixture, name);
+    let mut tracks = query(View::Tracks, "");
+    tracks.artist_id = Some(id);
+    names(&read(fixture, &tracks).1)
+}
+
+fn artist_id(fixture: &Fixture, name: &str) -> i64 {
+    let (_, cards) = read(fixture, &query(View::Artists, ""));
+    cards
+        .iter()
+        .find(|card| card.title == name)
+        .unwrap_or_else(|| panic!("no card for {name}: {:?}", names(&cards)))
+        .id
+}
+
+fn artist_cards(fixture: &Fixture) -> Vec<(String, i64)> {
+    read(fixture, &query(View::Artists, ""))
+        .1
+        .iter()
+        .map(|card| (card.title.clone(), card.track_count))
+        .collect()
+}
+
+#[test]
+fn the_artists_screen_lists_everyone_credited_and_their_pages_show_every_track() {
+    let fixture = fixture();
+    let folder = tempdir().unwrap();
+    let root = fixture.service.add_root(folder.path(), "Credits").unwrap();
+    let file = |name: &str, title: &str, artist: &str, album: &str| {
+        put(
+            folder.path(),
+            name,
+            &aiff(1),
+            Some(&tags(title, artist, album, 1)),
+        );
+    };
+    file("a/1.aif", "Set", "Studio 001, Night Drive", "Set");
+    file(
+        "a/2.aif",
+        "Second Light",
+        "Studio 001 feat. Guest",
+        "Second Light",
+    );
+    file(
+        "a/3.aif",
+        "Between Spaces (Night Drive Remix)",
+        "Studio 001",
+        "Remixes",
+    );
+    file(
+        "a/4.aif",
+        "Soft Focus (Studio 001 VIP)",
+        "Studio 001",
+        "Remixes",
+    );
+    scan(&fixture, root);
+    assert_eq!(
+        artist_cards(&fixture),
+        vec![
+            ("Guest".to_owned(), 1),
+            ("Night Drive".to_owned(), 2),
+            ("Studio 001".to_owned(), 4)
+        ]
+    );
+    assert_eq!(
+        by_artist(&fixture, "Night Drive"),
+        ["Between Spaces (Night Drive Remix)", "Set"]
+    );
+    assert_eq!(by_artist(&fixture, "Guest"), ["Second Light"]);
+    let mut releases = query(View::Releases, "");
+    releases.artist_id = Some(artist_id(&fixture, "Night Drive"));
+    assert_eq!(names(&read(&fixture, &releases).1), ["Remixes", "Set"]);
+    // Each track row carries its credits, main artists first, for the shell's menu and note.
+    let mut studio = query(View::Tracks, "");
+    studio.artist_id = Some(artist_id(&fixture, "Studio 001"));
+    let rows = read(&fixture, &studio).1;
+    let credits = |title: &str| -> Vec<(String, String, String)> {
+        rows.iter()
+            .find(|row| row.title == title)
+            .unwrap()
+            .credits
+            .iter()
+            .map(|credit| {
+                (
+                    credit.name.clone(),
+                    credit.role.clone(),
+                    credit.kind.clone(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        credits("Second Light"),
+        [
+            ("Studio 001".to_owned(), "artist".to_owned(), String::new()),
+            ("Guest".to_owned(), "featured".to_owned(), String::new())
+        ]
+    );
+    assert_eq!(
+        credits("Between Spaces (Night Drive Remix)"),
+        [
+            ("Studio 001".to_owned(), "artist".to_owned(), String::new()),
+            (
+                "Night Drive".to_owned(),
+                "remixer".to_owned(),
+                "remix".to_owned()
+            )
+        ]
+    );
+    assert_eq!(
+        read(&fixture, &query(View::Artists, "")).1[0].credits,
+        Vec::new(),
+        "a card has no credits of its own"
+    );
+}
+
+#[test]
+fn an_ampersand_or_slash_splits_only_once_both_halves_are_artists_on_their_own() {
+    let fixture = fixture();
+    let folder = tempdir().unwrap();
+    let root = fixture.service.add_root(folder.path(), "Credits").unwrap();
+    let file = |name: &str, title: &str, artist: &str| {
+        put(
+            folder.path(),
+            name,
+            &aiff(1),
+            Some(&tags(title, artist, "Album", 1)),
+        );
+    };
+    file("b/1.aif", "Set", "Studio 001 & Night Drive");
+    file("b/2.aif", "Soft Focus", "Guest/Second Guest");
+    scan(&fixture, root);
+    let cards = |expected: &[(&str, i64)]| {
+        assert_eq!(
+            artist_cards(&fixture),
+            expected
+                .iter()
+                .map(|(name, count)| ((*name).to_owned(), *count))
+                .collect::<Vec<_>>()
+        );
+    };
+    cards(&[("Guest/Second Guest", 1), ("Studio 001 & Night Drive", 1)]);
+    // One half on its own: that half sees the collaboration, and the pair stays for the other.
+    file("b/3.aif", "Night Shift", "Studio 001");
+    scan(&fixture, root);
+    cards(&[
+        ("Guest/Second Guest", 1),
+        ("Studio 001", 2),
+        ("Studio 001 & Night Drive", 1),
+    ]);
+    // Both halves on their own: the collaboration shows under each, and the pair is gone.
+    file("b/4.aif", "Night Run", "Night Drive");
+    scan(&fixture, root);
+    cards(&[
+        ("Guest/Second Guest", 1),
+        ("Night Drive", 2),
+        ("Studio 001", 2),
+    ]);
+    assert_eq!(by_artist(&fixture, "Night Drive"), ["Night Run", "Set"]);
+}
+
+#[test]
+fn a_retagged_track_loses_its_old_credits() {
+    let fixture = fixture();
+    let folder = tempdir().unwrap();
+    let root = fixture.service.add_root(folder.path(), "Credits").unwrap();
+    let path = put(
+        folder.path(),
+        "c/1.aif",
+        &aiff(1),
+        Some(&tags("Set", "Studio 001 feat. Guest", "Set", 1)),
+    );
+    scan(&fixture, root);
+    assert_eq!(
+        names(&read(&fixture, &query(View::Artists, "")).1),
+        ["Guest", "Studio 001"]
+    );
+    write_tags(&path, &tags("Set", "Studio 001", "Set", 1));
+    touch_later(&path, 60);
+    scan(&fixture, root);
+    assert_eq!(
+        names(&read(&fixture, &query(View::Artists, "")).1),
+        ["Studio 001"]
+    );
+}
+
+#[test]
+fn an_artist_shows_in_search_for_a_track_they_are_credited_on() {
+    let fixture = fixture();
+    let folder = tempdir().unwrap();
+    let root = fixture.service.add_root(folder.path(), "Credits").unwrap();
+    put(
+        folder.path(),
+        "d/1.aif",
+        &aiff(1),
+        Some(&tags("Set (feat. Guest)", "Studio 001", "Set", 1)),
+    );
+    scan(&fixture, root);
+    assert_eq!(
+        names(&read(&fixture, &query(View::Artists, "set")).1),
+        ["Guest", "Studio 001"]
+    );
+}
+
+#[test]
+fn a_credit_does_not_respell_an_artist_the_library_already_has() {
+    let fixture = fixture();
+    let folder = tempdir().unwrap();
+    let root = fixture.service.add_root(folder.path(), "Credits").unwrap();
+    put(
+        folder.path(),
+        "e/1.aif",
+        &aiff(1),
+        Some(&tags("Night Shift", "Studio 001", "Solo", 1)),
+    );
+    put(
+        folder.path(),
+        "e/2.aif",
+        &aiff(1),
+        Some(&tags("Set (feat. studio 001)", "Night Drive", "Set", 1)),
+    );
+    scan(&fixture, root);
+    // Only a track's own artist field respells an artist; a mention in a title does not.
+    assert_eq!(
+        names(&read(&fixture, &query(View::Artists, "")).1),
+        ["Night Drive", "Studio 001"]
+    );
+    assert_eq!(
+        by_artist(&fixture, "Studio 001"),
+        ["Night Shift", "Set (feat. studio 001)"]
+    );
+}

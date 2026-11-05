@@ -43,6 +43,21 @@ impl RemixKind {
     pub const fn moves_folder(self) -> bool {
         !matches!(self, Self::Vip)
     }
+
+    /// The kind as a lower-case word, for a note beside a track.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Remix => "remix",
+            Self::Rework => "rework",
+            Self::Bootleg => "bootleg",
+            Self::Flip => "flip",
+            Self::Dub => "dub",
+            Self::Edit => "edit",
+            Self::ReEdit => "re-edit",
+            Self::Vip => "vip",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -133,7 +148,7 @@ fn trailing_group(text: &str) -> Option<(usize, &str)> {
     None
 }
 
-fn featuring(group: &str) -> Option<String> {
+pub(crate) fn featuring(group: &str) -> Option<String> {
     let lower = group.to_lowercase();
     for lead in ["feat.", "feat ", "ft.", "ft ", "featuring "] {
         if lower.starts_with(lead) {

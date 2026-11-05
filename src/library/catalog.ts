@@ -28,7 +28,7 @@ export function createCatalog(count = 100_000) {
       musicalKey: KEYS[id % KEYS.length] ?? "8A",
       duration: 210 + id % 300,
       format: FORMATS[id % FORMATS.length] ?? "AIFF",
-      trackCount: 1, missing: false, analysed: id % 17 !== 0, rekordboxKey: true, color: releaseId % 8,
+      trackCount: 1, missing: false, analysed: id % 17 !== 0, rekordboxKey: true, color: releaseId % 8, credits: [],
       genre: GENRES[id % GENRES.length] ?? "", label: `Label ${String(releaseId % 40).padStart(2, "0")}`, year: 1998 + (releaseId % 28),
       addedMs: Date.UTC(2026, 0, 1) + id * 60_000,
     };

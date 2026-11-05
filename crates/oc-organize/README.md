@@ -15,6 +15,7 @@ database; the desktop app uses it to decide where a file belongs.
 | `sanitize_component`, `sanitize_file_name`, `sanitize_extension` | Names valid on Windows, macOS and Linux at once |
 | `fit_destination(...)`, `PathBudget::classic()`, `PathBudget::long_paths()` | Keep a whole path within Windows' limit: 259 UTF-16 units, or 32,000 with long paths on |
 | `parse_title(raw) -> ParsedTitle` | Split `Night Drive (Studio 001 Remix) (feat. Guest)` into title, version and credits |
+| `credits(artist, title) -> Vec<Credit>` | Who is on a track: the main artists (a comma always splits), anyone featured (`feat.` in the field or the title) and the remixer. A piece with `&`, `and`, `/` or `x` gives the whole text and its parts; the library counts the parts only once each is an artist on its own |
 | `folder_artist(parsed, album_artist, artist)` | Whose folder a track goes in: the remixer's for a remix, edit, dub, flip, bootleg or rework; the artist's own for a VIP |
 | `same_version`, `version_key` | Compare versions, where no version means "Original Mix" |
 

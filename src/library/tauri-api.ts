@@ -9,6 +9,7 @@ import {
   type ImportTarget,
   type LibraryAdmin,
   type LibraryApi,
+  type Credit,
   type LibraryItem,
   type TrackLookup,
   type LibraryPage,
@@ -77,6 +78,22 @@ interface ItemWire {
   label?: string;
   year?: number | null;
   addedMs?: number;
+  credits?: unknown;
+}
+
+const ROLES = ["artist", "featured", "remixer"] as const;
+
+/** The credits a row carries; one that cannot be read is left out rather than failing the page. */
+function toCredits(value: unknown): Credit[] {
+  if (!Array.isArray(value)) return [];
+  const credits: Credit[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+    const { artistId, name, role, kind } = entry as Partial<Credit>;
+    if (typeof artistId !== "number" || !Number.isFinite(artistId) || typeof name !== "string" || !(ROLES as readonly string[]).includes(role ?? "")) continue;
+    credits.push({ artistId, name, role: role as Credit["role"], kind: typeof kind === "string" ? kind : "" });
+  }
+  return credits;
 }
 
 interface PageWire {
@@ -193,6 +210,7 @@ function toItem(value: unknown): LibraryItem {
     label: text(row.label) ?? "",
     year: number(row.year),
     addedMs: number(row.addedMs) ?? 0,
+    credits: toCredits(row.credits),
   };
 }
 

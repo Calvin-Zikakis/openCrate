@@ -2,11 +2,13 @@
 //! title and version parsing. No file system access and no database; imports and re-filing
 //! use these to decide where a file belongs, and never the other way round.
 
+pub mod credits;
 pub mod fit;
 pub mod sanitize;
 pub mod template;
 pub mod title;
 
+pub use credits::{credits, Credit, Role, Standing};
 pub use fit::{fit_destination, utf16_len, FitError, Fitted, PathBudget};
 pub use sanitize::{sanitize_component, sanitize_extension, sanitize_file_name};
 pub use template::{Field, Fields, RenderedName, Template, TemplateError, DEFAULT_TEMPLATE};

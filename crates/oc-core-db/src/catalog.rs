@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
+use oc_organize::{Role, Standing};
 use oc_paths::{bytes_to_os_string, Flavor, RelPath};
 use oc_tag::{guess_from_path, read_file, FileInfo, TagInfo};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -145,9 +146,27 @@ struct FileRow {
     mtime_ms: i64,
 }
 
+/// Whether a name read from the tags may change how an artist already known is spelled.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Spelling {
+    /// A track's own artist field: the newest read spelling is the one shown and searched.
+    Newest,
+    /// A credit (a guest in a title, a half of a pair): the library's spelling stands.
+    Keep,
+}
+
 fn find_or_create_artist(
     connection: &Connection,
     name: &str,
+    outcome: &mut CatalogOutcome,
+) -> Result<i64> {
+    find_or_create_artist_spelled(connection, name, Spelling::Newest, outcome)
+}
+
+fn find_or_create_artist_spelled(
+    connection: &Connection,
+    name: &str,
+    spelling: Spelling,
     outcome: &mut CatalogOutcome,
 ) -> Result<i64> {
     let key = sort_key(name);
@@ -159,9 +178,8 @@ fn find_or_create_artist(
         )
         .optional()?
     {
-        // The same artist spelled anew ("daft punk" retagged "Daft Punk"): the newest read
-        // spelling is the one shown and searched.
-        if stored != name {
+        // The same artist spelled anew ("daft punk" retagged "Daft Punk").
+        if stored != name && spelling == Spelling::Newest {
             connection.execute(
                 "UPDATE artist SET name = ?2 WHERE id = ?1",
                 params![id, name],
@@ -367,7 +385,67 @@ fn catalog_file(
         "INSERT INTO track_fts (rowid, title, artist, release, version) VALUES (?1, ?2, ?3, ?4, '')",
         params![track_id, title, track_artist, release_title],
     )?;
+    write_credits(connection, track_id, track_artist, title, outcome)?;
     Ok(())
+}
+
+/// Replace a track's credits with what its artist field and title say. Every name becomes
+/// an artist row, so a guest or a remixer has a page like any other artist.
+pub(crate) fn write_credits(
+    connection: &Connection,
+    track_id: i64,
+    artist: &str,
+    title: &str,
+    outcome: &mut CatalogOutcome,
+) -> Result<()> {
+    connection.execute("DELETE FROM credit WHERE track_id = ?1", [track_id])?;
+    for (position, credit) in oc_organize::credits(artist, title).into_iter().enumerate() {
+        let artist_id =
+            find_or_create_artist_spelled(connection, &credit.name, Spelling::Keep, outcome)?;
+        let kind = match credit.role {
+            Role::Remixer(kind) => kind.word(),
+            Role::Artist | Role::Featured => "",
+        };
+        let standing: Standing = credit.standing;
+        // The same name twice in one role ("A, A & B") keeps its first, surer row.
+        connection.execute(
+            "INSERT OR IGNORE INTO credit (track_id, artist_id, role, kind, standing, grp, position) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                track_id,
+                artist_id,
+                credit.role.name(),
+                kind,
+                standing.name(),
+                i64::from(credit.group),
+                i64::try_from(position).unwrap_or(i64::MAX)
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Credits for every track, from the title and artist name already stored, when the table
+/// is empty and tracks exist: a library from before credits, or a seeded one. Returns how
+/// many tracks were done; 0 when there was nothing to do.
+pub fn rebuild_credits(connection: &Connection) -> Result<usize> {
+    let needed: bool = connection.query_row(
+        "SELECT NOT EXISTS (SELECT 1 FROM credit) AND EXISTS (SELECT 1 FROM track)",
+        [],
+        |row| row.get(0),
+    )?;
+    if !needed {
+        return Ok(0);
+    }
+    let rows: Vec<(i64, String, String)> = connection
+        .prepare("SELECT t.id, a.name, t.title FROM track t JOIN artist a ON a.id = t.artist_id")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut outcome = CatalogOutcome::default();
+    for (track_id, artist, title) in &rows {
+        write_credits(connection, *track_id, artist, title, &mut outcome)?;
+    }
+    Ok(rows.len())
 }
 
 impl Database {

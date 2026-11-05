@@ -749,6 +749,8 @@ async function stubBridge(page: Page, mode: Mode, failReads = false) {
                 bpm: i % 5 === 0 ? null : 120, musicalKey: "8A", durationMs: 200_000,
                 format: query.view === "tracks" ? "AIFF" : null, trackCount: 1, missing: i % 50 === 0, analysed: i % 5 !== 1, rekordboxKey: i % 5 !== 1,
                 genre: i % 2 === 0 ? "Techno" : "House", label: `Label ${i % 3}`, year: 2000 + (i % 25), addedMs: Date.UTC(2026, 9, 29, 12, 0, 0) - i * 3_600_000,
+                // Every seventh track from the fourth has a guest, for the artist page's note and the menu.
+                credits: [{ artistId: 1, name: "Backend Artist", role: "artist", kind: "" }, ...(i % 7 === 3 ? [{ artistId: 5, name: "Guest Artist", role: "featured", kind: "" }] : [])],
               });
               const batchId = (query as unknown as { batchId?: number | null }).batchId;
               if (batchId != null) {
@@ -3891,4 +3893,27 @@ test("import: a long list of releases already there is read and shown a page at 
   await older.getByRole("button", { name: "Show 6 more of 26" }).click();
   await expect(older.getByRole("button", { name: /^Show .* more/ })).toHaveCount(0);
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_plan_release" && String(call.args.name).startsWith("Archive")).length).toBe(25);
+});
+
+test("artists: a guest credit is noted on the artist's page, and a track's menu reaches each credited artist", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0004").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Go to Backend Artist" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Go to Guest Artist" }).click();
+  await expect(page.getByText("ARTIST", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Guest Artist" })).toBeVisible();
+  await expect(row("0004").getByText("feat.", { exact: true })).toBeVisible();
+  await expect(row("0001").getByText("feat.")).toHaveCount(0);
+  // On the guest's own page the menu offers the other credit only.
+  await row("0004").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Go to Backend Artist" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Go to Guest Artist" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  // One credit keeps today's wording.
+  await page.getByRole("button", { name: /^Back to/ }).click();
+  await page.getByRole("button", { name: "Tracks", exact: true }).click();
+  await row("0001").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Go to the artist (Backend Artist)" })).toBeVisible();
 });

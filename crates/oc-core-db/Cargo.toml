@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+oc-organize.workspace = true
 oc-paths.workspace = true
 oc-publish.workspace = true
 oc-tag.workspace = true

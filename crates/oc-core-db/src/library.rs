@@ -135,6 +135,20 @@ pub struct LibraryItem {
     pub year: Option<i32>,
     /// When the track joined the library.
     pub added_ms: i64,
+    /// Tracks only: everyone credited on the track, main artists first; empty for a release
+    /// or an artist.
+    pub credits: Vec<TrackCredit>,
+}
+
+/// One name on a track, for the shell's menu and the note on an artist's page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrackCredit {
+    pub artist_id: i64,
+    pub name: String,
+    /// `artist`, `featured` or `remixer`.
+    pub role: String,
+    /// The remix kind as a word (`remix`, `edit`...), else empty.
+    pub kind: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -194,10 +208,11 @@ impl Filter {
     }
 
     /// A clause with the same value in each of its places.
-    fn add_each(&mut self, clause: &'static str, value: &str) {
+    fn add_each(&mut self, clause: &'static str, value: impl Into<Value>) {
         self.clauses.push(clause);
+        let value = value.into();
         for _ in 0..clause.matches('?').count() {
-            self.params.push(value.to_owned().into());
+            self.params.push(value.clone());
         }
     }
 
@@ -310,7 +325,11 @@ fn track_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
         );
     }
     if let Some(id) = query.artist_id {
-        filter.add("t.artist_id = ?", id);
+        // Every track the artist is credited on, as a main artist, a guest or the remixer.
+        filter.add(
+            "t.id IN (SELECT c.track_id FROM live_credit c WHERE c.artist_id = ?)",
+            id,
+        );
     }
     if let Some(id) = query.release_id {
         filter.add("t.release_id = ?", id);
@@ -359,11 +378,15 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
             "(r.id IN (SELECT rowid FROM release_fts WHERE release_fts MATCH ?) \
              OR r.id IN (SELECT m.release_id FROM track m \
              WHERE m.id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)))",
-            expression,
+            expression.clone(),
         );
     }
     if let Some(id) = query.artist_id {
-        filter.add("r.artist_id = ?", id);
+        filter.add_each(
+            "(r.artist_id = ? OR r.id IN (SELECT t.release_id FROM track t \
+             JOIN live_credit c ON c.track_id = t.id WHERE c.artist_id = ?))",
+            id,
+        );
     }
     if let Some(id) = query.release_id {
         filter.add("r.id = ?", id);
@@ -378,15 +401,16 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
 }
 
 fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
-    filter.always("a.id IN (SELECT b.artist_id FROM track b)");
+    // Everyone credited on a track: main artists, guests and remixers alike.
+    filter.always("a.id IN (SELECT c.artist_id FROM live_credit c)");
     tag_clauses(filter, "a", query);
     if let Search::Match(expression) = search {
-        // An artist shows for a track or release of theirs that matches, as well as for the name.
+        // An artist shows for a track they are credited on that matches, as well as for the name.
         filter.add_each(
             "(a.id IN (SELECT rowid FROM artist_fts WHERE artist_fts MATCH ?) \
-             OR a.id IN (SELECT m.artist_id FROM track m \
-             WHERE m.id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)))",
-            expression,
+             OR a.id IN (SELECT c.artist_id FROM live_credit c \
+             WHERE c.track_id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)))",
+            expression.clone(),
         );
     }
     if let Some(id) = query.artist_id {
@@ -394,7 +418,7 @@ fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     }
     if let Some(format) = &query.format {
         filter.add(
-            "a.id IN (SELECT t.artist_id FROM track t JOIN file f ON f.track_id = t.id \
+            "a.id IN (SELECT c.artist_id FROM live_credit c JOIN file f ON f.track_id = c.track_id \
              WHERE f.lifecycle = 'active' AND f.container = ?)",
             format.clone(),
         );
@@ -449,7 +473,11 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
                       (EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id AND f.lifecycle = 'active') \
                        AND NOT EXISTS (SELECT 1 FROM file f WHERE f.track_id = t.id \
                                        AND f.lifecycle = 'active' AND f.presence = 'present')), \
-                      t.bpm IS NOT NULL, t.musical_key <> '', t.genre, t.label, t.year, t.added_ms",
+                      t.bpm IS NOT NULL, t.musical_key <> '', t.genre, t.label, t.year, t.added_ms, \
+                      (SELECT json_group_array(json_array(x.artist_id, x.name, x.role, x.kind)) \
+                       FROM (SELECT c.artist_id, a2.name, c.role, c.kind FROM live_credit c \
+                             JOIN artist a2 ON a2.id = c.artist_id WHERE c.track_id = t.id \
+                             ORDER BY c.position) x)",
             order: match (query.sort, query.playlist_id) {
                 (Sort::Playlist, Some(_)) => {
                     "(SELECT MIN(i.position) FROM playlist_item i \
@@ -491,7 +519,7 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             joined: "release r JOIN artist a ON a.id = r.artist_id",
             columns: "r.id, r.title, a.name, r.artist_id, r.title, r.id, NULL, '', 0, NULL, \
                       (SELECT COUNT(*) FROM track t WHERE t.release_id = r.id), 0, 0, 0, '', '', NULL, \
-                      r.added_ms",
+                      r.added_ms, '[]'",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => {
                     "r.added_ms DESC, r.id DESC"
@@ -506,7 +534,8 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             table: "artist a",
             joined: "artist a",
             columns: "a.id, a.name, a.name, a.id, '', 0, NULL, '', 0, NULL, \
-                      (SELECT COUNT(*) FROM track t WHERE t.artist_id = a.id), 0, 0, 0, '', '', NULL, 0",
+                      (SELECT COUNT(DISTINCT c.track_id) FROM live_credit c WHERE c.artist_id = a.id), \
+                      0, 0, 0, '', '', NULL, 0, '[]'",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => "a.id DESC",
                 Sort::Title | Sort::Artist | Sort::Bpm | Sort::Track | Sort::Format => {
@@ -594,7 +623,23 @@ fn item_from_row(kind: View, row: &rusqlite::Row<'_>) -> rusqlite::Result<Librar
         label: row.get(15)?,
         year: row.get(16)?,
         added_ms: row.get(17)?,
+        credits: credits_from_json(&row.get::<_, String>(18)?)?,
     })
+}
+
+fn credits_from_json(text: &str) -> rusqlite::Result<Vec<TrackCredit>> {
+    let rows: Vec<(i64, String, String, String)> = serde_json::from_str(text).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(18, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+    Ok(rows
+        .into_iter()
+        .map(|(artist_id, name, role, kind)| TrackCredit {
+            artist_id,
+            name,
+            role,
+            kind,
+        })
+        .collect())
 }
 
 /// Ids of the whole filtered list, in display order.

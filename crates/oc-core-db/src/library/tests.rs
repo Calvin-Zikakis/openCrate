@@ -731,6 +731,11 @@ fn benchmark_100k() {
     let mut artists = LibraryQuery::new(View::Artists);
     artists.sort = Sort::Title;
     scenarios.push(("artists Title".into(), artists.clone(), 0));
+    // An artist's page: every track they are credited on.
+    let mut by_artist = LibraryQuery::new(View::Tracks);
+    by_artist.sort = Sort::Title;
+    by_artist.artist_id = Some(1);
+    scenarios.push(("tracks by artist 1".into(), by_artist, 0));
     artists.search = "ensemble".into();
     scenarios.push(("artists search ensemble".into(), artists, 0));
 
@@ -788,4 +793,37 @@ fn every_page_is_a_slice_of_the_whole_list() {
             }
         }
     }
+}
+
+fn credit_count(database: &Database) -> i64 {
+    database
+        .connection
+        .query_row("SELECT COUNT(*) FROM credit", [], |row| row.get(0))
+        .unwrap()
+}
+
+#[test]
+fn credits_are_written_by_seed_and_rebuilt_when_the_table_is_empty() {
+    let directory = tempdir().unwrap();
+    let mut database = Database::open(directory.path()).unwrap();
+    seed(&mut database, 50).unwrap();
+    assert_eq!(credit_count(&database), 50);
+    database
+        .connection
+        .execute("DELETE FROM credit", [])
+        .unwrap();
+    drop(database);
+    let database = Database::open(directory.path()).unwrap();
+    assert_eq!(credit_count(&database), 50);
+}
+
+#[test]
+fn credits_go_with_their_tracks() {
+    let directory = tempdir().unwrap();
+    let mut database = Database::open(directory.path()).unwrap();
+    seed(&mut database, 10).unwrap();
+    assert_eq!(credit_count(&database), 10);
+    // The seed's one music folder; removing it is the path that deletes tracks.
+    assert_eq!(database.remove_root(1).unwrap(), 10);
+    assert_eq!(credit_count(&database), 0);
 }
