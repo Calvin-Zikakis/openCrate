@@ -3894,3 +3894,26 @@ test("import: a long list of releases already there is read and shown a page at 
   await expect(older.getByRole("button", { name: /^Show .* more/ })).toHaveCount(0);
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "library_plan_release" && String(call.args.name).startsWith("Archive")).length).toBe(25);
 });
+
+test("artists: a guest credit is noted on the artist's page, and a track's menu reaches each credited artist", async ({ page }) => {
+  await stubBridge(page, "managed");
+  await page.goto("/");
+  const row = (n: string) => page.getByTestId("track-row").filter({ hasText: `Rust Track ${n}` });
+  await row("0004").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Go to Backend Artist" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Go to Guest Artist" }).click();
+  await expect(page.getByText("ARTIST", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Guest Artist" })).toBeVisible();
+  await expect(row("0004").getByText("feat.", { exact: true })).toBeVisible();
+  await expect(row("0001").getByText("feat.")).toHaveCount(0);
+  // On the guest's own page the menu offers the other credit only.
+  await row("0004").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Go to Backend Artist" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Go to Guest Artist" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  // One credit keeps today's wording.
+  await page.getByRole("button", { name: /^Back to/ }).click();
+  await page.getByRole("button", { name: "Tracks", exact: true }).click();
+  await row("0001").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Go to the artist (Backend Artist)" })).toBeVisible();
+});
