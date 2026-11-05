@@ -194,10 +194,11 @@ impl Filter {
     }
 
     /// A clause with the same value in each of its places.
-    fn add_each(&mut self, clause: &'static str, value: &str) {
+    fn add_each(&mut self, clause: &'static str, value: impl Into<Value>) {
         self.clauses.push(clause);
+        let value = value.into();
         for _ in 0..clause.matches('?').count() {
-            self.params.push(value.to_owned().into());
+            self.params.push(value.clone());
         }
     }
 
@@ -310,7 +311,11 @@ fn track_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
         );
     }
     if let Some(id) = query.artist_id {
-        filter.add("t.artist_id = ?", id);
+        // Every track the artist is credited on, as a main artist, a guest or the remixer.
+        filter.add(
+            "t.id IN (SELECT c.track_id FROM live_credit c WHERE c.artist_id = ?)",
+            id,
+        );
     }
     if let Some(id) = query.release_id {
         filter.add("t.release_id = ?", id);
@@ -359,11 +364,15 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
             "(r.id IN (SELECT rowid FROM release_fts WHERE release_fts MATCH ?) \
              OR r.id IN (SELECT m.release_id FROM track m \
              WHERE m.id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)))",
-            expression,
+            expression.clone(),
         );
     }
     if let Some(id) = query.artist_id {
-        filter.add("r.artist_id = ?", id);
+        filter.add_each(
+            "(r.artist_id = ? OR r.id IN (SELECT t.release_id FROM track t \
+             JOIN live_credit c ON c.track_id = t.id WHERE c.artist_id = ?))",
+            id,
+        );
     }
     if let Some(id) = query.release_id {
         filter.add("r.id = ?", id);
@@ -378,15 +387,16 @@ fn release_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
 }
 
 fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
-    filter.always("a.id IN (SELECT b.artist_id FROM track b)");
+    // Everyone credited on a track: main artists, guests and remixers alike.
+    filter.always("a.id IN (SELECT c.artist_id FROM live_credit c)");
     tag_clauses(filter, "a", query);
     if let Search::Match(expression) = search {
-        // An artist shows for a track or release of theirs that matches, as well as for the name.
+        // An artist shows for a track they are credited on that matches, as well as for the name.
         filter.add_each(
             "(a.id IN (SELECT rowid FROM artist_fts WHERE artist_fts MATCH ?) \
-             OR a.id IN (SELECT m.artist_id FROM track m \
-             WHERE m.id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)))",
-            expression,
+             OR a.id IN (SELECT c.artist_id FROM live_credit c \
+             WHERE c.track_id IN (SELECT rowid FROM track_fts WHERE track_fts MATCH ?)))",
+            expression.clone(),
         );
     }
     if let Some(id) = query.artist_id {
@@ -394,7 +404,7 @@ fn artist_filter(filter: &mut Filter, query: &LibraryQuery, search: &Search) {
     }
     if let Some(format) = &query.format {
         filter.add(
-            "a.id IN (SELECT t.artist_id FROM track t JOIN file f ON f.track_id = t.id \
+            "a.id IN (SELECT c.artist_id FROM live_credit c JOIN file f ON f.track_id = c.track_id \
              WHERE f.lifecycle = 'active' AND f.container = ?)",
             format.clone(),
         );
@@ -506,7 +516,8 @@ fn view_sql(query: &LibraryQuery) -> ViewSql {
             table: "artist a",
             joined: "artist a",
             columns: "a.id, a.name, a.name, a.id, '', 0, NULL, '', 0, NULL, \
-                      (SELECT COUNT(*) FROM track t WHERE t.artist_id = a.id), 0, 0, 0, '', '', NULL, 0",
+                      (SELECT COUNT(DISTINCT c.track_id) FROM live_credit c WHERE c.artist_id = a.id), \
+                      0, 0, 0, '', '', NULL, 0",
             order: match query.sort {
                 Sort::Recent | Sort::Playlist | Sort::Crate | Sort::Custom => "a.id DESC",
                 Sort::Title | Sort::Artist | Sort::Bpm | Sort::Track | Sort::Format => {

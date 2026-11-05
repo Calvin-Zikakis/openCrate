@@ -863,7 +863,8 @@ impl LibraryService {
         let lease = self.pool.lease();
         let mut statement = lease.connection().prepare(
             "SELECT r.id FROM release r WHERE r.id IN \
-             (SELECT release_id FROM track WHERE artist_id = ?1) OR r.artist_id = ?1 \
+             (SELECT t.release_id FROM track t JOIN live_credit c ON c.track_id = t.id \
+              WHERE c.artist_id = ?1) OR r.artist_id = ?1 \
              ORDER BY r.added_ms DESC, r.id DESC LIMIT ?2",
         )?;
         let ids = statement
